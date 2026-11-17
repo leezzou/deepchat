@@ -42,3 +42,8 @@
   margin: 0 auto;
   padding-bottom: 24px;
 }
+
+/* 删除单条消息的确认文案 */
+.deleteMessageText {
+  line-height: 1.7;
+}

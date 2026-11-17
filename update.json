@@ -1,8 +1,8 @@
 {
-  "version": "1.0.24",
+  "version": "1.0.25",
   "publishedAt": "2026-11-17",
-  "notes": "下载和导入都显示进度条；导入改为图片/会话批量写入，减少大量小文件逐个事务的等待；大包导入时让出主线程，进度条持续更新",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.24",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.24/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.24/deepchat.apk"
+  "notes": "新增单条消息删除：用户提问和回答都可删除，删除前二次确认；删除消息及其后续分支，并清理不再引用的本地附件",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.25",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.25/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.25/deepchat.apk"
 }

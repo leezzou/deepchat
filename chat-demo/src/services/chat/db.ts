@@ -81,7 +81,11 @@ export const loadSessionSummaries = async (): Promise<SessionSummary[]> =>
 export const loadSession = async (id: string): Promise<Session | undefined> =>
   (await getDB()).get('sessions', id)
 
-export const saveSession = async (session: Session, files: StoredFile[] = []): Promise<void> => {
+export const saveSession = async (
+  session: Session,
+  files: StoredFile[] = [],
+  removeFileIds: string[] = []
+): Promise<void> => {
   const summary = storedSummary(session)
   const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
   await Promise.all([
@@ -91,7 +95,14 @@ export const saveSession = async (session: Session, files: StoredFile[] = []): P
           await tx.objectStore('files').put(file)
         }
         await tx.objectStore('sessions').put(session)
-        await tx.objectStore('sessionSummaries').put(summary)
+        const summaries = tx.objectStore('sessionSummaries')
+        await summaries.put(summary)
+        // 删除消息后清理不再被任何会话引用的本地原件（远端文件不处理）。
+        for (const id of removeFileIds) {
+          if ((await summaries.index('fileIds').count(id)) === 0) {
+            await tx.objectStore('files').delete(id)
+          }
+        }
       } catch (error) {
         abortTransaction(tx)
         throw error

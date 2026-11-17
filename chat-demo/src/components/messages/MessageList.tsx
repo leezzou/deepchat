@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
+import { useTranslate } from '../../i18n/index.js'
 import {
   buildMessageVersions,
   getVisibleMessages,
   type MessageVersions,
 } from '../../services/chat/branches.js'
-import { selectMessageVersion } from '../../services/chat/store.js'
+import { deleteMessage, selectMessageVersion } from '../../services/chat/store.js'
 import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
+import { Button } from '../base/Button.js'
+import { Modal } from '../base/Modal.js'
 import { AssistantMessage } from './AssistantMessage.js'
 import { ScrollToBottomContext } from './scrollContext.js'
 import { UserMessage } from './UserMessage.js'
@@ -48,7 +51,9 @@ export const MessageList = ({
   const stickyRef = useRef(true)
   const scrollTopRef = useRef(0)
   const restoreScrollRef = useRef<{ messageId: string; top: number } | null>(null)
+  const t = useTranslate()
   const messages = getVisibleMessages(session)
+  const [pendingDelete, setPendingDelete] = useState<Message | null>(null)
   const [previousVersions, setPreviousVersions] = useState(() =>
     buildMessageVersions(session, new Map())
   )
@@ -158,6 +163,7 @@ export const MessageList = ({
                   busy={streaming}
                   versions={versions.get(message.id) ?? EMPTY_VERSIONS}
                   onSelectVersion={selectVersion}
+                  onDelete={setPendingDelete}
                 />
               ) : (
                 <AssistantMessage
@@ -169,6 +175,7 @@ export const MessageList = ({
                   busy={streaming}
                   versions={versions.get(message.id) ?? EMPTY_VERSIONS}
                   onSelectVersion={selectVersion}
+                  onDelete={setPendingDelete}
                 />
               )
             )}
@@ -176,6 +183,31 @@ export const MessageList = ({
         </div>
         {footer}
       </div>
+      {pendingDelete ? (
+        <Modal
+          title={t('deleteMessageTitle')}
+          onClose={() => setPendingDelete(null)}
+          footer={
+            <>
+              <Button variant="outlined" size="m" onClick={() => setPendingDelete(null)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="danger"
+                size="m"
+                onClick={() => {
+                  deleteMessage(session.id, pendingDelete.id)
+                  setPendingDelete(null)
+                }}
+              >
+                {t('delete')}
+              </Button>
+            </>
+          }
+        >
+          <div className={styles.deleteMessageText}>{t('deleteMessageDescription')}</div>
+        </Modal>
+      ) : null}
     </ScrollToBottomContext.Provider>
   )
 }

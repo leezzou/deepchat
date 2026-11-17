@@ -110,6 +110,8 @@ const sessionAccess = new Map<string, number>()
 const unsavedSessions = new Set<string>()
 /** 保存失败时保留原件，重试成功后才释放。 */
 const pendingFiles = new Map<string, db.StoredFile[]>()
+/** 删除消息后待清理的附件 id；随下一次会话保存一起处理。 */
+const pendingFileDeletes = new Map<string, Set<string>>()
 const deletingSessions = new Set<string>()
 const deletionTasks = new Set<Promise<boolean>>()
 const streamFlushes = new Map<string, () => void>()
@@ -231,14 +233,18 @@ const persist = (sessionId: string) => {
     }
     const epoch = historyEpoch
     const files = pendingFiles.get(sessionId)
+    const fileDeletes = pendingFileDeletes.get(sessionId)
     void db
-      .saveSession(session, files)
+      .saveSession(session, files, fileDeletes ? [...fileDeletes] : [])
       .then(() => {
         if (epoch !== historyEpoch || !getSession(sessionId)) {
           return
         }
         if (pendingFiles.get(sessionId) === files) {
           pendingFiles.delete(sessionId)
+        }
+        if (pendingFileDeletes.get(sessionId) === fileDeletes) {
+          pendingFileDeletes.delete(sessionId)
         }
         if (getSession(sessionId) === session) {
           unsavedSessions.delete(sessionId)
@@ -459,6 +465,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
     sessionAccess.clear()
     unsavedSessions.clear()
     pendingFiles.clear()
+    pendingFileDeletes.clear()
     clearAllDrafts()
     set({
       ready: true,
@@ -551,6 +558,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     sessionAccess.delete(id)
     unsavedSessions.delete(id)
     pendingFiles.delete(id)
+    pendingFileDeletes.delete(id)
     clearDraft(id)
     set((state) => ({
       sessions: state.sessions.filter((session) => session.id !== id),
@@ -714,6 +722,80 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
   }))
   persist(sessionId)
   void streamReply(sessionId, reply, { history: path.slice(0, index), question })
+  return true
+}
+
+/**
+ * 删除当前分支上的一条消息及其全部后代。
+ * 删除提问时对应回答和后续轮次一起移除；删除回答时只移除该版本及其后续。
+ * 父节点若指向被删分支，自动切到仍存在的兄弟版本。
+ */
+export const deleteMessage = (sessionId: string, messageId: string): boolean => {
+  if (get().importingHistory || deletingSessions.has(sessionId) || getStreamController(sessionId)) {
+    return false
+  }
+  const session = getSession(sessionId)
+  if (!session) {
+    return false
+  }
+  const path = getVisibleMessages(session)
+  if (!path.some((message) => message.id === messageId)) {
+    return false
+  }
+  const byId = new Map(session.messages.map((message) => [message.id, message]))
+  const children = new Map<string, string[]>()
+  for (const message of session.messages) {
+    if (message.parentId) {
+      children.set(message.parentId, [...(children.get(message.parentId) ?? []), message.id])
+    }
+  }
+  const removed = new Set<string>()
+  const stack = [messageId]
+  while (stack.length > 0) {
+    const id = stack.pop() ?? ''
+    if (!id || removed.has(id)) {
+      continue
+    }
+    removed.add(id)
+    stack.push(...(children.get(id) ?? []))
+  }
+  const target = byId.get(messageId)
+  const parent = target?.parentId ? byId.get(target.parentId) : undefined
+  const sibling = parent
+    ? session.messages
+        .filter((message) => message.parentId === parent.id && !removed.has(message.id))
+        .at(-1)
+    : undefined
+  const messages = session.messages
+    .filter((message) => !removed.has(message.id))
+    .map((message) =>
+      parent && message.id === parent.id && message.selectedChildId && removed.has(message.selectedChildId)
+        ? { ...message, selectedChildId: sibling?.id }
+        : message
+    )
+  const removedFiles = new Set<string>()
+  for (const message of session.messages) {
+    if (removed.has(message.id) && message.role === 'user') {
+      for (const file of message.files) {
+        removedFiles.add(file.id)
+      }
+    }
+  }
+  updateSession(sessionId, () => ({
+    ...session,
+    messages,
+    rootMessageId:
+      session.rootMessageId && removed.has(session.rootMessageId) ? null : session.rootMessageId,
+    updatedAt: Date.now(),
+  }))
+  if (removedFiles.size > 0) {
+    const pending = pendingFileDeletes.get(sessionId) ?? new Set<string>()
+    for (const id of removedFiles) {
+      pending.add(id)
+    }
+    pendingFileDeletes.set(sessionId, pending)
+  }
+  persist(sessionId)
   return true
 }
 
