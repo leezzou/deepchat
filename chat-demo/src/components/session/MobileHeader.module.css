@@ -1,0 +1,36 @@
+.header {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  /* 56dp 高；图标盒 24dp 左内边距 13dp、最右图标距屏 11.4dp（UI-SPEC §1.4） */
+  height: 56px;
+  padding: 0 1px 0 3px;
+}
+
+/* 顶栏图标统一 24dp，描边 2dp */
+.header button svg {
+  width: 24px;
+  height: 24px;
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin-left: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-primary);
+}
+
+.right {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}

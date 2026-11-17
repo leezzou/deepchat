@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 深色页面 #0F0F0F（spec §1.1）→ 状态栏/导航栏用浅色图标 -->
+    <color name="page_background">#FF0F0F0F</color>
+    <bool name="page_background_is_light">false</bool>
+</resources>

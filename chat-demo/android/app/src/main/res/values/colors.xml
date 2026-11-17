@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="colorPrimary">#FF426EFE</color>
+    <color name="colorPrimaryDark">#FF0F0F0F</color>
+    <color name="colorAccent">#FF426EFE</color>
+
+    <!-- 页面底色：与 Web 端浅色页面一致，状态栏/导航栏跟随它而不是系统默认色 -->
+    <color name="page_background">#FFFFFFFF</color>
+</resources>

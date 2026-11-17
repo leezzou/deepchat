@@ -1,0 +1,300 @@
+.message {
+  position: relative;
+
+  &:hover .actions,
+  &:focus-within .actions {
+    opacity: 1;
+  }
+
+  :global(.ds-assistant-message-main-content) {
+    padding-bottom: 6px;
+  }
+}
+
+.waiting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+}
+
+.waitingDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: var(--dsw-alias-label-dimmed);
+  animation: fading 0.9s linear infinite;
+
+  &:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+
+  &:nth-child(3) {
+    animation-delay: 0.2s;
+  }
+}
+
+@keyframes fading {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+
+  33%,
+  66% {
+    opacity: 1;
+  }
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 14px;
+  line-height: 22px;
+  color: var(--dsw-alias-state-error-primary);
+
+  > svg {
+    flex-shrink: 0;
+    margin-top: 4px;
+  }
+
+  > span {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+}
+
+.noticeAction {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--dsw-alias-brand-text);
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+.bottom {
+  position: relative;
+  left: -6px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 12px;
+  padding-bottom: 10px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity var(--ds-transition-duration) var(--ds-ease-in-out);
+}
+
+.alwaysShow {
+  opacity: 1;
+}
+
+/* 触摸设备没有 hover，操作行必须常显（否则复制 / 朗读 / 重新生成无法触达） */
+@media (hover: none) {
+  .actions {
+    opacity: 1;
+  }
+}
+
+.continueButton {
+  margin-left: auto;
+}
+
+.summary {
+  display: flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 16px;
+  padding: 4px 10px 4px 4px;
+  border-radius: 100px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  background-color: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-markdown-small);
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.3s;
+
+  > span:first-child {
+    margin-left: 0;
+  }
+
+  > span:last-child {
+    margin-left: 6px;
+  }
+
+  &:hover,
+  &.summaryActive {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+    --search-row-site-logo-color: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+/*
+ * 移动端（官方 App v2.8 §5）：助手消息无气泡，正文左右 22px / 20px 通栏，16px/1.6，
+ * 段落间距 12px；长代码块与表格在通栏内横向滚动，不撑破视口。
+ */
+@media not all and (min-width: 768px) {
+  .message {
+    padding: 0 20px 0 22px;
+  }
+
+  .message :global(.ds-assistant-message-main-content) {
+    font-size: 16px;
+    line-height: 1.6;
+  }
+
+  .message :global(.ds-assistant-message-main-content) :global(.ds-markdown-paragraph) {
+    margin: 12px 0;
+  }
+
+  .message :global(.ds-assistant-message-main-content) h3 {
+    margin: 16px 0 8px;
+    font-size: 18px;
+    line-height: 1.5;
+    font-weight: 700;
+  }
+
+  /* 文本缩进到 22 + 16 = 38px，圆点落在 ~24px 处 */
+  .message :global(.ds-assistant-message-main-content) ul,
+  .message :global(.ds-assistant-message-main-content) ol {
+    margin: 12px 0;
+    padding-left: 16px;
+  }
+
+  .message :global(.ds-assistant-message-main-content) li::marker {
+    line-height: 1.6;
+  }
+
+  .message :global(.ds-assistant-message-main-content) hr {
+    height: 1px;
+    margin: 28px 0;
+    background: #e5e5e5;
+
+    [data-ds-dark-theme] & {
+      background: #333333;
+    }
+  }
+
+  .message :global(.ds-assistant-message-main-content) :global(.markdown-table-wrapper) {
+    margin: 12px 0;
+    overflow-x: auto;
+  }
+
+  .message :global(.ds-assistant-message-main-content) table {
+    width: max-content;
+    max-width: none;
+    border: 1px solid #e5e5e5;
+
+    [data-ds-dark-theme] & {
+      border-color: #333333;
+    }
+  }
+
+  .message :global(.ds-assistant-message-main-content) th,
+  .message :global(.ds-assistant-message-main-content) td {
+    min-width: 0;
+    max-width: 240px;
+    padding: 8px;
+    border: 1px solid #e5e5e5;
+    font-size: 14px;
+    line-height: 1.5;
+
+    [data-ds-dark-theme] & {
+      border-color: #333333;
+    }
+  }
+
+  .message :global(.ds-assistant-message-main-content) th:first-child,
+  .message :global(.ds-assistant-message-main-content) td:first-child {
+    padding-left: 8px;
+  }
+
+  .message :global(.ds-assistant-message-main-content) td:last-child {
+    padding-right: 8px;
+  }
+
+  .message :global(.md-code-block) > pre {
+    overflow-x: auto;
+    padding: 12px;
+    white-space: pre;
+    word-break: normal;
+  }
+
+  .notice {
+    margin-top: 12px;
+    font-size: 13px;
+    line-height: 20px;
+  }
+
+  .summary {
+    margin-top: 12px;
+    padding: 6px 10px 6px 6px;
+    border: none;
+    border-radius: 12px;
+    background-color: #f5f5f5;
+    color: #8e9094;
+    font-size: 13px;
+    line-height: 18px;
+
+    [data-ds-dark-theme] & {
+      background-color: #292929;
+    }
+  }
+
+  .bottom {
+    left: 0;
+    gap: 4px 12px;
+    padding: 12px 0 16px;
+  }
+
+  .actions {
+    flex: 1;
+    order: 1;
+    gap: 16px;
+    opacity: 1;
+  }
+
+  /* 版本选择器（2 / 5）在移动端靠右，复制始终是操作行的第一个图标 */
+  .bottom > [data-message-version] {
+    order: 2;
+  }
+
+  /* 重新生成推到操作行最右，距屏 20px 通栏内边距 */
+  .regenerate {
+    margin-left: auto;
+  }
+
+  .message .bottom .continueButton {
+    order: 3;
+    height: 32px;
+    min-width: 0;
+    padding: 0 12px;
+    border-color: transparent;
+    border-radius: 12px;
+    background-color: #f5f5f5;
+    color: #8e9094;
+    font-size: 13px;
+    line-height: 20px;
+    font-weight: 400;
+
+    [data-ds-dark-theme] & {
+      background-color: #292929;
+    }
+  }
+}

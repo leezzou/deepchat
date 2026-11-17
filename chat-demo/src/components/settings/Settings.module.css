@@ -1,0 +1,809 @@
+.dialog {
+  --modal-header-gap: 7px;
+  width: 760px;
+  height: 500px;
+  max-height: calc(100vh - 32px);
+  padding: 19px 24px 22px;
+}
+
+.dialogMain {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  color: var(--dsw-alias-label-primary);
+}
+
+.navigation {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 4px;
+  width: 172px;
+  margin: 6px 12px 0 -12px;
+  padding-top: 4px;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: calc(100% - 8px);
+  min-height: 40px;
+  margin: 0 4px;
+  padding: 9px 10px 9px 8px;
+  border: none;
+  border-radius: 12px;
+  background-color: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  svg {
+    flex-shrink: 0;
+  }
+
+  &:hover,
+  &.navItemActive {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--dsw-alias-button-primary-fill);
+  }
+}
+
+.content {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  margin-right: -24px;
+  padding: 0 24px;
+  overflow-y: auto;
+}
+
+.cell {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  min-height: 60px;
+  padding: 12px 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 22px;
+
+  & + & {
+    box-shadow: inset 0 1px 0 0 var(--dsw-alias-border-l2-darkmode-thin);
+  }
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.text {
+  display: flex;
+  flex: 1 0 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 48px;
+}
+
+.label {
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.uploadButton {
+  padding: 0 13px;
+}
+
+.locationCell {
+  flex-wrap: wrap;
+}
+
+.locationCell .text {
+  flex: 1 0 auto;
+  padding-right: 8px;
+}
+
+.locationSelectors {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.locationSelectors > button {
+  flex-shrink: 1;
+  min-width: 0;
+  text-align: start;
+}
+
+.provinceSelect {
+  width: 159px;
+}
+
+.locationSelectors > .citySelect {
+  min-width: 120px;
+  width: 120px;
+}
+
+.regionSelect {
+  max-width: min(285px, 100%);
+}
+
+.theme {
+  flex-shrink: 0;
+  margin-top: 10px;
+}
+
+.themeOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 10px;
+}
+
+.themeOption {
+  display: inline-flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  min-width: 128px;
+  height: 82px;
+  padding: 21px 32px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  background-color: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  outline: none;
+  transition: background-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  &:hover,
+  &.themeOptionSelected {
+    background-color: var(--dsw-specific-selector);
+  }
+
+  &:focus-visible {
+    box-shadow: 0 0 0 2px var(--dsw-alias-button-primary-fill);
+  }
+}
+
+.description {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.apiKey {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.apiKeySaved,
+.apiKeyInput {
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  height: var(--ds-control-height-xl);
+  font-size: 14px;
+  line-height: 24px;
+}
+
+.apiKeySaved {
+  justify-content: space-between;
+  padding: 0 10px 0 16px;
+  border-radius: 28px;
+  background-color: var(--dsw-specific-login-input);
+}
+
+.apiKeyMask {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  color: var(--dsw-alias-label-caption);
+  user-select: none;
+}
+
+.apiKeyInput {
+  gap: 12px;
+  padding: 0 14px;
+  border-radius: 22px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  transition: border-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  &:focus-within {
+    border-color: var(--dsw-alias-brand-primary);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0;
+    border: none;
+    outline: none;
+    background: transparent;
+    color: var(--dsw-alias-label-primary);
+    font: inherit;
+    caret-color: var(--dsw-alias-brand-text);
+
+    &::placeholder {
+      color: var(--dsw-alias-label-caption);
+    }
+  }
+}
+
+.divider {
+  flex-shrink: 0;
+  width: 1px;
+  height: 20px;
+  background-color: var(--dsw-alias-border-l2);
+}
+
+.confirm {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-brand-text);
+  font: inherit;
+  line-height: 22px;
+  cursor: pointer;
+
+  &:disabled {
+    color: var(--dsw-alias-label-caption);
+    cursor: default;
+  }
+}
+
+/**
+ * 移动端：设置是覆盖整个视口的整页（不是底部弹层），顶栏 56px + 分组卡片，
+ * 二级页叠在根页之上，统一从右侧滑入。
+ */
+@media not all and (min-width: 768px) {
+  .page {
+    position: fixed;
+    inset: 0;
+    z-index: 900;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: #f8f8f8;
+    color: #0f0f0f;
+    font-size: 16px;
+    line-height: 22px;
+    animation: settingsPageIn 220ms cubic-bezier(0.2, 0, 0, 1);
+
+    [data-ds-dark-theme] & {
+      background-color: #1e1e1e;
+      color: #f8f8f8;
+    }
+  }
+
+  .subPage {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-color: #f8f8f8;
+    animation: settingsPageIn 220ms cubic-bezier(0.2, 0, 0, 1);
+
+    [data-ds-dark-theme] & {
+      background-color: #1e1e1e;
+    }
+  }
+
+  .topBar {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    box-sizing: border-box;
+    height: calc(56px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 12px 0;
+  }
+
+  .backButton {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background-color: #ededed;
+    color: #0f0f0f;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    &:active {
+      opacity: 0.6;
+    }
+
+    svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    [data-ds-dark-theme] & {
+      background-color: #3c3c3d;
+      color: #f8f8f8;
+    }
+  }
+
+  .pageTitle {
+    position: absolute;
+    top: env(safe-area-inset-top);
+    bottom: 0;
+    left: 50%;
+    display: flex;
+    align-items: center;
+    max-width: calc(100% - 128px);
+    overflow: hidden;
+    font-size: 18px;
+    font-weight: 600;
+    line-height: 22px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    transform: translateX(-50%);
+  }
+
+  .body {
+    flex: 1;
+    min-height: 0;
+    padding: 24px 0 calc(24px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .group {
+    padding: 0 16px;
+
+    & + & {
+      margin-top: 24px;
+    }
+  }
+
+  /* 帮助与反馈、清除数据这类独立卡片与上方卡片留更大的间距 */
+  .group.groupWide {
+    margin-top: 32px;
+  }
+
+  .groupTitle {
+    margin: 0 0 8px;
+    color: #8e9094;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+
+  .card {
+    overflow: hidden;
+    border-radius: 16px;
+    background-color: #ffffff;
+
+    [data-ds-dark-theme] & {
+      background-color: #292929;
+    }
+  }
+
+  .row {
+    position: relative;
+    box-sizing: border-box;
+    gap: 0;
+    width: 100%;
+    min-height: 46px;
+    padding: 0 16px;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 16px;
+    line-height: 22px;
+    text-align: start;
+    text-decoration: none;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    &:active:not(:disabled) {
+      background-color: rgba(15, 15, 15, 0.04);
+    }
+
+    &:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+
+    [data-ds-dark-theme] &:active:not(:disabled) {
+      background-color: rgba(248, 248, 248, 0.06);
+    }
+  }
+
+  .rowIcon {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-right: 16px;
+    color: #0f0f0f;
+
+    svg {
+      width: 24px;
+      height: 24px;
+    }
+
+    [data-ds-dark-theme] & {
+      color: #f8f8f8;
+    }
+  }
+
+  .rowLabel {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .rowValue {
+    flex-shrink: 0;
+    max-width: 52%;
+    margin-left: 12px;
+    overflow: hidden;
+    color: #8e9094;
+    font-size: 15px;
+    line-height: 22px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .rowChevron {
+    display: flex;
+    flex-shrink: 0;
+    margin-left: 6px;
+    color: #b9babb;
+
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  .optionRow {
+    min-height: 52px;
+  }
+
+  .rowMuted {
+    opacity: 0.4;
+  }
+
+  .rowStatic {
+    cursor: default;
+
+    &:active {
+      background-color: transparent;
+    }
+  }
+
+  .optionCheck {
+    display: flex;
+    flex-shrink: 0;
+    margin-left: 12px;
+    color: #426efe;
+
+    svg {
+      width: 16px;
+      height: 16px;
+    }
+  }
+
+  /* 选择器铺满整行：整行可点，视觉仍用行内的值 + `›` */
+  .row .selectHit {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    padding: 0;
+    border-radius: 0;
+    opacity: 0;
+  }
+
+  .statusText {
+    margin: 12px 16px 0;
+    color: #8e9094;
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .meta {
+    margin-top: 32px;
+    padding: 0 24px;
+    color: #b9babb;
+    font-size: 11px;
+    line-height: 16px;
+    text-align: center;
+  }
+
+  .cell {
+    min-height: 0;
+    padding: 16px;
+
+    & + & {
+      box-shadow: none;
+    }
+  }
+
+  .label {
+    color: #8e9094;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .apiKey {
+    gap: 12px;
+    padding-bottom: 0;
+  }
+
+  .apiKeySaved,
+  .apiKeyInput {
+    height: 48px;
+    padding: 0 12px 0 16px;
+    border: none;
+    border-radius: 12px;
+    background-color: #f5f5f5;
+    color: #0f0f0f;
+    font-size: 16px;
+
+    [data-ds-dark-theme] & {
+      background-color: #3c3c3d;
+      color: #f8f8f8;
+    }
+  }
+
+  .apiKeyInput {
+    gap: 12px;
+
+    &:focus-within {
+      border: none;
+      box-shadow: inset 0 0 0 1.5px #426efe;
+    }
+
+    input {
+      color: #0f0f0f;
+      caret-color: #426efe;
+
+      &::placeholder {
+        color: #b9babb;
+      }
+
+      [data-ds-dark-theme] & {
+        color: #f8f8f8;
+      }
+    }
+  }
+
+  .apiKeySaved svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobileConfirm {
+    width: calc(100% - 32px);
+    height: 50px;
+    margin: 16px 16px 0;
+    background-color: #426efe;
+    font-weight: 600;
+  }
+}
+
+@keyframes settingsPageIn {
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
+}
+
+.mobileConfirm {
+  display: block;
+  flex-shrink: 0;
+  width: calc(100% - 16px);
+  height: 52px;
+  margin: 16px 8px 0;
+  border: none;
+  border-radius: 100px;
+  background-color: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-static-neutral-bluish-00);
+  font: inherit;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+
+.importConfirm {
+  padding-top: 26px;
+  padding-bottom: 24px;
+}
+
+.importConfirmText {
+  color: var(--dsw-alias-label-primary);
+}
+
+.helpText {
+  white-space: pre-line;
+}
+
+.deleteConfirm {
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+
+.deleteActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+@media not all and (min-width: 768px) {
+  .deleteActions > button {
+    min-height: 44px;
+    height: auto;
+    padding-top: 10px;
+    padding-bottom: 10px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+}
+
+/* ---------- API 配置列表 / 表单（多 Key 与自定义接口地址） ---------- */
+@media not all and (min-width: 768px) {
+  /* 一行 = 主体按钮（切换）+ 右侧 ⋯（编辑），主体与 ⋯ 都是可点区域 */
+  .profileRow {
+    display: flex;
+    align-items: center;
+    padding-right: 8px;
+  }
+
+  .profileMain {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    min-width: 0;
+    height: 46px;
+    padding: 0 0 0 16px;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    font-size: 16px;
+    line-height: 22px;
+    text-align: start;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+
+    &:active {
+      background-color: rgba(15, 15, 15, 0.04);
+    }
+  }
+
+  [data-ds-dark-theme] .profileMain:active {
+    background-color: rgba(248, 248, 248, 0.06);
+  }
+
+  .active {
+    color: #426efe;
+  }
+
+  /* 表单：标签 + 输入框，输入框用 44px 填充块，与登录输入框一致 */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 16px;
+
+    & + & {
+      border-top: 1px solid rgba(15, 15, 15, 0.06);
+    }
+  }
+
+  [data-ds-dark-theme] .field + .field {
+    border-top-color: rgba(248, 248, 248, 0.06);
+  }
+
+  .fieldLabel {
+    color: #8e9094;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 18px;
+  }
+
+  .fieldInput {
+    box-sizing: border-box;
+    width: 100%;
+    height: 44px;
+    padding: 0 14px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background-color: #f5f5f5;
+    color: #0f0f0f;
+    font: inherit;
+    font-size: 16px;
+    outline: none;
+
+    &::placeholder {
+      color: #b9babb;
+    }
+
+    &:focus {
+      border-color: #426efe;
+    }
+  }
+
+  [data-ds-dark-theme] .fieldInput {
+    background-color: #3c3c3d;
+    color: #f8f8f8;
+  }
+
+  .profileHint {
+    margin: 10px 16px 0;
+    color: #8e9094;
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  /* 删除用红色描边，和「保存并启用」区分开 */
+  .dangerConfirm {
+    border-color: #ec1313;
+    color: #ec1313;
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "appId": "ai.deepseek.demo.shell",
+  "appName": "DeepChat",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#FFFFFF",
+    "webContentsDebuggingEnabled": true,
+    "allowMixedContent": false
+  }
+}

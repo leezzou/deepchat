@@ -1,0 +1,45 @@
+# ---------- 依赖与构建产物 ----------
+node_modules/
+.pnpm-store/
+dist/
+build/
+.cache/
+
+# ---------- 日志与系统垃圾 ----------
+*.log
+.DS_Store
+.env
+.env.*
+!.env.example
+
+# ---------- 编辑器 ----------
+.vscode/
+.idea/
+*.iml
+
+# ---------- 取证材料 ----------
+# 官方 APK、36 张官方截图、uiautomator 控件树：第三方版权材料，且体积大，不入库
+reference/
+
+# ---------- 打包产物 ----------
+# APK 通过 GitHub Releases 分发（App 里的「检查更新」也读 Releases）
+*.apk
+*.aab
+*.jks
+*.keystore
+
+# ---------- Android 工程 ----------
+chat-demo/android/.gradle/
+chat-demo/android/build/
+chat-demo/android/app/build/
+chat-demo/android/local.properties
+chat-demo/android/keystore.properties
+chat-demo/android/capacitor-cordova-android-plugins/
+chat-demo/android/app/src/main/assets/public/
+chat-demo/android/app/src/main/assets/capacitor.config.json
+chat-demo/android/app/src/main/assets/capacitor.plugins.json
+chat-demo/android/app/src/main/res/xml/config.xml
+
+# ---------- 本地工具与临时文件 ----------
+tools/node_modules/
+tmp/

@@ -1,0 +1,76 @@
+.container {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--message-list-max-width);
+  margin: auto;
+  padding: 0 32px 64px;
+}
+
+.greeting {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 21px;
+  font-size: 24px;
+  line-height: 32px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--dsw-alias-label-primary);
+}
+
+@media not all and (min-width: 768px) {
+  .container {
+    flex-direction: column;
+  }
+
+  .welcome {
+    flex: 1;
+    min-height: 0;
+    justify-content: flex-end;
+    max-width: none;
+    margin: 0;
+    /* 输入卡片左右 12dp（UI-SPEC §1.2：卡片宽 386dp） */
+    padding: 0 12px 16px;
+  }
+
+  /*
+   * 空态：logo 中心 y≈414dp、问候中心 y≈462dp（实测 app-20-home.png）。
+   * 整块在 header 与输入卡片之间居中后略微上移，数值由截图比对得出。
+   */
+  .hero {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-sizing: border-box;
+    width: 100%;
+    margin: auto 0;
+    padding-bottom: 3px;
+  }
+
+  .logo {
+    display: block;
+    flex-shrink: 0;
+    /* 蓝色鲸鱼视觉尺寸 ≈40×30dp（spec §4），按图片原始比例 184×140 */
+    width: 44px;
+    height: auto;
+    user-select: none;
+  }
+
+  .greeting {
+    flex-shrink: 0;
+    margin: 19px 0 0;
+    font-size: 20px;
+    line-height: 28px;
+    font-weight: 700;
+  }
+}
