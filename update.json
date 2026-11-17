@@ -1,8 +1,8 @@
 {
-  "version": "1.0.25",
+  "version": "1.0.26",
   "publishedAt": "2026-11-17",
-  "notes": "新增单条消息删除：用户提问和回答都可删除，删除前二次确认；删除消息及其后续分支，并清理不再引用的本地附件",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.25",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.25/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.25/deepchat.apk"
+  "notes": "删除消息时同步失效已压缩摘要：若被删内容曾被上下文压缩总结，清除旧检查点，避免后续请求把摘要中的已删内容再次发送",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.26",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.26/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.26/deepchat.apk"
 }

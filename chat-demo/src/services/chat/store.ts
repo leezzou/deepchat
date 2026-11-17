@@ -781,13 +781,27 @@ export const deleteMessage = (sessionId: string, messageId: string): boolean => 
       }
     }
   }
-  updateSession(sessionId, () => ({
-    ...session,
-    messages,
-    rootMessageId:
-      session.rootMessageId && removed.has(session.rootMessageId) ? null : session.rootMessageId,
-    updatedAt: Date.now(),
-  }))
+  // 被压缩摘要覆盖的消息可能已被模型总结过；删除它们时清掉旧检查点，
+  // 否则之后仍会把包含已删内容的摘要发给模型。
+  const compactedIndex = session.compactedThrough
+    ? session.messages.findIndex((message) => message.id === session.compactedThrough)
+    : -1
+  const targetIndex = session.messages.findIndex((message) => message.id === messageId)
+  const clearsCompaction = compactedIndex >= 0 && targetIndex >= 0 && targetIndex <= compactedIndex
+  updateSession(sessionId, () => {
+    const next: Session = {
+      ...session,
+      messages,
+      rootMessageId:
+        session.rootMessageId && removed.has(session.rootMessageId) ? null : session.rootMessageId,
+      updatedAt: Date.now(),
+    }
+    if (clearsCompaction) {
+      delete next.checkpoint
+      delete next.compactedThrough
+    }
+    return next
+  })
   if (removedFiles.size > 0) {
     const pending = pendingFileDeletes.get(sessionId) ?? new Set<string>()
     for (const id of removedFiles) {
