@@ -1,7 +1,7 @@
 {
-  "version": "1.0.9",
+  "version": "1.0.10",
   "publishedAt": "2026-11-17",
-  "notes": "新增「已压缩的对话」管理页：查看摘要、打开原文、一键恢复完整上下文",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.9",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.9/deepchat.apk"
+  "notes": "上下文用量低于 30% 时不允许压缩：入口隐藏为「30% 后可压缩」，服务层也做了校验",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.10",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.10/deepchat.apk"
 }

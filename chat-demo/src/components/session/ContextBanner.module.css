@@ -208,3 +208,8 @@
   color: #f8f8f8;
   border-color: #6392f2;
 }
+
+/* 30% 以下：只展示用量，压缩入口置灰不可点 */
+.meterLocked {
+  color: #d4d5d7;
+}

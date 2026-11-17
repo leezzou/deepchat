@@ -136,6 +136,7 @@ export const zh = {
   apiProfileAdd: '添加 API Key',
   apiProfileEdit: '编辑此配置',
   apiProfileProvider: '服务商',
+  contextCompactLocked: '（30% 后可压缩）',
   contextUsed: '上下文 {percent}%',
   contextSummaryEdit: '编辑摘要',
   contextSummaryEditHint: '可以直接改这段摘要：补充模型漏掉的细节，或删掉不需要的内容。保存后下一轮对话就会用新摘要。',

@@ -3,6 +3,7 @@ import { useTranslate } from '../../i18n/index.js'
 import { exportHistory } from '../../services/chat/backup.js'
 import {
   buildCheckpointText,
+  canCompact,
   compactSession,
   contextPressure,
   shouldWarnContext,
@@ -204,9 +205,17 @@ export const ContextBanner = ({ session }: { session: Session }) => {
           </>
         ) : null}
         <span>{t('contextUsed', { percent })}</span>
-        <button type="button" className={styles.meterAction} onClick={() => setConfirmOpen(true)}>
-          {t('contextCompact')}
-        </button>
+        {canCompact(latest) ? (
+          <button
+            type="button"
+            className={styles.meterAction}
+            onClick={() => setConfirmOpen(true)}
+          >
+            {t('contextCompact')}
+          </button>
+        ) : (
+          <span className={styles.meterLocked}>{t('contextCompactLocked')}</span>
+        )}
         {confirmOpen ? renderConfirm() : null}
         {summaryOpen ? renderSummary() : null}
       </div>

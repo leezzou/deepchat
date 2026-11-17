@@ -144,6 +144,7 @@ export const en = {
   apiProfileAdd: 'Add API key',
   apiProfileEdit: 'Edit this profile',
   apiProfileProvider: 'Provider',
+  contextCompactLocked: '(compact after 30%)',
   contextUsed: 'Context {percent}%',
   contextSummaryEdit: 'Edit summary',
   contextSummaryEditHint:
