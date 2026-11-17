@@ -312,12 +312,15 @@ export const toRequestMessages = (
   compactedThrough?: string
 ): MessageParam[] => {
   const messages: MessageParam[] = []
-  if (checkpoint) {
+  const compactedIndex = compactedThrough
+    ? history.findIndex((message) => message.id === compactedThrough)
+    : -1
+  // 旧版本删除消息后可能留下引用已删消息的检查点；找不到覆盖位置时
+  // 不再发送这段摘要，避免已删除内容通过摘要回到模型上下文。
+  if (checkpoint && (!compactedThrough || compactedIndex >= 0)) {
     messages.push({ role: 'user', content: checkpoint })
   }
-  const start = compactedThrough
-    ? history.findIndex((message) => message.id === compactedThrough) + 1
-    : 0
+  const start = compactedThrough && compactedIndex >= 0 ? compactedIndex + 1 : 0
   let previousReminder: string | undefined
   const appendReminder = (reminder: string | undefined) => {
     // 仅在当前分支首次出现或内容变化时插入快照；缺少快照的消息保持原有内容。

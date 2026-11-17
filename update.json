@@ -1,8 +1,8 @@
 {
-  "version": "1.0.26",
+  "version": "1.0.27",
   "publishedAt": "2026-11-17",
-  "notes": "删除消息时同步失效已压缩摘要：若被删内容曾被上下文压缩总结，清除旧检查点，避免后续请求把摘要中的已删内容再次发送",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.26",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.26/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.26/deepchat.apk"
+  "notes": "请求上下文兜底：压缩检查点找不到覆盖位置时不再发送旧摘要，避免旧版本删除消息后摘要仍携带已删内容",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.27",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.27/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.27/deepchat.apk"
 }
