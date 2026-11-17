@@ -207,6 +207,18 @@ export const updateCheckpointText = (sessionId: string, text: string) => {
   persist(sessionId)
 }
 
+/** 恢复完整上下文：清掉压缩标记，让全部原始消息重新参与请求 */
+export const clearCompaction = (sessionId: string) => {
+  updateSession(sessionId, (session) => {
+    if (!session.checkpoint && !session.compactedThrough) {
+      return session
+    }
+    const { checkpoint: _checkpoint, compactedThrough: _through, ...rest } = session
+    return { ...rest, updatedAt: Date.now() }
+  })
+  persist(sessionId)
+}
+
 const persist = (sessionId: string) => {
   const session = getSession(sessionId)
   if (session) {

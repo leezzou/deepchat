@@ -4,6 +4,7 @@ import type { CreateMessageRequest, MessageParam } from '../api/types.js'
 import { useSettings } from '../settings.js'
 import { getContextRounds, getReplyText } from './reply.js'
 import { applyCompaction, useChatStore } from './store.js'
+import { recordCompaction } from './compactionIndex.js'
 import type { Message, Session } from './types.js'
 
 /**
@@ -199,9 +200,16 @@ export const compactSession = async (sessionId: string): Promise<CompactResult> 
   // 原始消息全部保留在会话里（用户可回看），只记录压缩覆盖到哪条
   const lastCovered = oldRounds[oldRounds.length - 1][1]
 
+  const createdAt = Date.now()
   applyCompaction(sessionId, lastCovered.id, {
     text: buildCheckpointText(text),
-    createdAt: Date.now(),
+    createdAt,
+    coveredMessages: oldRounds.length * 2,
+  })
+  recordCompaction({
+    sessionId,
+    title: session.title || '未命名对话',
+    createdAt,
     coveredMessages: oldRounds.length * 2,
   })
   return { ok: true, covered: oldRounds.length, kept: keptRounds.length }

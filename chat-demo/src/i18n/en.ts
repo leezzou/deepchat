@@ -179,6 +179,13 @@ export const en = {
   contextCompactFailed: 'Compaction failed: {message}',
   replyContextFull:
     'This conversation has reached the model context limit. Tap “Compact context” below to condense older turns, or start a new chat.',
+  compactedEntry: 'Compacted chats',
+  compactedEmpty: 'No compacted chats yet. When a chat nears the context limit, “Compact context” appears above the input.',
+  compactedMeta: '{time} · {count} messages covered',
+  compactedOpen: 'Open chat',
+  compactedRestore: 'Restore full context',
+  compactedRestored: 'Restored — all original messages count again',
+  contextSummaryMissing: '(the summary for this chat no longer exists)',
   checkUpdate: 'Check for updates',
   updateChecking: 'Checking for updates…',
   updateLatest: 'You are on the latest version',

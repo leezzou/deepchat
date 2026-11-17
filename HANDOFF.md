@@ -519,3 +519,14 @@ v1.0.0 首发 → v1.0.1 导入走原生下载 + 错误提示带原因 + OpenCod
 
 用户侧效果：压缩后往上翻还能看到完整原文（App 本地保存），只是这些内容不再计入上下文。
 风险弹窗第 3 条也改成了「原始记录仍完整保存在本机对话里」，不再吓人说「不会留存」。
+
+---
+
+## 21. 第 11 版：已压缩对话的管理页
+
+- `src/services/chat/compactionIndex.ts`：localStorage 里维护一份轻量清单
+  `{sessionId, title, createdAt, coveredMessages}`，压缩时写入、恢复时移除。
+- 设置 → 数据管理 → 「已压缩的对话」：列出所有压缩过的会话，点开可看摘要原文，
+  并提供「打开对话」和「恢复完整上下文」（`clearCompaction()` 清掉 checkpoint / compactedThrough，
+  全部原始消息重新参与请求）。
+- 数据管理行右侧显示已压缩数量。

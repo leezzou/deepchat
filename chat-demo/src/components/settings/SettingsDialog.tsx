@@ -54,6 +54,8 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { saveBlob } from '../../shell/saveFile.js'
+import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
+import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
@@ -157,13 +159,14 @@ const SettingsContent = () => {
 }
 
 /** 移动端二级页：设置根页与各二级页 */
-type MobilePage = 'root' | 'apiKey' | 'guide' | 'data' | 'appearance' | 'location'
+type MobilePage = 'root' | 'apiKey' | 'guide' | 'data' | 'compacted' | 'appearance' | 'location'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
   apiKey: 'API Key 管理',
   guide: '申请官方 API Key',
   data: '数据管理',
+  compacted: '已压缩的对话',
   appearance: '外观',
   location: '位置信息',
 }
@@ -241,8 +244,10 @@ const MobileSettings = () => {
                 historyImport={historyImport}
                 historyExport={historyExport}
                 disabled={historyBusy}
+                onOpenCompacted={() => setPage('compacted')}
               />
             ) : null}
+            {page === 'compacted' ? <MobileCompactedContent /> : null}
             {page === 'appearance' ? <MobileAppearanceContent /> : null}
             {page === 'location' ? <MobileLocationContent /> : null}
           </div>
@@ -1154,15 +1159,96 @@ const MobileApiProfileForm = ({
   )
 }
 
+/** 已压缩的对话：查看摘要、回看原文、恢复完整上下文 */
+const MobileCompactedContent = () => {
+  const t = useTranslate()
+  const [records, setRecords] = useState<CompactionRecord[]>(() => listCompactions())
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [summaries, setSummaries] = useState<Record<string, string>>({})
+
+  const loadSummary = (sessionId: string) => {
+    if (summaries[sessionId]) {
+      return
+    }
+    const session = useChatStore.getState().sessionCache[sessionId]
+    const text = session?.checkpoint?.text ?? ''
+    const body = text
+      .replace(/^[\s\S]*?<compacted-summary>/, '')
+      .replace(/<\/compacted-summary>[\s\S]*$/, '')
+      .trim()
+    setSummaries((prev) => ({ ...prev, [sessionId]: body || t('contextSummaryMissing') }))
+  }
+
+  if (records.length === 0) {
+    return <div className={styles.profileHint}>{t('compactedEmpty')}</div>
+  }
+
+  return (
+    <MobileGroup>
+      {records.map((record) => (
+        <div key={record.sessionId} className={styles.compactedItem}>
+          <button
+            type="button"
+            className={styles.row}
+            onClick={() => {
+              setExpanded(expanded === record.sessionId ? null : record.sessionId)
+              loadSummary(record.sessionId)
+            }}
+          >
+            <span className={styles.rowLabel}>{record.title}</span>
+            <span className={styles.rowValue}>
+              {t('compactedMeta', {
+                time: new Date(record.createdAt).toLocaleDateString(),
+                count: record.coveredMessages,
+              })}
+            </span>
+          </button>
+          {expanded === record.sessionId ? (
+            <div className={styles.compactedBody}>
+              <div className={styles.summaryText}>{summaries[record.sessionId] ?? ''}</div>
+              <div className={styles.compactedActions}>
+                <button
+                  type="button"
+                  className={styles.fetchButton}
+                  onClick={() => {
+                    selectSession(record.sessionId)
+                    closeSettings()
+                  }}
+                >
+                  {t('compactedOpen')}
+                </button>
+                <button
+                  type="button"
+                  className={styles.fetchButton}
+                  onClick={() => {
+                    clearCompaction(record.sessionId)
+                    forgetCompaction(record.sessionId)
+                    setRecords(listCompactions())
+                    showToast({ key: 'compactedRestored' })
+                  }}
+                >
+                  {t('compactedRestore')}
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ))}
+    </MobileGroup>
+  )
+}
+
 /** 数据管理：导入 / 导出各占一行，结果在卡片下方提示 */
 const MobileDataContent = ({
   historyImport,
   historyExport,
   disabled,
+  onOpenCompacted,
 }: {
   historyImport: ReturnType<typeof useHistoryImport>
   historyExport: ReturnType<typeof useHistoryExport>
   disabled: boolean
+  onOpenCompacted: () => void
 }) => {
   const t = useTranslate()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1204,6 +1290,16 @@ const MobileDataContent = ({
           </span>
           <span className={styles.rowLabel}>{t('historyImport')}</span>
           <span className={styles.rowValue}>{t('upload')}</span>
+        </button>
+        <button type="button" className={styles.row} onClick={onOpenCompacted}>
+          <span className={styles.rowIcon}>
+            <IconDataOutline16 />
+          </span>
+          <span className={styles.rowLabel}>{t('compactedEntry')}</span>
+          <span className={styles.rowValue}>{listCompactions().length}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
         </button>
         <button
           type="button"

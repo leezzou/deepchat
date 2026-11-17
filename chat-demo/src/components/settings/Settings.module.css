@@ -943,3 +943,26 @@
     line-height: 19px;
   }
 }
+
+/* ---------- 已压缩的对话 ---------- */
+@media not all and (min-width: 768px) {
+  .compactedItem {
+    & + & {
+      border-top: 1px solid rgba(15, 15, 15, 0.06);
+    }
+  }
+
+  [data-ds-dark-theme] .compactedItem + .compactedItem {
+    border-top-color: rgba(248, 248, 248, 0.06);
+  }
+
+  .compactedBody {
+    padding: 0 16px 14px;
+  }
+
+  .compactedActions {
+    display: flex;
+    gap: 18px;
+    margin-top: 10px;
+  }
+}
