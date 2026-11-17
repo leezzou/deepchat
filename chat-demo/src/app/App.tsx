@@ -22,8 +22,9 @@ import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider } from '../components/sider/mobileSiderState.js'
+import { closeMobileSider, openMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
 import { isNative, useNativeShell } from '../shell/native.js'
+import { useEdgeSwipe } from './edgeSwipe.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import styles from './App.module.css'
 
@@ -54,6 +55,13 @@ export const App = () => {
 
   usePreventPageScroll(isMobile)
   useNativeShell()
+  // 左缘右滑打开对话抽屉，抽屉打开时左滑关闭
+  useEdgeSwipe(
+    isMobile,
+    useMobileSider((state) => state.open),
+    openMobileSider,
+    closeMobileSider
+  )
 
   useEffect(() => {
     document.documentElement.lang = locale

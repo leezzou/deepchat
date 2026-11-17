@@ -17,12 +17,10 @@ export const PAGE_BACKGROUND = { light: '#FFFFFF', dark: '#0F0F0F' } as const
 const layers: (() => void)[] = []
 
 export const pushLayer = (close: () => void) => {
-  const entry = () => {
-    popLayer(entry)
-    close()
-  }
-  layers.push(entry)
-  return entry
+  // 注册的处理器常驻到组件卸载；返回键可能连续按多次（二级页 → 根页 → 关闭），
+  // 所以不能在第一次触发后就把它移出栈。
+  layers.push(close)
+  return close
 }
 
 export const popLayer = (entry: () => void) => {

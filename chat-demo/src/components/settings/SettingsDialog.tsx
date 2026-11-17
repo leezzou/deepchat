@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   IconCheckOutline16,
@@ -54,6 +54,7 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { saveBlob } from '../../shell/saveFile.js'
+import { popLayer, pushLayer } from '../../shell/native.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
@@ -205,11 +206,33 @@ const MobileSettings = () => {
   )
   // 从申请指引点「我已拿到 Key」后，直接展开新增表单
   const [autoAddKey, setAutoAddKey] = useState(false)
+  // API Key 页里当前正在编辑的配置（null = 列表态）；放在这一层是为了让返回键先退表单
+  const [apiKeyEditing, setApiKeyEditing] = useState<ApiProfile | 'new' | null>(null)
   const close = () => {
     if (!historyDelete.busy) {
       closeSettings()
     }
   }
+
+  /** 返回一层：表单 → API Key 列表 → 设置根页 → 关闭设置 */
+  const goBack = () => {
+    if (page === 'apiKey' && apiKeyEditing) {
+      setApiKeyEditing(null)
+      return
+    }
+    if (page !== 'root') {
+      setPage('root')
+      return
+    }
+    close()
+  }
+  // Android 返回键：逐层回退，不再一按就退出整个设置
+  const backRef = useRef(goBack)
+  backRef.current = goBack
+  useEffect(() => {
+    const entry = pushLayer(() => backRef.current())
+    return () => popLayer(entry)
+  }, [])
   return createPortal(
     <div className={styles.page} role="dialog" aria-modal="true" aria-label={t('settings')}>
       <MobileHeader title={t('settings')} onBack={close} />
@@ -222,13 +245,15 @@ const MobileSettings = () => {
       </div>
       {page === 'root' ? null : (
         <div className={styles.subPage}>
-          <MobileHeader title={mobilePageTitles[page]} onBack={() => setPage('root')} />
+          <MobileHeader title={mobilePageTitles[page]} onBack={goBack} />
           <div className={styles.body}>
             {page === 'apiKey' ? (
               <MobileApiKeyContent
                 autoAdd={autoAddKey}
                 onAutoAddDone={() => setAutoAddKey(false)}
                 onOpenGuide={() => setPage('guide')}
+                editing={apiKeyEditing}
+                setEditing={setApiKeyEditing}
               />
             ) : null}
             {page === 'guide' ? (
@@ -793,19 +818,21 @@ const MobileApiKeyContent = ({
   autoAdd = false,
   onAutoAddDone,
   onOpenGuide,
+  editing,
+  setEditing,
 }: {
   autoAdd?: boolean
   onAutoAddDone?: () => void
   onOpenGuide?: () => void
+  editing: ApiProfile | 'new' | null
+  setEditing: (value: ApiProfile | 'new' | null) => void
 }) => {
   const t = useTranslate()
   const apiProfiles = useSettings((state) => state.apiProfiles)
   const activeProfileId = useSettings((state) => state.activeProfileId)
-  const [editing, setEditing] = useState<ApiProfile | 'new' | null>(() =>
-    autoAdd ? 'new' : null
-  )
-  // 打开表单后立刻消费掉这个一次性标记
-  if (autoAdd && editing === 'new') {
+  // 从申请指引过来时自动展开新增表单
+  if (autoAdd && editing === null) {
+    setEditing('new')
     onAutoAddDone?.()
   }
 
