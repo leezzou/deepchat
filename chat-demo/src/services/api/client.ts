@@ -82,6 +82,34 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
   return response
 }
 
+/** 校验类请求不能无限转圈；上传和流式聊天不使用这个包装。 */
+const requestWithTimeout = async (
+  url: string,
+  init: RequestInit,
+  timeoutMs = 15_000
+): Promise<Response> => {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const external = init.signal
+  const abort = () => controller.abort()
+  if (external?.aborted) {
+    controller.abort()
+  } else {
+    external?.addEventListener('abort', abort, { once: true })
+  }
+  try {
+    return await request(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted && !external?.aborted) {
+      throw new ApiError('network', '请求超时，请检查网络或接口地址')
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    external?.removeEventListener('abort', abort)
+  }
+}
+
 const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
   // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
   'x-api-key': apiKey,
@@ -95,11 +123,14 @@ export const verifyApiKey = async (
   origin?: string,
   signal?: AbortSignal
 ): Promise<void> => {
-  await request(`${origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()}/models`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal,
-  })
+  await requestWithTimeout(
+    `${origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()}/models`,
+    {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal,
+    }
+  )
 }
 
 /** GET /models：拉服务商支持的模型 id 列表（兼容 OpenAI 的 {data:[{id}]} 与 DeepSeek 的返回） */
@@ -109,7 +140,7 @@ export const fetchModelIds = async (
   signal?: AbortSignal
 ): Promise<string[]> => {
   const base = origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()
-  const response = await request(`${base}/models`, {
+  const response = await requestWithTimeout(`${base}/models`, {
     method: 'GET',
     headers: { Authorization: `Bearer ${apiKey}`, 'x-opencode-session': OPENCODE_SESSION },
     signal,

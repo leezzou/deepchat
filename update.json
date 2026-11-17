@@ -1,7 +1,7 @@
 {
-  "version": "1.0.19",
+  "version": "1.0.20",
   "publishedAt": "2026-11-17",
-  "notes": "修复从 DeepSeek 链接导入较大历史包时内存峰值导致闪退：原生下载后改为按本地文件读取，避免整包 base64 复制",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.19",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.19/deepchat.apk"
+  "notes": "API Key 校验增加 15 秒超时，接口不响应时不再一直卡在「正在验证」；超时后提示检查网络或接口地址",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.20",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.20/deepchat.apk"
 }
