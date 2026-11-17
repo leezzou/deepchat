@@ -168,6 +168,11 @@ export const en = {
   apiAttachmentUnsupported:
     'The current API profile does not support attachments; they only work with the official DeepSeek profile.',
   apiProfileModel: 'Model',
+  apiProfileModelBuiltin: 'Official DeepSeek model (no need to pick)',
+  apiProfileModelCustom: 'Custom…',
+  apiProfileModelFetch: 'Fetch model list',
+  apiProfileModelFetching: 'Fetching…',
+  apiProfileModelFetchFailed: 'Could not fetch models; type the model name manually',
   apiProfileModelPlaceholder: 'e.g. glm-4.6',
   apiProfileName: 'Name',
   apiProfileNamePlaceholder: 'e.g. DeepSeek official',

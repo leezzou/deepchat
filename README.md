@@ -133,5 +133,14 @@ cd android
 
 ## 更新
 
-App 内「设置 → 检查更新」会读取本仓库的 Releases，发现新版本可直接下载安装。
-发版方式：改 `chat-demo/package.json` 的 `version` → 构建 → `gh release create vX.Y.Z deepchat.apk`。
+App 内「设置 → 检查更新」读的是仓库根目录的 **`update.json`**（走 raw.githubusercontent，避开 GitHub API 的
+60 次/小时限制），发现新版本可以直接下载 APK 并拉起系统安装器；API 只在清单缺失时兜底。
+
+发版一条命令：
+
+```bash
+scripts/release.sh 1.0.1 "这次改了什么"
+```
+
+它会改版本号（package.json + build.gradle 的 versionCode/versionName）→ 打包 → 刷新 `update.json`
+→ 提交推送 → `gh release create` 上传 APK。

@@ -6,6 +6,12 @@
 /** 本项目的 GitHub 仓库，发版与检查更新都指向它 */
 export const GITHUB_REPO = 'leezzou/deepchat'
 
+/**
+ * 版本清单：仓库根目录的 update.json。
+ * 走 raw.githubusercontent（CDN，没有 API 的 60 次/小时限制），API 只在清单缺失时兜底。
+ */
+const MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/update.json`
+
 /** 去掉 v 前缀与预发布后缀，只留 x.y.z */
 const normalizeVersion = (value: string): string =>
   value
@@ -51,8 +57,46 @@ type GithubRelease = {
   assets?: { name?: unknown; browser_download_url?: unknown }[]
 }
 
-/** 读最新 release；仓库还没发过 release 时返回 null */
+type Manifest = {
+  version?: unknown
+  notes?: unknown
+  pageUrl?: unknown
+  apkUrl?: unknown
+  publishedAt?: unknown
+}
+
+const parseManifest = (data: Manifest): ReleaseInfo | null => {
+  if (typeof data.version !== 'string' || !data.version.trim()) {
+    return null
+  }
+  return {
+    version: normalizeVersion(data.version),
+    tag: `v${normalizeVersion(data.version)}`,
+    notes: typeof data.notes === 'string' ? data.notes : '',
+    pageUrl: typeof data.pageUrl === 'string' ? data.pageUrl : '',
+    apkUrl: typeof data.apkUrl === 'string' && data.apkUrl ? data.apkUrl : null,
+  }
+}
+
+/** 优先读 update.json；没有清单（老仓库/发版脚本没跑）时回退到 Releases API */
 export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
+  try {
+    // 加时间戳绕过 CDN 缓存，否则刚发版可能还拿到旧版本号
+    const response = await fetch(`${MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' })
+    if (response.ok) {
+      const parsed = parseManifest((await response.json()) as Manifest)
+      if (parsed) {
+        return parsed
+      }
+    }
+  } catch {
+    // 清单读不到就走下面的 API
+  }
+  return fetchLatestFromApi()
+}
+
+/** 回退方案：GitHub Releases API（未登录 60 次/小时 / IP，只作兜底） */
+const fetchLatestFromApi = async (): Promise<ReleaseInfo | null> => {
   const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
     headers: { Accept: 'application/vnd.github+json' },
     // 结果随时会变，别让 WebView 缓存住

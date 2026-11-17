@@ -102,6 +102,25 @@ export const verifyApiKey = async (
   })
 }
 
+/** GET /models：拉服务商支持的模型 id 列表（兼容 OpenAI 的 {data:[{id}]} 与 DeepSeek 的返回） */
+export const fetchModelIds = async (
+  apiKey: string,
+  origin?: string,
+  signal?: AbortSignal
+): Promise<string[]> => {
+  const base = origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()
+  const response = await request(`${base}/models`, {
+    method: 'GET',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    signal,
+  })
+  const body = (await response.json()) as { data?: { id?: unknown }[] }
+  const ids = (body.data ?? [])
+    .map((item) => (typeof item?.id === 'string' ? item.id : ''))
+    .filter(Boolean)
+  return [...new Set(ids)].sort()
+}
+
 /**
  * POST /anthropic/v1/files 上传附件（不设过期时间，会话里的历史附件一直可用）。
  * purpose 为 null 时不传该字段（图片）；purpose 必须排在 file 之前。

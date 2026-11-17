@@ -40,9 +40,12 @@ import {
   type ApiProfile,
   type ThemePreference,
 } from '../../services/settings.js'
-import { ApiError, verifyApiKey } from '../../services/api/client.js'
+import { ApiError, fetchModelIds, verifyApiKey } from '../../services/api/client.js'
 import { classifyApiError } from '../../services/api/errors.js'
 import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
+import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
+import { installApk } from '../../shell/installer.js'
+import { openExternal } from '../../shell/native.js'
 import { useTranslate, type TranslationKey, type TranslationMessage } from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
@@ -342,22 +345,6 @@ const MobileRow = ({
   </button>
 )
 
-const MobileInfoRow = ({
-  icon,
-  label,
-  value,
-}: {
-  icon?: ReactNode
-  label: string
-  value: string
-}) => (
-  <div className={clsx(styles.row, styles.rowStatic)}>
-    {icon ? <span className={styles.rowIcon}>{icon}</span> : null}
-    <span className={styles.rowLabel}>{label}</span>
-    <span className={styles.rowValue}>{value}</span>
-  </div>
-)
-
 /** 整行可点的选择器：行内展示当前值，透明的选择器触发器铺满整行 */
 const MobileSelectRow = ({
   icon,
@@ -400,7 +387,44 @@ const MobileRootContent = ({
   const ttsVoice = useSettings((state) => state.ttsVoice)
   const location = useSettings((state) => state.location)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [updateOpen, setUpdateOpen] = useState(false)
+  const [update, setUpdate] = useState<
+    | { status: 'latest' | 'available' | 'error' | 'no-release'; release?: ReleaseInfo }
+    | null
+  >(null)
   const version = readAppVersion()
+
+  const runUpdateCheck = async () => {
+    setUpdate(null)
+    setUpdateOpen(true)
+    try {
+      const release = await fetchLatestRelease()
+      if (!release) {
+        setUpdate({ status: 'no-release' })
+        return
+      }
+      setUpdate({
+        status: compareVersions(release.version, version) > 0 ? 'available' : 'latest',
+        release,
+      })
+    } catch {
+      setUpdate({ status: 'error' })
+    }
+  }
+
+  const downloadUpdate = () => {
+    const release = update?.release
+    if (!release) {
+      return
+    }
+    // 原生壳里直接下载 APK 并拉起系统安装器；浏览器里退回 GitHub 发布页
+    if (release.apkUrl && installApk(release.apkUrl)) {
+      showToast({ key: 'updateDownloading' })
+      setUpdateOpen(false)
+      return
+    }
+    void openExternal(release.pageUrl)
+  }
   const province =
     location?.region === 'CN'
       ? provinces.find((item) => item.code === location.province)
@@ -476,8 +500,67 @@ const MobileRootContent = ({
       </MobileGroup>
       {version ? (
         <MobileGroup title="关于">
-          <MobileInfoRow icon={<IconInfo />} label="版本号" value={version} />
+          <button type="button" className={styles.row} onClick={() => void runUpdateCheck()}>
+            <span className={styles.rowIcon}>
+              <IconInfo />
+            </span>
+            <span className={styles.rowLabel}>{t('checkUpdate')}</span>
+            <span className={styles.rowValue}>{version}</span>
+            <span className={styles.rowChevron}>
+              <IconChevronRightOutline14 />
+            </span>
+          </button>
         </MobileGroup>
+      ) : null}
+      {updateOpen ? (
+        <Modal
+          title={t('checkUpdate')}
+          onClose={() => setUpdateOpen(false)}
+          footer={
+            update?.status === 'available' ? (
+              <>
+                <Button variant="outlined" size="m" onClick={() => setUpdateOpen(false)}>
+                  {t('updateLater')}
+                </Button>
+                <Button variant="primary" size="m" onClick={downloadUpdate}>
+                  {t('updateDownload')}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outlined" size="m" onClick={() => setUpdateOpen(false)}>
+                {t('close')}
+              </Button>
+            )
+          }
+        >
+          <div className={styles.updateBody}>
+            {update === null ? <p>{t('updateChecking')}</p> : null}
+            {update?.status === 'error' ? <p>{t('updateFailed')}</p> : null}
+            {update?.status === 'latest' ? (
+              <p>{t('updateLatest')}（{version}）</p>
+            ) : null}
+            {update?.status === 'no-release' ? <p>{t('updateNoRelease')}</p> : null}
+            {update?.status === 'available' && update.release ? (
+              <>
+                <p className={styles.updateTitle}>
+                  {t('updateAvailable', { version: update.release.version })}
+                </p>
+                <div className={styles.updateNotes}>
+                  {update.release.notes.trim() || t('updateNotesEmpty')}
+                </div>
+                {update.release.pageUrl ? (
+                  <button
+                    type="button"
+                    className={styles.fetchButton}
+                    onClick={() => void openExternal(update.release?.pageUrl ?? '')}
+                  >
+                    {t('updateOpenRelease')}
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </Modal>
       ) : null}
       <MobileGroup wide>
         <button type="button" className={styles.row} onClick={() => setHelpOpen(true)}>
@@ -681,6 +764,33 @@ const MobileApiProfileForm = ({
   const [origin, setOrigin] = useState(profile.origin === defaultApiOrigin ? '' : profile.origin)
   const [model, setModel] = useState(profile.model)
   const [apiKey, setApiKey] = useState(profile.apiKey)
+  // 模型列表：能拉到就让用户从下拉里挑，拉不到就退回手填
+  const [models, setModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [customModel, setCustomModel] = useState(false)
+  const [modelError, setModelError] = useState(false)
+
+  const loadModels = async () => {
+    const key = apiKey.trim()
+    if (!key || protocol !== 'openai' || loadingModels) {
+      return
+    }
+    setLoadingModels(true)
+    setModelError(false)
+    try {
+      const list = await fetchModelIds(key, origin.trim() || undefined)
+      setModels(list)
+      setCustomModel(list.length === 0 || !list.includes(model))
+      // 只有一个模型时直接选上，省一步
+      if (!model && list.length === 1) {
+        setModel(list[0])
+      }
+    } catch {
+      setModelError(true)
+    } finally {
+      setLoadingModels(false)
+    }
+  }
   const pickPreset = (value: string) => {
     setPreset(value)
     const next = providerPresets.find((item) => item.value === value)
@@ -782,17 +892,66 @@ const MobileApiProfileForm = ({
             <label className={styles.fieldLabel} htmlFor="api-profile-model">
               {t('apiProfileModel')}
             </label>
-            <input
-              id="api-profile-model"
-              className={styles.fieldInput}
-              value={model}
-              placeholder={t('apiProfileModelPlaceholder')}
-              autoComplete="off"
-              spellCheck={false}
-              onChange={(event) => setModel(event.target.value)}
-            />
+            {models.length > 0 && !customModel ? (
+              <Select
+                value={model}
+                options={[
+                  ...models.map((item) => ({ value: item, label: item })),
+                  { value: '__custom__', label: t('apiProfileModelCustom') },
+                ]}
+                onChange={(value) => {
+                  if (value === '__custom__') {
+                    setCustomModel(true)
+                    return
+                  }
+                  setModel(value)
+                }}
+                placeholder={t('apiProfileModelPlaceholder')}
+                ariaLabel={t('apiProfileModel')}
+              />
+            ) : (
+              <input
+                id="api-profile-model"
+                className={styles.fieldInput}
+                value={model}
+                placeholder={t('apiProfileModelPlaceholder')}
+                autoComplete="off"
+                spellCheck={false}
+                onChange={(event) => setModel(event.target.value)}
+              />
+            )}
+            <div className={styles.fieldAction}>
+              <button
+                type="button"
+                className={styles.fetchButton}
+                disabled={!apiKey.trim() || loadingModels}
+                onClick={() => void loadModels()}
+              >
+                {loadingModels ? t('apiProfileModelFetching') : t('apiProfileModelFetch')}
+              </button>
+              {models.length > 0 && customModel ? (
+                <button
+                  type="button"
+                  className={styles.fetchButton}
+                  onClick={() => {
+                    setCustomModel(false)
+                    setModel(models[0] ?? model)
+                  }}
+                >
+                  {t('apiProfileModel')}
+                </button>
+              ) : null}
+            </div>
+            {modelError ? (
+              <div className={styles.profileHint}>{t('apiProfileModelFetchFailed')}</div>
+            ) : null}
           </div>
-        ) : null}
+        ) : (
+          <div className={styles.field}>
+            <div className={styles.fieldLabel}>{t('apiProfileModel')}</div>
+            <div className={styles.profileHint}>{t('apiProfileModelBuiltin')}</div>
+          </div>
+        )}
         <div className={styles.field}>
           <label className={styles.fieldLabel} htmlFor="api-profile-key">
             {t('apiProfileKey')}
