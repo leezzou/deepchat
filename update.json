@@ -1,7 +1,7 @@
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publishedAt": "2026-11-17",
-  "notes": "修复：从 DeepSeek 导入历史对话改为原生下载（解决 WebView 跨域导致下载失败）；导入失败时显示具体原因；新增 OpenCode Go（订阅版）与 OpenCode Zen 预设；上下文超限提示；API Key 管理支持拉取模型列表",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.1",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.1/deepchat.apk"
+  "notes": "修复：应用内更新不再弹出「打开方式」选择框，直接调用系统安装器；确认应用名为 DeepChat",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.2",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.2/deepchat.apk"
 }

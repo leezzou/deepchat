@@ -1,6 +1,7 @@
 package ai.deepseek.demo.shell;
 
 import android.content.Intent;
+import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.provider.Settings;
@@ -77,6 +78,19 @@ public class Updater {
         }
     }
 
+    /** 找到系统「软件包安装程序」的包名，避免弹出「打开方式」选择框 */
+    private String findSystemInstaller() {
+        Intent probe = new Intent(Intent.ACTION_VIEW);
+        probe.setType("application/vnd.android.package-archive");
+        for (ResolveInfo info : activity.getPackageManager().queryIntentActivities(probe, 0)) {
+            String pkg = info.activityInfo != null ? info.activityInfo.packageName : "";
+            if (pkg.toLowerCase().contains("packageinstaller")) {
+                return pkg;
+            }
+        }
+        return null;
+    }
+
     private void launchInstaller() {
         File apk = new File(activity.getCacheDir(), APK_NAME);
         try {
@@ -87,6 +101,11 @@ public class Updater {
             intent.setDataAndType(uri, "application/vnd.android.package-archive");
             intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            // 显式指定系统安装器；找不到时退回系统默认选择
+            String installer = findSystemInstaller();
+            if (installer != null) {
+                intent.setPackage(installer);
+            }
             activity.startActivity(intent);
         } catch (Exception error) {
             fail("无法打开安装器：" + error.getMessage());
