@@ -14,8 +14,8 @@ import type { Message, Session } from './types.js'
  */
 const THRESHOLD_RATIO = 0.8
 const RETAIN_RATIO = 0.16
-/** 低于这个比例不允许压缩：没什么可省的，反而白白损失细节 */
-export const MIN_COMPACT_RATIO = 0.3
+/** 低于这个比例不允许压缩（用户要求：80% 之后再压缩） */
+export const MIN_COMPACT_RATIO = 0.8
 
 /** 是否允许手动压缩（30% 以上） */
 export const canCompact = (session: Session): boolean =>
@@ -144,7 +144,7 @@ export const compactSession = async (sessionId: string): Promise<CompactResult> 
   if (!session) {
     return { ok: false, message: 'session not found' }
   }
-  // 30% 以下不准压缩
+  // 80% 以下不准压缩
   if (contextPressure(session) < MIN_COMPACT_RATIO) {
     return { ok: false, message: 'context below 30%' }
   }

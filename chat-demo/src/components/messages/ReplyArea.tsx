@@ -32,6 +32,7 @@ import { Tooltip } from '../base/Tooltip.js'
 import { Markdown } from '../markdown/Markdown.js'
 import { SiteThumbnails } from '../search/SiteLogo.js'
 import { toggleSearchPanel, useSearchPanel } from '../search/searchPanelState.js'
+import { useSettings } from '../../services/settings.js'
 import styles from './ReplyArea.module.css'
 import './thinking.markdown.css'
 
@@ -66,6 +67,13 @@ export const ReplyArea = memo(function ReplyArea({
 }) {
   useTranslate()
   const [open, setOpen] = useState(true)
+  const autoCollapse = useSettings((state) => state.autoCollapseThinking)
+  // 思考结束后自动折叠（官方「思考内容自动折叠」）
+  useEffect(() => {
+    if (!streaming && autoCollapse) {
+      setOpen(false)
+    }
+  }, [streaming, autoCollapse])
   const titleActive = streaming && !hasResponse
   useTicker(titleActive, 1000)
   if (view.steps.length === 0 && !(message.thinking && streaming)) {

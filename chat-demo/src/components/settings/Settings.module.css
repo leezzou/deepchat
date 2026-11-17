@@ -1010,3 +1010,167 @@
     background-color: #3c3c3d;
   }
 }
+
+/* ---------- 字体大小（仿官方：预览 + 底部面板） ---------- */
+@media not all and (min-width: 768px) {
+  .fontPage {
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+
+  .fontPreviewArea {
+    flex: 1;
+    padding: 16px 20px 0;
+    color: #0f0f0f;
+    line-height: 1.65;
+  }
+
+  [data-ds-dark-theme] .fontPreviewArea {
+    color: #f8f8f8;
+  }
+
+  .fontBubble {
+    float: right;
+    margin: 0 0 22px 40px;
+    padding: 10px 14px;
+    border-radius: 18px;
+    background-color: #edf3fe;
+    clear: both;
+  }
+
+  [data-ds-dark-theme] .fontBubble {
+    background-color: #283142;
+  }
+
+  .fontParagraph {
+    margin: 0 0 18px;
+    clear: both;
+  }
+
+  .fontSheet {
+    flex-shrink: 0;
+    margin-top: 12px;
+    padding: 18px 20px calc(20px + env(safe-area-inset-bottom));
+    border-radius: 20px 20px 0 0;
+    background-color: #ffffff;
+    box-shadow: 0 -1px 0 rgba(0, 0, 0, 0.04);
+  }
+
+  [data-ds-dark-theme] .fontSheet {
+    background-color: #242424;
+  }
+
+  .fontFollowRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 16px;
+    line-height: 24px;
+    color: #0f0f0f;
+  }
+
+  [data-ds-dark-theme] .fontFollowRow {
+    color: #f8f8f8;
+  }
+
+  .fontSwitch {
+    position: relative;
+    width: 44px;
+    height: 26px;
+    padding: 0;
+    border: none;
+    border-radius: 13px;
+    background-color: #d9d9d9;
+    transition: background-color 0.2s ease;
+    cursor: pointer;
+  }
+
+  .fontSwitchOn {
+    background-color: #34c759;
+  }
+
+  .fontSwitchKnob {
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: transform 0.2s ease;
+  }
+
+  .fontSwitchOn .fontSwitchKnob {
+    transform: translateX(18px);
+  }
+
+  .fontSliderRow {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    margin-top: 26px;
+    padding-bottom: 6px;
+  }
+
+  .fontA {
+    flex-shrink: 0;
+    color: #0f0f0f;
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .fontALarge {
+    font-size: 24px;
+  }
+
+  [data-ds-dark-theme] .fontA {
+    color: #f8f8f8;
+  }
+
+  .fontSliderWrap {
+    position: relative;
+    flex: 1;
+    padding-top: 22px;
+  }
+
+  .fontLevelLabel {
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #0f0f0f;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  [data-ds-dark-theme] .fontLevelLabel {
+    color: #f8f8f8;
+  }
+
+  .fontSlider {
+    width: 100%;
+    height: 20px;
+    margin: 0;
+    appearance: none;
+    background: transparent;
+
+    &::-webkit-slider-runnable-track {
+      height: 3px;
+      border-radius: 2px;
+      background-color: #e5e5e5;
+    }
+
+    &::-webkit-slider-thumb {
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      margin-top: -9.5px;
+      border-radius: 50%;
+      background-color: #ffffff;
+      border: 1px solid #e5e5e5;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16);
+    }
+  }
+}

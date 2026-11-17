@@ -33,6 +33,7 @@ import {
   saveApiProfile,
   selectApiProfile,
   clearApiProfiles,
+  setAutoCollapseThinking,
   setAvatar,
   setDisplayName,
   setFontScale,
@@ -187,17 +188,31 @@ const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
   location: '位置信息',
 }
 
-/** 字号档位：0.9 / 1 / 1.1 / 1.25 */
-const fontSizeOptions: { value: number; key: TranslationKey }[] = [
-  { value: 0.9, key: 'fontSizeSmall' },
-  { value: 1, key: 'fontSizeStandard' },
-  { value: 1.1, key: 'fontSizeLarge' },
-  { value: 1.25, key: 'fontSizeXLarge' },
+/** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
+const fontSizeLevels = [0.85, 0.925, 1, 1.075, 1.15, 1.225, 1.3]
+const fontSizeLabelKeys: TranslationKey[] = [
+  'fontSizeSmall',
+  'fontSizeSmallMedium',
+  'fontSizeStandard',
+  'fontSizeMediumLarge',
+  'fontSizeLarge',
+  'fontSizeLarge2',
+  'fontSizeXLarge',
 ]
 
-const fontSizeLabelKeys: Record<number, TranslationKey> = Object.fromEntries(
-  fontSizeOptions.map((item) => [item.value, item.key])
-) as Record<number, TranslationKey>
+/** 把连续倍率吸附到最近的档位 */
+const nearestFontLevel = (scale: number) => {
+  let best = 0
+  let bestDiff = Infinity
+  fontSizeLevels.forEach((value, index) => {
+    const diff = Math.abs(value - scale)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = index
+    }
+  })
+  return best
+}
 
 /** 外观页顺序与官方一致：跟随系统 / 浅色 / 深色 */
 const mobileThemeOrder: ThemePreference[] = ['system', 'light', 'dark']
@@ -264,11 +279,7 @@ const MobileSettings = () => {
     <div className={styles.page} role="dialog" aria-modal="true" aria-label={t('settings')}>
       <MobileHeader title={t('settings')} onBack={close} />
       <div className={styles.body}>
-        <MobileRootContent
-          onOpenPage={setPage}
-          historyDelete={historyDelete}
-          historyBusy={historyBusy}
-        />
+        <MobileRootContent onOpenPage={setPage} />
       </div>
       {page === 'root' ? null : (
         <div className={styles.subPage}>
@@ -297,6 +308,7 @@ const MobileSettings = () => {
                 historyExport={historyExport}
                 disabled={historyBusy}
                 onOpenCompacted={() => setPage('compacted')}
+                onDeleteAll={historyDelete.open}
               />
             ) : null}
             {page === 'compacted' ? <MobileCompactedContent /> : null}
@@ -482,15 +494,7 @@ const MobileSelectRow = ({
 )
 
 /** 设置根页：账户 / 应用 / 语音 / 关于，再加帮助与反馈、清除数据两张独立卡片 */
-const MobileRootContent = ({
-  onOpenPage,
-  historyDelete,
-  historyBusy,
-}: {
-  onOpenPage: (page: MobilePage) => void
-  historyDelete: ReturnType<typeof useHistoryDelete>
-  historyBusy: boolean
-}) => {
+const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
   const apiKey = useSettings((state) => state.apiKey)
   const locale = useSettings((state) => state.locale)
@@ -577,7 +581,7 @@ const MobileRootContent = ({
         <MobileRow
           icon={<IconFontSize />}
           label={t('settingsFontSize')}
-          value={t(fontSizeLabelKeys[useSettings.getState().fontScale] ?? 'fontSizeStandard')}
+          value={t(fontSizeLabelKeys[nearestFontLevel(useSettings.getState().fontScale)])}
           onClick={() => onOpenPage('fontSize')}
         />
         <MobileRow
@@ -674,22 +678,6 @@ const MobileRootContent = ({
             <IconHelp />
           </span>
           <span className={styles.rowLabel}>帮助与反馈</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-      </MobileGroup>
-      <MobileGroup wide>
-        <button
-          type="button"
-          className={styles.row}
-          disabled={historyBusy}
-          onClick={historyDelete.open}
-        >
-          <span className={styles.rowIcon}>
-            <IconTrashOutline16 />
-          </span>
-          <span className={styles.rowLabel}>清除数据</span>
           <span className={styles.rowChevron}>
             <IconChevronRightOutline14 />
           </span>
@@ -1367,11 +1355,13 @@ const MobileDataContent = ({
   historyExport,
   disabled,
   onOpenCompacted,
+  onDeleteAll,
 }: {
   historyImport: ReturnType<typeof useHistoryImport>
   historyExport: ReturnType<typeof useHistoryExport>
   disabled: boolean
   onOpenCompacted: () => void
+  onDeleteAll: () => void
 }) => {
   const t = useTranslate()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1413,6 +1403,17 @@ const MobileDataContent = ({
           </span>
           <span className={styles.rowLabel}>{t('historyImport')}</span>
           <span className={styles.rowValue}>{t('upload')}</span>
+        </button>
+        <button
+          type="button"
+          className={styles.row}
+          disabled={disabled || empty}
+          onClick={onDeleteAll}
+        >
+          <span className={styles.rowIcon}>
+            <IconTrashOutline16 />
+          </span>
+          <span className={styles.rowLabel}>{t('deleteAllHistory')}</span>
         </button>
         <button type="button" className={styles.row} onClick={onOpenCompacted}>
           <span className={styles.rowIcon}>
@@ -1494,36 +1495,66 @@ const MobileStatus = ({ status }: { status: Status }) => {
   ) : null
 }
 
-/** 字体大小：四档，直接影响聊天正文字号 */
+/** 字体大小：照官方——顶部预览、底部「跟随系统」开关 + A—A 七档滑块 */
 const MobileFontSizeContent = () => {
   const t = useTranslate()
   const fontScale = useSettings((state) => state.fontScale)
+  const [followSystem, setFollowSystem] = useState(
+    () => localStorage.getItem('chat-demo:font-follow-system') === 'true'
+  )
+  const level = nearestFontLevel(fontScale)
+
+  const applyLevel = (index: number) => {
+    setFontScale(fontSizeLevels[index])
+    setFollowSystem(false)
+    localStorage.setItem('chat-demo:font-follow-system', 'false')
+  }
+
   return (
-    <div className={styles.group}>
-      <div className={styles.card} role="radiogroup" aria-label={t('settingsFontSize')}>
-        {fontSizeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={Math.abs(fontScale - option.value) < 0.01}
-            className={styles.optionRow}
-            onClick={() => setFontScale(option.value)}
-          >
-            <span className={styles.rowLabel}>{t(option.key)}</span>
-            {Math.abs(fontScale - option.value) < 0.01 ? (
-              <span className={styles.optionCheck}>
-                <IconCheckOutline16 />
-              </span>
-            ) : null}
-          </button>
-        ))}
+    <div className={styles.fontPage}>
+      <div className={styles.fontPreviewArea} style={{ fontSize: `${16 * fontScale}px` }}>
+        <div className={styles.fontBubble}>{t('fontSizePreviewBubble')}</div>
+        <p className={styles.fontParagraph}>{t('fontSizePreviewLine1')}</p>
+        <p className={styles.fontParagraph}>{t('fontSizePreviewLine2')}</p>
       </div>
-      <div
-        className={styles.fontPreview}
-        style={{ fontSize: `${16 * fontScale}px` }}
-      >
-        {t('fontSizePreview')}
+      <div className={styles.fontSheet}>
+        <div className={styles.fontFollowRow}>
+          <span>{t('fontSizeFollowSystem')}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={followSystem}
+            className={clsx(styles.fontSwitch, followSystem && styles.fontSwitchOn)}
+            onClick={() => {
+              const next = !followSystem
+              setFollowSystem(next)
+              localStorage.setItem('chat-demo:font-follow-system', String(next))
+              if (next) {
+                setFontScale(1)
+              }
+            }}
+          >
+            <span className={styles.fontSwitchKnob} />
+          </button>
+        </div>
+        <div className={styles.fontSliderRow}>
+          <span className={styles.fontA}>A</span>
+          <div className={styles.fontSliderWrap}>
+            <div className={styles.fontLevelLabel}>{t(fontSizeLabelKeys[level])}</div>
+            <input
+              type="range"
+              min={0}
+              max={fontSizeLevels.length - 1}
+              step={1}
+              value={level}
+              disabled={followSystem}
+              className={styles.fontSlider}
+              aria-label={t('settingsFontSize')}
+              onChange={(event) => applyLevel(Number(event.target.value))}
+            />
+          </div>
+          <span className={clsx(styles.fontA, styles.fontALarge)}>A</span>
+        </div>
       </div>
     </div>
   )
@@ -1534,6 +1565,7 @@ const MobilePersonalizeContent = ({ onOpenLocation }: { onOpenLocation: () => vo
   const t = useTranslate()
   const displayName = useSettings((state) => state.displayName)
   const avatar = useSettings((state) => state.avatar)
+  const autoCollapseThinking = useSettings((state) => state.autoCollapseThinking)
   const location = useSettings((state) => state.location)
   const [name, setName] = useState(displayName)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1557,6 +1589,21 @@ const MobilePersonalizeContent = ({ onOpenLocation }: { onOpenLocation: () => vo
 
   return (
     <>
+      <MobileGroup>
+        <div className={clsx(styles.row, styles.rowStatic)}>
+          <span className={styles.rowLabel}>{t('personalizeCollapseThinking')}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoCollapseThinking}
+            className={clsx(styles.fontSwitch, autoCollapseThinking && styles.fontSwitchOn)}
+            onClick={() => setAutoCollapseThinking(!autoCollapseThinking)}
+          >
+            <span className={styles.fontSwitchKnob} />
+          </button>
+        </div>
+      </MobileGroup>
+      <div className={styles.profileHint}>{t('personalizeCollapseHint')}</div>
       <MobileGroup>
         <div className={styles.field}>
           <div className={styles.fieldLabel}>{t('personalizeAvatar')}</div>

@@ -52,6 +52,8 @@ type Settings = {
   displayName: string
   avatar: string | null
   fontScale: number
+  /** 思考内容结束后自动折叠（官方「个性化」里的开关） */
+  autoCollapseThinking: boolean
 }
 
 const KEYS = {
@@ -69,6 +71,7 @@ const KEYS = {
   displayName: 'chat-demo:display-name',
   avatar: 'chat-demo:avatar',
   fontScale: 'chat-demo:font-scale',
+  autoCollapseThinking: 'chat-demo:auto-collapse-thinking',
 } as const
 
 const read = (key: string) => {
@@ -214,6 +217,7 @@ export const useSettings = create<Settings>(() => ({
   displayName: read(KEYS.displayName) ?? 'DeepSeek 用户',
   avatar: read(KEYS.avatar),
   fontScale: Number(read(KEYS.fontScale)) || 1,
+  autoCollapseThinking: read(KEYS.autoCollapseThinking) !== 'false',
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -345,6 +349,11 @@ export const setAvatar = (avatar: string | null) => {
 export const setFontScale = (fontScale: number) => {
   write(KEYS.fontScale, String(fontScale))
   useSettings.setState({ fontScale })
+}
+
+export const setAutoCollapseThinking = (autoCollapseThinking: boolean) => {
+  write(KEYS.autoCollapseThinking, String(autoCollapseThinking))
+  useSettings.setState({ autoCollapseThinking })
 }
 
 export const setSiderCollapsed = (siderCollapsed: boolean) => {
