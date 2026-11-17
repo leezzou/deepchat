@@ -22,14 +22,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   const [backingUp, setBackingUp] = useState(false)
   // 订阅会话变化，压缩完检查点写入后横幅自然消失
   const latest = useChatStore((state) => state.sessionCache[session.id]) ?? session
-  if (!shouldWarnContext(latest)) {
-    // 已经压缩过的会话给一行轻提示，避免用户以为消息丢了
-    return latest.checkpoint ? (
-      <div className={styles.compacted}>{t('contextCompactedLabel')}</div>
-    ) : null
-  }
   const percent = Math.min(99, Math.round(contextPressure(latest) * 100))
-
   const runCompaction = async () => {
     if (compacting) {
       return
@@ -65,6 +58,61 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     }
   }
 
+  const renderConfirm = () => (
+    <Modal
+      title={t('contextRiskTitle')}
+      onClose={() => (compacting ? undefined : setConfirmOpen(false))}
+      footer={
+        <>
+          <Button variant="outlined" size="m" onClick={() => setConfirmOpen(false)}>
+            {t('cancel')}
+          </Button>
+          <Button
+            variant="dangerOutlined"
+            size="m"
+            disabled={compacting}
+            onClick={() => void runCompaction()}
+          >
+            {compacting ? t('contextCompacting') : t('contextRiskConfirm')}
+          </Button>
+        </>
+      }
+    >
+      <div className={styles.riskBody}>
+        <p className={styles.riskIntro}>{t('contextRiskIntro')}</p>
+        <ul className={styles.riskList}>
+          <li>{t('contextRiskItem1')}</li>
+          <li>{t('contextRiskItem2')}</li>
+          <li>{t('contextRiskItem3')}</li>
+          <li>{t('contextRiskItem4')}</li>
+        </ul>
+        <p className={styles.riskNote}>{t('contextRiskNote')}</p>
+        <button
+          type="button"
+          className={styles.backupButton}
+          disabled={backingUp}
+          onClick={() => void backupFirst()}
+        >
+          {backingUp ? t('contextBackingUp') : t('contextRiskBackup')}
+        </button>
+      </div>
+    </Modal>
+  )
+
+  if (!shouldWarnContext(latest)) {
+    // 没到阈值也给一行常驻的用量条，随时可以手动压缩（方便测试/主动整理）
+    return (
+      <div className={styles.meter}>
+        {latest.checkpoint ? <span>{t('contextCompactedLabel')} · </span> : null}
+        <span>{t('contextUsed', { percent })}</span>
+        <button type="button" className={styles.meterAction} onClick={() => setConfirmOpen(true)}>
+          {t('contextCompact')}
+        </button>
+        {confirmOpen ? renderConfirm() : null}
+      </div>
+    )
+  }
+
   return (
     <>
       <div className={styles.banner} role="status">
@@ -76,41 +124,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
           {t('contextCompact')}
         </button>
       </div>
-      {confirmOpen ? (
-        <Modal
-          title={t('contextRiskTitle')}
-          onClose={() => (compacting ? undefined : setConfirmOpen(false))}
-          footer={
-            <>
-              <Button variant="outlined" size="m" onClick={() => setConfirmOpen(false)}>
-                {t('cancel')}
-              </Button>
-              <Button variant="dangerOutlined" size="m" disabled={compacting} onClick={() => void runCompaction()}>
-                {compacting ? t('contextCompacting') : t('contextRiskConfirm')}
-              </Button>
-            </>
-          }
-        >
-          <div className={styles.riskBody}>
-            <p className={styles.riskIntro}>{t('contextRiskIntro')}</p>
-            <ul className={styles.riskList}>
-              <li>{t('contextRiskItem1')}</li>
-              <li>{t('contextRiskItem2')}</li>
-              <li>{t('contextRiskItem3')}</li>
-              <li>{t('contextRiskItem4')}</li>
-            </ul>
-            <p className={styles.riskNote}>{t('contextRiskNote')}</p>
-            <button
-              type="button"
-              className={styles.backupButton}
-              disabled={backingUp}
-              onClick={() => void backupFirst()}
-            >
-              {backingUp ? t('contextBackingUp') : t('contextRiskBackup')}
-            </button>
-          </div>
-        </Modal>
-      ) : null}
+      {confirmOpen ? renderConfirm() : null}
     </>
   )
 }

@@ -129,3 +129,29 @@
   color: #b9babb;
   cursor: default;
 }
+
+/* 未到阈值时的常驻用量条：一行小字 + 压缩入口 */
+.meter {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  margin-bottom: 4px;
+  color: #b9babb;
+  font-size: 11px;
+  line-height: 15px;
+  user-select: none;
+}
+
+.meterAction {
+  padding: 0;
+  border: none;
+  background: none;
+  color: #8e9094;
+  font: inherit;
+  font-size: 11px;
+  text-decoration: underline;
+  cursor: pointer;
+}

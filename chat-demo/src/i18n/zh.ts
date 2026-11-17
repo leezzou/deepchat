@@ -136,6 +136,7 @@ export const zh = {
   apiProfileAdd: '添加 API Key',
   apiProfileEdit: '编辑此配置',
   apiProfileProvider: '服务商',
+  contextUsed: '上下文 {percent}%',
   contextCompactedLabel: '上下文已压缩：更早的对话已折叠为摘要',
   contextAlmostFull: '上下文已使用 {percent}%，接近模型上限',
   contextRiskTitle: '压缩上下文前请确认',

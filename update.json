@@ -1,7 +1,7 @@
 {
-  "version": "1.0.5",
+  "version": "1.0.6",
   "publishedAt": "2026-11-17",
-  "notes": "压缩上下文前增加风险确认：说明原话/语气细节会丢失、摘要可能记错、App 内不可撤销，并提供「先导出备份（ZIP）」",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.5",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.5/deepchat.apk"
+  "notes": "输入框上方常驻「上下文 X% · 压缩上下文」，任何时候都能手动压缩（不用等到 80%）；达到 80% 仍会变成黄色警示条",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.6",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.6/deepchat.apk"
 }
