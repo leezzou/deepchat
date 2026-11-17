@@ -19,6 +19,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   const t = useTranslate()
   const [compacting, setCompacting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
+  const [summaryOpen, setSummaryOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
   // 订阅会话变化，压缩完检查点写入后横幅自然消失
   const latest = useChatStore((state) => state.sessionCache[session.id]) ?? session
@@ -56,6 +57,39 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     } finally {
       setBackingUp(false)
     }
+  }
+
+  /** 展示压缩后的摘要原文（去掉内部的 preamble 与标签，只留正文） */
+  const renderSummary = () => {
+    const checkpoint = latest.checkpoint
+    if (!checkpoint) {
+      return null
+    }
+    const body = checkpoint.text
+      .replace(/^[\s\S]*?<compacted-summary>/, '')
+      .replace(/<\/compacted-summary>[\s\S]*$/, '')
+      .trim()
+    return (
+      <Modal
+        title={t('contextSummaryTitle')}
+        onClose={() => setSummaryOpen(false)}
+        footer={
+          <Button variant="outlined" size="m" onClick={() => setSummaryOpen(false)}>
+            {t('close')}
+          </Button>
+        }
+      >
+        <div className={styles.summaryBody}>
+          <div className={styles.summaryMeta}>
+            {t('contextSummaryMeta', {
+              time: new Date(checkpoint.createdAt).toLocaleString(),
+              count: checkpoint.coveredMessages,
+            })}
+          </div>
+          <div className={styles.summaryText}>{body}</div>
+        </div>
+      </Modal>
+    )
   }
 
   const renderConfirm = () => (
@@ -103,12 +137,24 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     // 没到阈值也给一行常驻的用量条，随时可以手动压缩（方便测试/主动整理）
     return (
       <div className={styles.meter}>
-        {latest.checkpoint ? <span>{t('contextCompactedLabel')} · </span> : null}
+        {latest.checkpoint ? (
+          <>
+            <button
+              type="button"
+              className={styles.meterAction}
+              onClick={() => setSummaryOpen(true)}
+            >
+              {t('contextCompactedLabel')}
+            </button>
+            <span>·</span>
+          </>
+        ) : null}
         <span>{t('contextUsed', { percent })}</span>
         <button type="button" className={styles.meterAction} onClick={() => setConfirmOpen(true)}>
           {t('contextCompact')}
         </button>
         {confirmOpen ? renderConfirm() : null}
+        {summaryOpen ? renderSummary() : null}
       </div>
     )
   }
@@ -124,7 +170,13 @@ export const ContextBanner = ({ session }: { session: Session }) => {
           {t('contextCompact')}
         </button>
       </div>
+      {latest.checkpoint ? (
+        <button type="button" className={styles.meterAction} onClick={() => setSummaryOpen(true)}>
+          {t('contextSummaryView')}
+        </button>
+      ) : null}
       {confirmOpen ? renderConfirm() : null}
+      {summaryOpen ? renderSummary() : null}
     </>
   )
 }

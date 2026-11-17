@@ -1,7 +1,7 @@
 {
-  "version": "1.0.6",
+  "version": "1.0.7",
   "publishedAt": "2026-11-17",
-  "notes": "输入框上方常驻「上下文 X% · 压缩上下文」，任何时候都能手动压缩（不用等到 80%）；达到 80% 仍会变成黄色警示条",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.6",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.6/deepchat.apk"
+  "notes": "压缩后可以查看摘要：点「上下文已压缩」或「查看上下文摘要」打开完整摘要，含压缩时间与覆盖条数",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.7",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.7/deepchat.apk"
 }
