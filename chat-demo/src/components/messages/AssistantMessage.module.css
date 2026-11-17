@@ -155,7 +155,7 @@
   }
 
   .message :global(.ds-assistant-message-main-content) {
-    font-size: 16px;
+    font-size: calc(16px * var(--msg-font-scale, 1));
     line-height: 1.6;
   }
 

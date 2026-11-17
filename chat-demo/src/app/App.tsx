@@ -67,6 +67,12 @@ export const App = () => {
     document.documentElement.lang = locale
   }, [locale])
 
+  // 聊天字号倍率
+  const fontScale = useSettings((state) => state.fontScale)
+  useEffect(() => {
+    document.documentElement.style.setProperty('--msg-font-scale', String(fontScale || 1))
+  }, [fontScale])
+
   // 文件数、存储空间达到上限时，附件上只显示「上传失败」，原因用 toast 说明
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])

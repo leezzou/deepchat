@@ -16,10 +16,13 @@ import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import styles from './ContextBanner.module.css'
 
+const RING_SIZE = 30
+const RING_RADIUS = 12
+const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS
+
 /**
- * 上下文即将超限时提示用户，并给一个「压缩上下文」入口。
- * 压缩方式与 DSH 一致：把较早轮次压成结构化 checkpoint，保留最近约 16%。
- * 压缩会丢弃旧消息原文、只留摘要——对聊天用户是不可逆的信息损失，所以先弹风险确认。
+ * 上下文额度圆环（仿 DSH）：显示当前用量百分比，点击打开操作面板。
+ * 达到 80% 时圆环变橙色，提示压缩；30% 以下不允许压缩。
  */
 export const ContextBanner = ({ session }: { session: Session }) => {
   const t = useTranslate()
@@ -28,10 +31,16 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [editingSummary, setEditingSummary] = useState(false)
   const [summaryDraft, setSummaryDraft] = useState('')
+  const [panelOpen, setPanelOpen] = useState(false)
   const [backingUp, setBackingUp] = useState(false)
-  // 订阅会话变化，压缩完检查点写入后横幅自然消失
   const latest = useChatStore((state) => state.sessionCache[session.id]) ?? session
-  const percent = Math.min(99, Math.round(contextPressure(latest) * 100))
+
+  const percent = Math.min(100, Math.round(contextPressure(latest) * 100))
+  const warn = shouldWarnContext(latest)
+  const can = canCompact(latest)
+  const stroke = warn ? '#F5A623' : '#426EFE'
+  const dash = Math.max(percent, 3)
+
   const runCompaction = async () => {
     if (compacting) {
       return
@@ -41,6 +50,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
       const result = await compactSession(latest.id)
       if (result.ok) {
         setConfirmOpen(false)
+        setPanelOpen(false)
         showToast({ key: 'contextCompacted', params: { count: result.covered } })
       } else {
         showToast({ key: 'contextCompactFailed', params: { message: result.message.slice(0, 80) } })
@@ -50,7 +60,6 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     }
   }
 
-  /** 压缩前建议先备份：导出全部历史对话为 ZIP */
   const backupFirst = async () => {
     if (backingUp) {
       return
@@ -67,7 +76,6 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     }
   }
 
-  /** 展示压缩后的摘要原文（去掉内部的 preamble 与标签，只留正文） */
   const renderSummary = () => {
     const checkpoint = latest.checkpoint
     if (!checkpoint) {
@@ -188,55 +196,82 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     </Modal>
   )
 
-  if (!shouldWarnContext(latest)) {
-    // 没到阈值也给一行常驻的用量条，随时可以手动压缩（方便测试/主动整理）
-    return (
-      <div className={styles.meter}>
-        {latest.checkpoint ? (
-          <>
-            <button
-              type="button"
-              className={styles.meterAction}
-              onClick={() => setSummaryOpen(true)}
-            >
-              {t('contextCompactedLabel')}
-            </button>
-            <span>·</span>
-          </>
-        ) : null}
-        <span>{t('contextUsed', { percent })}</span>
-        {canCompact(latest) ? (
-          <button
-            type="button"
-            className={styles.meterAction}
-            onClick={() => setConfirmOpen(true)}
-          >
-            {t('contextCompact')}
-          </button>
-        ) : (
-          <span className={styles.meterLocked}>{t('contextCompactLocked')}</span>
-        )}
-        {confirmOpen ? renderConfirm() : null}
-        {summaryOpen ? renderSummary() : null}
-      </div>
-    )
-  }
-
   return (
     <>
-      <div className={styles.banner} role="status">
-        <div className={styles.text}>
-          <div className={styles.title}>{t('contextAlmostFull', { percent })}</div>
-          <div className={styles.hint}>{t('contextCompactHint')}</div>
-        </div>
-        <button type="button" className={styles.action} onClick={() => setConfirmOpen(true)}>
-          {t('contextCompact')}
+      <div className={styles.ringRow}>
+        <button
+          type="button"
+          className={styles.ring}
+          aria-label={t('contextUsed', { percent })}
+          onClick={() => setPanelOpen(true)}
+        >
+          <svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
+            <circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke="var(--ctx-track, #ededed)"
+              strokeWidth={2.4}
+            />
+            <circle
+              cx={RING_SIZE / 2}
+              cy={RING_SIZE / 2}
+              r={RING_RADIUS}
+              fill="none"
+              stroke={stroke}
+              strokeWidth={2.4}
+              strokeLinecap="round"
+              strokeDasharray={`${(dash / 100) * CIRCUMFERENCE} ${CIRCUMFERENCE}`}
+              transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+            />
+          </svg>
+          <span className={styles.ringText}>{percent}</span>
         </button>
       </div>
-      {latest.checkpoint ? (
-        <button type="button" className={styles.meterAction} onClick={() => setSummaryOpen(true)}>
-          {t('contextSummaryView')}
-        </button>
+      {panelOpen ? (
+        <Modal
+          title={t('contextPanelTitle')}
+          onClose={() => setPanelOpen(false)}
+          footer={
+            <>
+              <Button variant="outlined" size="m" onClick={() => setPanelOpen(false)}>
+                {t('close')}
+              </Button>
+              {can ? (
+                <Button
+                  variant="primary"
+                  size="m"
+                  onClick={() => {
+                    setPanelOpen(false)
+                    setConfirmOpen(true)
+                  }}
+                >
+                  {t('contextCompact')}
+                </Button>
+              ) : null}
+            </>
+          }
+        >
+          <div className={styles.panelBody}>
+            <p className={styles.panelPercent}>{t('contextUsed', { percent })}</p>
+            <p className={styles.panelHint}>
+              {can ? t('contextCompactHint') : t('contextCompactLocked')}
+            </p>
+            {latest.checkpoint ? (
+              <button
+                type="button"
+                className={styles.backupButton}
+                onClick={() => {
+                  setPanelOpen(false)
+                  setSummaryOpen(true)
+                }}
+              >
+                {t('contextSummaryView')}
+              </button>
+            ) : null}
+          </div>
+        </Modal>
       ) : null}
       {confirmOpen ? renderConfirm() : null}
       {summaryOpen ? renderSummary() : null}

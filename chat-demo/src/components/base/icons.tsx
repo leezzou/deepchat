@@ -555,6 +555,7 @@ export const IconSpeakerWaves24 = () => (
 )
 
 /** 自动朗读关闭：同上再叠一条斜杠 */
+/** 自动朗读关闭：只有喇叭 + 斜杠，和官方 header 的静音图标一致 */
 export const IconSpeakerWavesOff24 = () => (
   <svg width={24} height={24} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
     <g
@@ -564,10 +565,8 @@ export const IconSpeakerWavesOff24 = () => (
       strokeLinejoin="round"
       fill="none"
     >
-      <path d="M10.8 4.9 6.2 8.7H3.1v6.6h3.1l4.6 3.8z" />
-      <path d="M14.6 9.1a4.2 4.2 0 0 1 0 5.8" />
-      <path d="M17.7 6.4a8 8 0 0 1 0 11.2" />
-      <path d="M2.6 2.6 21.4 21.4" />
+      <path d="M11.4 5.2 6.6 8.9H3.4v6.2h3.2l4.8 3.7z" />
+      <path d="M4.2 4.2 19.8 19.8" />
     </g>
   </svg>
 )
@@ -601,5 +600,16 @@ export const IconArrowUp24 = () => (
       d="M12 4.6a1 1 0 0 1 .7.3l6.2 6.2a1 1 0 1 1-1.4 1.4l-4.5-4.5V19a1 1 0 1 1-2 0V8l-4.5 4.5a1 1 0 1 1-1.4-1.4l6.2-6.2a1 1 0 0 1 .7-.3z"
       fill="currentColor"
     />
+  </svg>
+)
+
+/** 分享：方框 + 向上箭头 */
+export const IconShareOutline16 = () => (
+  <svg width={16} height={16} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <g stroke="currentColor" strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 1.9v8.2" />
+      <path d="M5 4.6 8 1.9l3 2.7" />
+      <path d="M3.2 8.2v4.4c0 .8.6 1.4 1.4 1.4h6.8c.8 0 1.4-.6 1.4-1.4V8.2" />
+    </g>
   </svg>
 )

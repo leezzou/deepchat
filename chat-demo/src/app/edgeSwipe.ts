@@ -1,9 +1,10 @@
 import { useEffect } from 'react'
 
 // 左三分之一屏内向右滑都能打开（Android 系统边缘返回手势会抢走真正的贴边滑动）
-const EDGE_RATIO = 0.33
-const OPEN_DISTANCE = 56
-const CLOSE_DISTANCE = 56
+const EDGE_RATIO = 0.5
+// 阈值调低，快滑也能触发（用户反馈原来不灵敏）
+const OPEN_DISTANCE = 36
+const CLOSE_DISTANCE = 36
 
 /**
  * 移动端手势：从屏幕左缘向右滑打开对话抽屉，抽屉打开时向左滑关闭。
@@ -43,7 +44,12 @@ export const useEdgeSwipe = (enabled: boolean, open: boolean, onOpen: () => void
       const touch = event.touches[0]
       const dx = touch.clientX - startX
       const dy = touch.clientY - startY
-      if (Math.abs(dy) > Math.abs(dx)) {
+      // 明确横向时才接管，接管后阻止滚动，避免 WebView 抢走手势
+      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        if (event.cancelable) {
+          event.preventDefault()
+        }
+      } else if (Math.abs(dy) > Math.abs(dx)) {
         tracking = false
         return
       }
@@ -61,15 +67,15 @@ export const useEdgeSwipe = (enabled: boolean, open: boolean, onOpen: () => void
       mode = null
     }
 
-    document.addEventListener('touchstart', onStart, { passive: true })
-    document.addEventListener('touchmove', onMove, { passive: true })
-    document.addEventListener('touchend', onEnd, { passive: true })
-    document.addEventListener('touchcancel', onEnd, { passive: true })
+    document.addEventListener('touchstart', onStart, { passive: true, capture: true })
+    document.addEventListener('touchmove', onMove, { passive: false, capture: true })
+    document.addEventListener('touchend', onEnd, { passive: true, capture: true })
+    document.addEventListener('touchcancel', onEnd, { passive: true, capture: true })
     return () => {
-      document.removeEventListener('touchstart', onStart)
-      document.removeEventListener('touchmove', onMove)
-      document.removeEventListener('touchend', onEnd)
-      document.removeEventListener('touchcancel', onEnd)
+      document.removeEventListener('touchstart', onStart, true)
+      document.removeEventListener('touchmove', onMove, true)
+      document.removeEventListener('touchend', onEnd, true)
+      document.removeEventListener('touchcancel', onEnd, true)
     }
   }, [enabled, open, onOpen, onClose])
 }

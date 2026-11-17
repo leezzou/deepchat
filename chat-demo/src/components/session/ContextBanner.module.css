@@ -213,3 +213,72 @@
 .meterLocked {
   color: #d4d5d7;
 }
+
+/* 仿 DSH 的上下文额度圆环：透明背景，靠右贴在输入卡片上方 */
+.ringRow {
+  display: flex;
+  flex-shrink: 0;
+  justify-content: flex-end;
+  width: 100%;
+  margin-bottom: 5px;
+  padding-right: 3px;
+  background: transparent;
+}
+
+.ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ringText {
+  position: absolute;
+  color: #8e9094;
+  font-size: 9px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+
+[data-ds-dark-theme] .ring {
+  --ctx-track: #3c3c3d;
+}
+
+[data-ds-dark-theme] .ringText {
+  color: #b9babb;
+}
+
+.panelBody {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: #0f0f0f;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+[data-ds-dark-theme] .panelBody {
+  color: #f8f8f8;
+}
+
+.panelPercent {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.panelHint {
+  margin: 0;
+  color: #8e9094;
+  font-size: 13px;
+  line-height: 19px;
+}

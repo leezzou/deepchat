@@ -1,7 +1,7 @@
 {
-  "version": "1.0.11",
+  "version": "1.0.12",
   "publishedAt": "2026-11-17",
-  "notes": "修复返回逻辑：设置二级页逐层回退（表单→列表→根页→关闭）；新增左滑打开对话列表、抽屉内左滑关闭",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.11",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.11/deepchat.apk"
+  "notes": "对齐官方细节：上下文额度圆环（透明背景，仿 DSH）、自动朗读静音图标、字体大小/个性化/退出登录、抽屉头像昵称、消息分享、弹窗动效；手势更灵敏",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.12",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.12/deepchat.apk"
 }

@@ -66,3 +66,32 @@
   gap: 8px;
   margin-top: 20px;
 }
+
+/* 弹窗进出动画：淡入 + 轻微放大，和官方 App 的模态一致 */
+.overlay {
+  animation: modalOverlayIn 180ms ease-out;
+}
+
+.content {
+  animation: modalContentIn 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes modalOverlayIn {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes modalContentIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .content {
+    animation: none;
+  }
+}

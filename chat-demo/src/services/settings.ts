@@ -49,6 +49,9 @@ type Settings = {
   /** 回复生成后自动朗读（官方 header 的「自动朗读」开关） */
   autoRead: boolean
   siderCollapsed: boolean
+  displayName: string
+  avatar: string | null
+  fontScale: number
 }
 
 const KEYS = {
@@ -63,6 +66,9 @@ const KEYS = {
   search: 'chat-demo:search',
   autoRead: 'chat-demo:auto-read',
   siderCollapsed: 'chat-demo:sider-collapsed',
+  displayName: 'chat-demo:display-name',
+  avatar: 'chat-demo:avatar',
+  fontScale: 'chat-demo:font-scale',
 } as const
 
 const read = (key: string) => {
@@ -205,6 +211,9 @@ export const useSettings = create<Settings>(() => ({
   search: read(KEYS.search) !== 'false',
   autoRead: read(KEYS.autoRead) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
+  displayName: read(KEYS.displayName) ?? 'DeepSeek 用户',
+  avatar: read(KEYS.avatar),
+  fontScale: Number(read(KEYS.fontScale)) || 1,
 }))
 
 export const setLocale = (locale: Locale) => {
@@ -280,6 +289,11 @@ export const selectApiProfile = (id: string) => {
   applyProfiles(useSettings.getState().apiProfiles, id)
 }
 
+/** 退出登录：清空全部 API 配置（对话记录保留） */
+export const clearApiProfiles = () => {
+  applyProfiles([], null)
+}
+
 /** 生成一条空白配置 */
 export const createApiProfile = (): ApiProfile => ({
   id: newProfileId(),
@@ -316,6 +330,21 @@ export const setSearch = (search: boolean) => {
 export const setAutoRead = (autoRead: boolean) => {
   write(KEYS.autoRead, String(autoRead))
   useSettings.setState({ autoRead })
+}
+
+export const setDisplayName = (displayName: string) => {
+  write(KEYS.displayName, displayName.trim() || 'DeepSeek 用户')
+  useSettings.setState({ displayName: displayName.trim() || 'DeepSeek 用户' })
+}
+
+export const setAvatar = (avatar: string | null) => {
+  write(KEYS.avatar, avatar)
+  useSettings.setState({ avatar })
+}
+
+export const setFontScale = (fontScale: number) => {
+  write(KEYS.fontScale, String(fontScale))
+  useSettings.setState({ fontScale })
 }
 
 export const setSiderCollapsed = (siderCollapsed: boolean) => {

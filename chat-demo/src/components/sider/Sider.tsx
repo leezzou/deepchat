@@ -8,7 +8,7 @@ import {
   IconSettingsOutline16,
   NewChatIcon,
 } from '../base/icons.js'
-import { setSiderCollapsed } from '../../services/settings.js'
+import { setSiderCollapsed, useSettings } from '../../services/settings.js'
 import { groupSessions } from '../../services/chat/sessionGroups.js'
 import { newChat, removeSession, useChatStore } from '../../services/chat/store.js'
 import type { SessionSummary } from '../../services/chat/types.js'
@@ -20,9 +20,6 @@ import { openSettings } from '../settings/settingsDialogState.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
 import { SessionItem } from './SessionItem.js'
 import styles from './Sider.module.css'
-
-/** 移动端抽屉底部展示的身份：本 demo 没有账号体系，统一显示「我」 */
-const localUserName = '我'
 
 /** 没有账号头像时的中性线稿头像 */
 const AvatarGlyph = () => (
@@ -40,6 +37,8 @@ const AvatarGlyph = () => (
 /** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
 export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
+  const userName = useSettings((state) => state.displayName)
+  const avatar = useSettings((state) => state.avatar)
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
@@ -160,9 +159,9 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
       {mobile ? (
         <div className={styles.footer}>
           <div className={styles.avatar}>
-            <AvatarGlyph />
+            {avatar ? <img className={styles.avatarImage} src={avatar} alt="" /> : <AvatarGlyph />}
           </div>
-          <div className={styles.userName}>{localUserName}</div>
+          <div className={styles.userName}>{userName}</div>
           <IconButton
             className={styles.footerMore}
             icon={<IconEllipsisOutline16 />}

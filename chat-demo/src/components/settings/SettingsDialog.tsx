@@ -32,6 +32,10 @@ import {
   removeApiProfile,
   saveApiProfile,
   selectApiProfile,
+  clearApiProfiles,
+  setAvatar,
+  setDisplayName,
+  setFontScale,
   setLocale,
   setLocation,
   setThemePreference,
@@ -160,7 +164,16 @@ const SettingsContent = () => {
 }
 
 /** 移动端二级页：设置根页与各二级页 */
-type MobilePage = 'root' | 'apiKey' | 'guide' | 'data' | 'compacted' | 'appearance' | 'location'
+type MobilePage =
+  | 'root'
+  | 'apiKey'
+  | 'guide'
+  | 'data'
+  | 'compacted'
+  | 'appearance'
+  | 'fontSize'
+  | 'personalize'
+  | 'location'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
@@ -169,8 +182,22 @@ const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
   data: '数据管理',
   compacted: '已压缩的对话',
   appearance: '外观',
+  fontSize: '字体大小',
+  personalize: '个性化',
   location: '位置信息',
 }
+
+/** 字号档位：0.9 / 1 / 1.1 / 1.25 */
+const fontSizeOptions: { value: number; key: TranslationKey }[] = [
+  { value: 0.9, key: 'fontSizeSmall' },
+  { value: 1, key: 'fontSizeStandard' },
+  { value: 1.1, key: 'fontSizeLarge' },
+  { value: 1.25, key: 'fontSizeXLarge' },
+]
+
+const fontSizeLabelKeys: Record<number, TranslationKey> = Object.fromEntries(
+  fontSizeOptions.map((item) => [item.value, item.key])
+) as Record<number, TranslationKey>
 
 /** 外观页顺序与官方一致：跟随系统 / 浅色 / 深色 */
 const mobileThemeOrder: ThemePreference[] = ['system', 'light', 'dark']
@@ -274,6 +301,10 @@ const MobileSettings = () => {
             ) : null}
             {page === 'compacted' ? <MobileCompactedContent /> : null}
             {page === 'appearance' ? <MobileAppearanceContent /> : null}
+            {page === 'fontSize' ? <MobileFontSizeContent /> : null}
+            {page === 'personalize' ? (
+              <MobilePersonalizeContent onOpenLocation={() => setPage('location')} />
+            ) : null}
             {page === 'location' ? <MobileLocationContent /> : null}
           </div>
         </div>
@@ -301,6 +332,38 @@ const MobileHeader = ({ title, onBack }: { title: string; onBack: () => void }) 
     </button>
     <div className={styles.pageTitle}>{title}</div>
   </div>
+)
+
+/** 字体大小图标：Aa */
+const IconFontSize = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M4 19 9.2 6h1.6L16 19" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6.1 15h7.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+    <path d="M16.4 19 19.3 12h1.2L23 19" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+)
+
+/** 个性化图标：调色盘 */
+const IconPersonalize = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path
+      d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-.9-.7-1.5-.7-2.3 0-.9.7-1.5 1.6-1.5H16a5 5 0 0 0 5-5c0-4.1-4-7.5-9-7.5Z"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinejoin="round"
+    />
+    <circle cx="7.8" cy="9.4" r="1.1" fill="currentColor" />
+    <circle cx="12" cy="7" r="1.1" fill="currentColor" />
+    <circle cx="16.2" cy="9.4" r="1.1" fill="currentColor" />
+  </svg>
+)
+
+/** 退出登录图标：门 + 箭头 */
+const IconSignOut = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M9.5 8 5.5 12l4 4M5.8 12H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
 )
 
 /** 账户图标：钥匙 */
@@ -433,8 +496,8 @@ const MobileRootContent = ({
   const locale = useSettings((state) => state.locale)
   const themePreference = useSettings((state) => state.themePreference)
   const ttsVoice = useSettings((state) => state.ttsVoice)
-  const location = useSettings((state) => state.location)
   const [helpOpen, setHelpOpen] = useState(false)
+  const [signOutOpen, setSignOutOpen] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
   const [update, setUpdate] = useState<
     | { status: 'latest' | 'available' | 'error' | 'no-release'; release?: ReleaseInfo }
@@ -473,16 +536,6 @@ const MobileRootContent = ({
     }
     void openExternal(release.pageUrl)
   }
-  const province =
-    location?.region === 'CN'
-      ? provinces.find((item) => item.code === location.province)
-      : undefined
-  const city = province?.cities.find((item) => item.code === location?.city)
-  const locationValue = location
-    ? location.region === 'CN'
-      ? [province?.name, city?.name].filter(Boolean).join(' ') || '未设置'
-      : getRegionName(location.region, locale)
-    : '未设置'
   return (
     <>
       <MobileGroup title="账户">
@@ -522,10 +575,15 @@ const MobileRootContent = ({
           onClick={() => onOpenPage('appearance')}
         />
         <MobileRow
-          icon={<IconLocation />}
-          label={t('settingsLocation')}
-          value={locationValue}
-          onClick={() => onOpenPage('location')}
+          icon={<IconFontSize />}
+          label={t('settingsFontSize')}
+          value={t(fontSizeLabelKeys[useSettings.getState().fontScale] ?? 'fontSizeStandard')}
+          onClick={() => onOpenPage('fontSize')}
+        />
+        <MobileRow
+          icon={<IconPersonalize />}
+          label={t('settingsPersonalize')}
+          onClick={() => onOpenPage('personalize')}
         />
       </MobileGroup>
       <MobileGroup title="语音">
@@ -637,7 +695,45 @@ const MobileRootContent = ({
           </span>
         </button>
       </MobileGroup>
+      <MobileGroup wide>
+        <button type="button" className={styles.row} onClick={() => setSignOutOpen(true)}>
+          <span className={styles.rowIcon}>
+            <IconSignOut />
+          </span>
+          <span className={styles.rowLabel}>{t('settingsSignOut')}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+      </MobileGroup>
       {version ? <div className={styles.meta}>版本 {version}</div> : null}
+      {signOutOpen ? (
+        <Modal
+          title={t('settingsSignOut')}
+          onClose={() => setSignOutOpen(false)}
+          footer={
+            <>
+              <Button variant="outlined" size="m" onClick={() => setSignOutOpen(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="dangerOutlined"
+                size="m"
+                onClick={() => {
+                  setSignOutOpen(false)
+                  clearApiProfiles()
+                  closeSettings()
+                  showToast({ key: 'signedOut' })
+                }}
+              >
+                {t('settingsSignOut')}
+              </Button>
+            </>
+          }
+        >
+          <div className={styles.riskNote}>{t('settingsSignOutHint')}</div>
+        </Modal>
+      ) : null}
       {helpOpen ? (
         <Modal
           title="帮助与反馈"
@@ -1396,6 +1492,132 @@ const MobileStatus = ({ status }: { status: Status }) => {
       {t(status.key, status.reason ? { message: t(status.reason) } : status.params)}
     </div>
   ) : null
+}
+
+/** 字体大小：四档，直接影响聊天正文字号 */
+const MobileFontSizeContent = () => {
+  const t = useTranslate()
+  const fontScale = useSettings((state) => state.fontScale)
+  return (
+    <div className={styles.group}>
+      <div className={styles.card} role="radiogroup" aria-label={t('settingsFontSize')}>
+        {fontSizeOptions.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={Math.abs(fontScale - option.value) < 0.01}
+            className={styles.optionRow}
+            onClick={() => setFontScale(option.value)}
+          >
+            <span className={styles.rowLabel}>{t(option.key)}</span>
+            {Math.abs(fontScale - option.value) < 0.01 ? (
+              <span className={styles.optionCheck}>
+                <IconCheckOutline16 />
+              </span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+      <div
+        className={styles.fontPreview}
+        style={{ fontSize: `${16 * fontScale}px` }}
+      >
+        {t('fontSizePreview')}
+      </div>
+    </div>
+  )
+}
+
+/** 个性化：头像、昵称、位置 */
+const MobilePersonalizeContent = ({ onOpenLocation }: { onOpenLocation: () => void }) => {
+  const t = useTranslate()
+  const displayName = useSettings((state) => state.displayName)
+  const avatar = useSettings((state) => state.avatar)
+  const location = useSettings((state) => state.location)
+  const [name, setName] = useState(displayName)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  const pickAvatar = async (file: File) => {
+    const bitmap = await createImageBitmap(file)
+    const canvas = document.createElement('canvas')
+    const size = 96
+    canvas.width = size
+    canvas.height = size
+    const context = canvas.getContext('2d')
+    if (!context) {
+      return
+    }
+    const scale = Math.max(size / bitmap.width, size / bitmap.height)
+    const w = bitmap.width * scale
+    const h = bitmap.height * scale
+    context.drawImage(bitmap, (size - w) / 2, (size - h) / 2, w, h)
+    setAvatar(canvas.toDataURL('image/jpeg', 0.85))
+  }
+
+  return (
+    <>
+      <MobileGroup>
+        <div className={styles.field}>
+          <div className={styles.fieldLabel}>{t('personalizeAvatar')}</div>
+          <div className={styles.avatarRow}>
+            <span className={styles.avatarPreview}>
+              {avatar ? <img src={avatar} alt="" /> : <IconPersonalize />}
+            </span>
+            <button type="button" className={styles.fetchButton} onClick={() => inputRef.current?.click()}>
+              {t('personalizePickAvatar')}
+            </button>
+            {avatar ? (
+              <button type="button" className={styles.fetchButton} onClick={() => setAvatar(null)}>
+                {t('personalizeResetAvatar')}
+              </button>
+            ) : null}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*"
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0]
+              event.target.value = ''
+              if (file) {
+                void pickAvatar(file)
+              }
+            }}
+          />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="profile-name">
+            {t('personalizeName')}
+          </label>
+          <input
+            id="profile-name"
+            className={styles.fieldInput}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => setDisplayName(name)}
+            placeholder={t('personalizeNamePlaceholder')}
+          />
+        </div>
+      </MobileGroup>
+      <MobileGroup>
+        <button type="button" className={styles.row} onClick={onOpenLocation}>
+          <span className={styles.rowIcon}>
+            <IconLocation />
+          </span>
+          <span className={styles.rowLabel}>{t('settingsLocation')}</span>
+          <span className={styles.rowValue}>
+            {location ? (location.region === 'CN' ? location.province ?? '已设置' : getRegionName(location.region, 'zh-CN')) : '未设置'}
+          </span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+      </MobileGroup>
+      <div className={styles.profileHint}>{t('personalizeHint')}</div>
+    </>
+  )
 }
 
 /** 外观：单列三个选项，当前项右侧显示蓝色对勾 */
