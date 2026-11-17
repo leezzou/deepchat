@@ -292,7 +292,7 @@
  * 移动端：设置是覆盖整个视口的整页（不是底部弹层），顶栏 56px + 分组卡片，
  * 二级页叠在根页之上，统一从右侧滑入。
  */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .page {
     position: fixed;
     inset: 0;
@@ -693,7 +693,7 @@
   width: 100%;
 }
 
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .deleteActions > button {
     min-height: 44px;
     height: auto;
@@ -706,7 +706,7 @@
 }
 
 /* ---------- API 配置列表 / 表单（多 Key 与自定义接口地址） ---------- */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   /* 一行 = 主体按钮（切换）+ 右侧 ⋯（编辑），主体与 ⋯ 都是可点区域 */
   .profileRow {
     display: flex;
@@ -809,7 +809,7 @@
 }
 
 /* 模型列表获取按钮：贴在输入框下面的小号文字按钮 */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .fieldAction {
     display: flex;
     gap: 16px;
@@ -834,7 +834,7 @@
   }
 }
 
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .updateBody {
     display: flex;
     flex-direction: column;
@@ -877,7 +877,7 @@
 }
 
 /* ---------- 申请官方 API Key 指引 ---------- */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .guideIntro {
     margin: 0 16px 16px;
     color: #4b4b4b;
@@ -945,7 +945,7 @@
 }
 
 /* ---------- 已压缩的对话 ---------- */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .compactedItem {
     & + & {
       border-top: 1px solid rgba(15, 15, 15, 0.06);
@@ -967,7 +967,7 @@
   }
 }
 
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .fontPreview {
     margin: 16px 0 0;
     padding: 12px 14px;
@@ -1012,7 +1012,7 @@
 }
 
 /* ---------- 字体大小（仿官方：预览 + 底部面板） ---------- */
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .fontPage {
     display: flex;
     flex-direction: column;
@@ -1180,14 +1180,14 @@
   }
 }
 
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   /* range 滑块自己处理手势，避免被整页滚动拦截 */
   .fontSlider {
     touch-action: none;
   }
 }
 
-@media not all and (min-width: 768px) {
+@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
   .voiceDialog {
     align-self: flex-end;
     width: 100%;
@@ -1290,5 +1290,21 @@
 @media (prefers-reduced-motion: reduce) {
   .voiceCard {
     transition: none;
+  }
+}
+
+/* 触摸平板：使用完整设置页，但限制内容宽度，避免横屏一行拉得过长 */
+@media (pointer: coarse) and (min-width: 768px) {
+  .page .body,
+  .subPage .body {
+    width: min(100%, 760px);
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .voiceDialog {
+    max-width: 560px;
+    margin: 0 auto 24px;
+    border-radius: 24px;
   }
 }

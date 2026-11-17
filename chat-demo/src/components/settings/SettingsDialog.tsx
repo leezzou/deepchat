@@ -23,7 +23,7 @@ import {
   exportHistory,
   importHistory,
 } from '../../services/chat/backup.js'
-import { useIsMobile } from '../../app/viewport.js'
+import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
@@ -80,11 +80,11 @@ import styles from './Settings.module.css'
  */
 export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
-  const isMobile = useIsMobile()
+  const isSettingsMobile = useIsSettingsMobile()
   if (!open) {
     return null
   }
-  return isMobile ? <MobileSettings /> : <SettingsContent />
+  return isSettingsMobile ? <MobileSettings /> : <SettingsContent />
 }
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [

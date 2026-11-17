@@ -1,7 +1,7 @@
 {
-  "version": "1.0.16",
+  "version": "1.0.17",
   "publishedAt": "2026-11-17",
-  "notes": "音色选择改为中国人物形象，开关统一为品牌蓝，移除音色面板冗余说明；重写 README，新增 GPT 主视觉、应用截图和开发文档",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.16",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.16/deepchat.apk"
+  "notes": "平板横屏设置页改为完整手机版布局，补齐字体大小、个性化、账号资料和检查更新等入口；设置内容居中显示，音色弹层适配平板宽度",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.17",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.17/deepchat.apk"
 }

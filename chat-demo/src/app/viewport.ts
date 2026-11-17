@@ -10,6 +10,23 @@ const subscribe = (onChange: () => void) => {
 
 export const useIsMobile = () => useSyncExternalStore(subscribe, () => query.matches)
 
+/**
+ * 设置页在触摸平板上也使用完整的移动端页面。
+ * 桌面弹窗只有「通用设置 / 数据管理」两组，平板会缺少字体大小、个性化、
+ * 账号资料和检查更新等入口；这里按输入方式而不是仅按宽度切换。
+ */
+const settingsQuery = window.matchMedia(
+  'not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px)'
+)
+
+const subscribeSettings = (onChange: () => void) => {
+  settingsQuery.addEventListener('change', onChange)
+  return () => settingsQuery.removeEventListener('change', onChange)
+}
+
+export const useIsSettingsMobile = () =>
+  useSyncExternalStore(subscribeSettings, () => settingsQuery.matches)
+
 const preventPageScroll = (event: TouchEvent) => {
   if (event.touches.length !== 1) {
     return
