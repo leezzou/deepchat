@@ -1,7 +1,7 @@
 {
-  "version": "1.0.17",
+  "version": "1.0.18",
   "publishedAt": "2026-11-17",
-  "notes": "平板横屏设置页改为完整手机版布局，补齐字体大小、个性化、账号资料和检查更新等入口；设置内容居中显示，音色弹层适配平板宽度",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.17",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.17/deepchat.apk"
+  "notes": "更新提醒红点覆盖手机主界面、侧栏及平板/桌面设置入口；设置页继续显示新版本提示",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.18",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.18/deepchat.apk"
 }

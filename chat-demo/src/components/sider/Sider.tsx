@@ -179,6 +179,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
           <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
             <span className={styles.settingsIcon}>
               <IconSettingsOutline16 />
+              {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
             </span>
             <span className={styles.settingsLabel}>{t('settings')}</span>
           </button>

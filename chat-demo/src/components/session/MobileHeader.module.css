@@ -14,6 +14,23 @@
   height: 24px;
 }
 
+.menuWrap {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.updateDot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ec1313;
+  pointer-events: none;
+}
+
 .title {
   flex: 1;
   min-width: 0;

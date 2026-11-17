@@ -149,6 +149,7 @@
 }
 
 .settingsIcon {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -190,6 +191,11 @@
   border: 1px solid var(--dsw-alias-border-l2);
   background: var(--dsw-alias-bg-layer-3);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+}
+
+.collapsedItem {
+  position: relative;
+  display: flex;
 }
 
 .drawer {

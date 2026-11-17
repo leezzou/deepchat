@@ -7,6 +7,7 @@ import {
 import { useTranslate } from '../../i18n/index.js'
 import { newChat } from '../../services/chat/store.js'
 import { setAutoRead, useSettings } from '../../services/settings.js'
+import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
 import { openMobileSider } from '../sider/mobileSiderState.js'
 import styles from './MobileHeader.module.css'
@@ -18,15 +19,19 @@ import styles from './MobileHeader.module.css'
 export const MobileHeader = ({ title }: { title?: string }) => {
   const t = useTranslate()
   const autoRead = useSettings((state) => state.autoRead)
+  const hasUpdate = useUpdateNotice((state) => state.available !== null)
   return (
     <div className={styles.header}>
-      <IconButton
-        size="xl"
-        tone="primary"
-        icon={<IconMenuDouble24 />}
-        aria-label={t('expandSiderbarButton')}
-        onClick={openMobileSider}
-      />
+      <span className={styles.menuWrap}>
+        <IconButton
+          size="xl"
+          tone="primary"
+          icon={<IconMenuDouble24 />}
+          aria-label={hasUpdate ? `${t('expandSiderbarButton')}，${t('updateBadge')}` : t('expandSiderbarButton')}
+          onClick={openMobileSider}
+        />
+        {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
+      </span>
       {title === undefined ? null : <div className={styles.title}>{title}</div>}
       <div className={styles.right}>
         <IconButton
