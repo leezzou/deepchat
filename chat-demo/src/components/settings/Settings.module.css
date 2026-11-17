@@ -875,3 +875,71 @@
     color: #b9babb;
   }
 }
+
+/* ---------- 申请官方 API Key 指引 ---------- */
+@media not all and (min-width: 768px) {
+  .guideIntro {
+    margin: 0 16px 16px;
+    color: #4b4b4b;
+    font-size: 14px;
+    line-height: 21px;
+  }
+
+  [data-ds-dark-theme] .guideIntro {
+    color: #b9babb;
+  }
+
+  .guideSteps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: 0 16px 20px;
+  }
+
+  .guideStep {
+    display: flex;
+    gap: 12px;
+  }
+
+  .guideIndex {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background-color: #edf3fe;
+    color: #426efe;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  [data-ds-dark-theme] .guideIndex {
+    background-color: #283142;
+    color: #6392f2;
+  }
+
+  .guideBody {
+    min-width: 0;
+  }
+
+  .guideTitle {
+    color: #0f0f0f;
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 22px;
+  }
+
+  [data-ds-dark-theme] .guideTitle {
+    color: #f8f8f8;
+  }
+
+  .guideText {
+    margin-top: 2px;
+    color: #8e9094;
+    font-size: 13px;
+    line-height: 19px;
+  }
+}

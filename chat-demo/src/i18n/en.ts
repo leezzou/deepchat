@@ -176,6 +176,25 @@ export const en = {
     'In the official app, “Settings → Export data” gives a link valid for 7 days. Paste it here to import directly, or download it and use “Import chat history” with the local ZIP.',
   apiAttachmentUnsupported:
     'The current API profile does not support attachments; they only work with the official DeepSeek profile.',
+  apiGuideEntry: 'Get an official API key',
+  apiGuideIntro:
+    'No API key yet? Four steps in your phone browser, then come back and paste it here.',
+  apiGuideStep1Title: 'Sign up / sign in',
+  apiGuideStep1Body: 'Log in to platform.deepseek.com with your phone number or WeChat, and verify your identity.',
+  apiGuideStep2Title: 'Top up your balance',
+  apiGuideStep2Body:
+    'The API is billed per token, not monthly. A small top-up (CNY 10) is enough to try it.',
+  apiGuideStep3Title: 'Create an API key',
+  apiGuideStep3Body: 'Open “API Keys”, click “Create API key”, and give it a name such as DeepChat.',
+  apiGuideStep4Title: 'Copy it into the app',
+  apiGuideStep4Body:
+    'The key is shown in full only once. Copy it, then tap “I have a key” on this page to paste and save.',
+  apiGuideOpenPlatform: 'Open DeepSeek platform',
+  apiGuideOpenKeys: 'Open API Keys page',
+  apiGuideOpenTopUp: 'Open top-up page',
+  apiGuideNote:
+    'The key stays on this device only and is never sent to any third party; requests go straight to api.deepseek.com.',
+  apiGuideHaveKey: 'I have a key — fill it in',
   apiProfileContextWindow: 'Context window (tokens)',
   apiProfileModel: 'Model',
   apiProfileModelBuiltin: 'Official DeepSeek model (no need to pick)',

@@ -458,3 +458,14 @@ Header 56dp；抽屉 310dp；抽屉搜索胶囊 48dp；抽屉行高 46dp；设�
 
 v1.0.0 首发 → v1.0.1 导入走原生下载 + 错误提示带原因 + OpenCode Go/Zen 预设 + 上下文超限提示
 → v1.0.2 更新时直连系统安装器 → v1.0.3 上下文压缩。
+
+---
+
+## 16. 第 6 版：申请官方 API Key 指引
+
+- 新增二级页「申请官方 API Key」（设置 → API Key 管理 → 第一行；无 Key 首次启动直达）。
+- 四步说明：注册登录 → 充值 → 创建 Key → 复制粘贴；配三个直达按钮，走 `Browser.open`（Android 上是
+  Chrome Custom Tab，视觉上仍在 App 内），分别打开 `platform.deepseek.com/sign_in`、
+  `/api_keys`、`/top_up`。
+- 「我已拿到 Key，去填写」→ 直接切到 API Key 页并自动展开新增表单，服务商默认 DeepSeek 官方。
+- 填完走原来的 `GET /models` 校验，通过才保存。

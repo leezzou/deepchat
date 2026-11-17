@@ -157,11 +157,12 @@ const SettingsContent = () => {
 }
 
 /** 移动端二级页：设置根页与各二级页 */
-type MobilePage = 'root' | 'apiKey' | 'data' | 'appearance' | 'location'
+type MobilePage = 'root' | 'apiKey' | 'guide' | 'data' | 'appearance' | 'location'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
   apiKey: 'API Key 管理',
+  guide: '申请官方 API Key',
   data: '数据管理',
   appearance: '外观',
   location: '位置信息',
@@ -199,6 +200,8 @@ const MobileSettings = () => {
   const [page, setPage] = useState<MobilePage>(() =>
     useSettingsDialog.getState().section === 'data' ? 'apiKey' : 'root'
   )
+  // 从申请指引点「我已拿到 Key」后，直接展开新增表单
+  const [autoAddKey, setAutoAddKey] = useState(false)
   const close = () => {
     if (!historyDelete.busy) {
       closeSettings()
@@ -218,7 +221,21 @@ const MobileSettings = () => {
         <div className={styles.subPage}>
           <MobileHeader title={mobilePageTitles[page]} onBack={() => setPage('root')} />
           <div className={styles.body}>
-            {page === 'apiKey' ? <MobileApiKeyContent /> : null}
+            {page === 'apiKey' ? (
+              <MobileApiKeyContent
+                autoAdd={autoAddKey}
+                onAutoAddDone={() => setAutoAddKey(false)}
+                onOpenGuide={() => setPage('guide')}
+              />
+            ) : null}
+            {page === 'guide' ? (
+              <MobileApiKeyGuide
+                onFillKey={() => {
+                  setAutoAddKey(true)
+                  setPage('apiKey')
+                }}
+              />
+            ) : null}
             {page === 'data' ? (
               <MobileDataContent
                 historyImport={historyImport}
@@ -689,15 +706,103 @@ const matchPreset = (profile: { protocol: string; origin: string; model: string 
 const maskApiKey = (apiKey: string) =>
   apiKey.length <= 14 ? '••••••' : `${apiKey.slice(0, 6)}••••${apiKey.slice(-4)}`
 
+/** 申请官方 DeepSeek API Key 的四步指引：在 App 内完成大部分操作，最后回到这里填 Key */
+const MobileApiKeyGuide = ({ onFillKey }: { onFillKey: () => void }) => {
+  const t = useTranslate()
+  const steps = [
+    { title: t('apiGuideStep1Title'), body: t('apiGuideStep1Body') },
+    { title: t('apiGuideStep2Title'), body: t('apiGuideStep2Body') },
+    { title: t('apiGuideStep3Title'), body: t('apiGuideStep3Body') },
+    { title: t('apiGuideStep4Title'), body: t('apiGuideStep4Body') },
+  ]
+  return (
+    <>
+      <div className={styles.guideIntro}>{t('apiGuideIntro')}</div>
+      <div className={styles.guideSteps}>
+        {steps.map((step, index) => (
+          <div key={step.title} className={styles.guideStep}>
+            <span className={styles.guideIndex}>{index + 1}</span>
+            <div className={styles.guideBody}>
+              <div className={styles.guideTitle}>{step.title}</div>
+              <div className={styles.guideText}>{step.body}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <MobileGroup>
+        <button
+          type="button"
+          className={styles.row}
+          onClick={() => void openExternal('https://platform.deepseek.com/sign_in')}
+        >
+          <span className={styles.rowIcon}>
+            <IconKey />
+          </span>
+          <span className={styles.rowLabel}>{t('apiGuideOpenPlatform')}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+        <button
+          type="button"
+          className={styles.row}
+          onClick={() => void openExternal('https://platform.deepseek.com/api_keys')}
+        >
+          <span className={styles.rowIcon}>
+            <IconInfo />
+          </span>
+          <span className={styles.rowLabel}>{t('apiGuideOpenKeys')}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+        <button
+          type="button"
+          className={styles.row}
+          onClick={() => void openExternal('https://platform.deepseek.com/top_up')}
+        >
+          <span className={styles.rowIcon}>
+            <IconInfo />
+          </span>
+          <span className={styles.rowLabel}>{t('apiGuideOpenTopUp')}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+      </MobileGroup>
+      <div className={styles.profileHint}>{t('apiGuideNote')}</div>
+      <div className={styles.group}>
+        <button type="button" className={styles.mobileConfirm} onClick={onFillKey}>
+          {t('apiGuideHaveKey')}
+        </button>
+      </div>
+    </>
+  )
+}
+
 /**
  * API 配置列表：每条一个名称 + 接口地址 + Key，点一行切换当前使用的配置。
  * 支持多条是为了「官方 Key / 中转地址 / 别的兼容网关」来回切，和 harness 的用法一致。
  */
-const MobileApiKeyContent = () => {
+const MobileApiKeyContent = ({
+  autoAdd = false,
+  onAutoAddDone,
+  onOpenGuide,
+}: {
+  autoAdd?: boolean
+  onAutoAddDone?: () => void
+  onOpenGuide?: () => void
+}) => {
   const t = useTranslate()
   const apiProfiles = useSettings((state) => state.apiProfiles)
   const activeProfileId = useSettings((state) => state.activeProfileId)
-  const [editing, setEditing] = useState<ApiProfile | 'new' | null>(null)
+  const [editing, setEditing] = useState<ApiProfile | 'new' | null>(() =>
+    autoAdd ? 'new' : null
+  )
+  // 打开表单后立刻消费掉这个一次性标记
+  if (autoAdd && editing === 'new') {
+    onAutoAddDone?.()
+  }
 
   if (editing !== null) {
     return (
@@ -712,6 +817,17 @@ const MobileApiKeyContent = () => {
 
   return (
     <>
+      <MobileGroup>
+        <button type="button" className={styles.row} onClick={onOpenGuide}>
+          <span className={styles.rowIcon}>
+            <IconKey />
+          </span>
+          <span className={styles.rowLabel}>{t('apiGuideEntry')}</span>
+          <span className={styles.rowChevron}>
+            <IconChevronRightOutline14 />
+          </span>
+        </button>
+      </MobileGroup>
       <MobileGroup>
         {apiProfiles.map((profile) => (
           <div key={profile.id} className={styles.profileRow}>
