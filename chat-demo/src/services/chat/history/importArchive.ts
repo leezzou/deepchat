@@ -78,7 +78,10 @@ export const checkArchiveFormat = async (file: File): Promise<void> => {
  * 会话读完立即暂存，只保留图片路径映射；图片全部读完后逐会话回填 MIME，不改变图片身份。
  * 写入导入暂存存储；调用方负责先清空暂存，成功后替换正式数据，失败时清理暂存。
  */
-export const importArchive = async (file: File): Promise<void> => {
+export const importArchive = async (
+  file: File,
+  onProgress?: (processed: number, total: number) => void
+): Promise<void> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }
@@ -86,6 +89,24 @@ export const importArchive = async (file: File): Promise<void> => {
   const images = new Map<string, string>()
   /** 已保存的原件：文件 ID → MIME。同一图片出现在多个会话目录时只保存一次。 */
   const stored = new Map<string, string>()
+  /** 图片分批写入暂存区，避免几百张图片各自开一个 IndexedDB 事务。 */
+  const pendingFiles: db.StoredFile[] = []
+  const pendingSessions: import('../types.js').Session[] = []
+  let pendingBytes = 0
+  const flushFiles = async () => {
+    if (pendingFiles.length === 0) {
+      return
+    }
+    const batch = pendingFiles.splice(0)
+    pendingBytes = 0
+    await db.saveStagingFiles(batch)
+  }
+  const flushSessions = async () => {
+    if (pendingSessions.length === 0) {
+      return
+    }
+    await db.addStagingSessions(pendingSessions.splice(0))
+  }
   let manifest = false
   let index: SessionIndexEntry[] | undefined
   let currentSessionId: string | undefined
@@ -97,12 +118,16 @@ export const importArchive = async (file: File): Promise<void> => {
     }
     const data = await readEntry(entry)
     const type = imageType(new Uint8Array(await data.slice(0, 16).arrayBuffer()))
-    await db.saveStagingFiles([{ id, blob: new Blob([data], { type }) }])
+    pendingFiles.push({ id, blob: new Blob([data], { type }) })
+    pendingBytes += data.size
     stored.set(id, type)
+    if (pendingFiles.length >= 8 || pendingBytes >= 16 * 1024 * 1024) {
+      await flushFiles()
+    }
   }
 
   try {
-    for await (const entry of readArchive(file)) {
+    for await (const entry of readArchive(file, onProgress)) {
       const { path } = entry
       const sessionId = parseSessionPath(path)
       if (!manifest) {
@@ -124,7 +149,10 @@ export const importArchive = async (file: File): Promise<void> => {
         for (const [imagePath, id] of local.images) {
           images.set(imagePath, id)
         }
-        await db.addStagingSession(local.session)
+        pendingSessions.push(local.session)
+        if (pendingSessions.length >= 20) {
+          await flushSessions()
+        }
       } else if (path === INDEX_PATH && !index) {
         index = readSessionIndex(await readJson(entry))
       } else if (
@@ -142,6 +170,8 @@ export const importArchive = async (file: File): Promise<void> => {
   } catch (error) {
     throw error instanceof ArchiveError ? new BackupError('backupIncomplete') : error
   }
+  await flushSessions()
+  await flushFiles()
   if (!manifest) {
     fail('backupUnrecognized')
   }

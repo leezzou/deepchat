@@ -168,7 +168,16 @@ export const clearStaging = async (): Promise<void> => {
 }
 
 export const addStagingSession = async (session: Session): Promise<void> => {
-  await (await getDB()).add('sessionsStaging', session)
+  await addStagingSessions([session])
+}
+
+/** 批量写入暂存会话，减少大量会话逐个开事务的开销。 */
+export const addStagingSessions = async (sessions: Session[]): Promise<void> => {
+  if (sessions.length === 0) {
+    return
+  }
+  const tx = (await getDB()).transaction('sessionsStaging', 'readwrite')
+  await Promise.all([...sessions.map((session) => tx.store.add(session)), tx.done])
 }
 
 export const saveStagingFiles = (files: StoredFile[]): Promise<void> =>

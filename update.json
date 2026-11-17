@@ -1,8 +1,8 @@
 {
-  "version": "1.0.23",
+  "version": "1.0.24",
   "publishedAt": "2026-11-17",
-  "notes": "应用内更新优先使用 gh-proxy.com 镜像下载 APK，镜像失败自动回退 GitHub 原始地址；同时保留版本校验和系统安装器",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.23",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.23/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.23/deepchat.apk"
+  "notes": "下载和导入都显示进度条；导入改为图片/会话批量写入，减少大量小文件逐个事务的等待；大包导入时让出主线程，进度条持续更新",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.24",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.24/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.24/deepchat.apk"
 }

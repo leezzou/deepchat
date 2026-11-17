@@ -1570,8 +1570,47 @@ const MobileDataContent = ({
         </button>
       </MobileGroup>
       <div className={styles.profileHint}>{t('deepseekImportHint')}</div>
+      {downloading ? (
+        <ProgressBar
+          progress={
+            downloadProgress
+              ? { processed: downloadProgress.bytes, total: downloadProgress.total }
+              : null
+          }
+          label={t('deepseekImportDownloading')}
+        />
+      ) : null}
       <MobileStatus status={historyImport.status ?? historyExport.status} />
+      <ProgressBar progress={historyImport.progress} label={t('historyImporting')} />
     </>
+  )
+}
+
+const ProgressBar = ({
+  progress,
+  label,
+}: {
+  progress: { processed: number; total: number } | null
+  label: string
+}) => {
+  if (!progress || progress.total <= 0) {
+    return null
+  }
+  const percent = Math.min(100, Math.max(0, Math.round((progress.processed / progress.total) * 100)))
+  return (
+    <div className={styles.importProgress}>
+      <div
+        className={styles.importProgressTrack}
+        role="progressbar"
+        aria-label={label}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={percent}
+      >
+        <span className={styles.importProgressBar} style={{ width: `${percent}%` }} />
+      </div>
+      <span className={styles.importProgressPercent}>{percent}%</span>
+    </div>
   )
 }
 
@@ -2182,6 +2221,7 @@ const useHistoryImport = () => {
   const [file, setFile] = useState<File | null>(null)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<Status>(null)
+  const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null)
   const importing = useRef(false)
 
   const confirm = async () => {
@@ -2192,8 +2232,11 @@ const useHistoryImport = () => {
     setFile(null)
     setBusy(true)
     setStatus({ key: 'historyImporting' })
+    setProgress({ processed: 0, total: file.size })
     try {
-      const count = await importHistory(file)
+      const count = await importHistory(file, (processed, total) =>
+        setProgress({ processed, total })
+      )
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
     } catch (error) {
       // 带上具体原因（无法识别 / 版本过新 / 内容不完整），否则用户不知道是文件问题还是下载问题
@@ -2201,10 +2244,11 @@ const useHistoryImport = () => {
     } finally {
       importing.current = false
       setBusy(false)
+      setProgress(null)
     }
   }
 
-  return { file, busy, status, select: setFile, cancel: () => setFile(null), confirm }
+  return { file, busy, status, progress, select: setFile, cancel: () => setFile(null), confirm }
 }
 
 /** 导入 = 覆盖：用选中文件替换本地全部会话与附件。 */
@@ -2219,11 +2263,12 @@ const ImportHistory = ({
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <SettingCell
-      label={t('historyImport')}
-      description={t('historyImportDescription')}
-      status={historyImport.status}
-      action={
+    <>
+      <SettingCell
+        label={t('historyImport')}
+        description={t('historyImportDescription')}
+        status={historyImport.status}
+        action={
         <>
           <Button
             variant="outlined"
@@ -2249,8 +2294,10 @@ const ImportHistory = ({
             }}
           />
         </>
-      }
-    />
+        }
+      />
+      <ProgressBar progress={historyImport.progress} label={t('historyImporting')} />
+    </>
   )
 }
 

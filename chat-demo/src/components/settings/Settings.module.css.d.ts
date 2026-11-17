@@ -64,5 +64,9 @@ declare const styles: {
   readonly voiceTagline: string
   readonly voiceCheck: string
   readonly voiceConfirm: string
+  readonly importProgress: string
+  readonly importProgressTrack: string
+  readonly importProgressBar: string
+  readonly importProgressPercent: string
 }
 export = styles

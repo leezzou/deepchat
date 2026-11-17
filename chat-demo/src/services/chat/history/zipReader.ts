@@ -238,8 +238,26 @@ export type ArchiveEntry = {
  * 按条目在文件中的物理顺序逐条、逐块解压，跳过目录条目。
  * 调用方必须消费完当前条目的数据，再请求下一个条目。
  */
-export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
+export async function* readArchive(
+  file: File,
+  onProgress?: (processed: number, total: number) => void
+): AsyncGenerator<ArchiveEntry> {
   const directory = await readDirectory(file)
+  const total = directory.entries.reduce(
+    (sum, entry) => sum + (entry.path.endsWith('/') ? 0 : entry.size),
+    0
+  )
+  let processed = 0
+  let lastProgress = 0
+  const report = (bytes: number) => {
+    processed += bytes
+    const now = Date.now()
+    if (now - lastProgress >= 100 || processed >= total) {
+      lastProgress = now
+      onProgress?.(Math.min(processed, total), total)
+    }
+  }
+  onProgress?.(0, total)
   for (const [index, entry] of directory.entries.entries()) {
     const boundary = directory.entries[index + 1]?.offset ?? directory.offset
     const start = await readEntryOffset(file, entry, boundary)
@@ -253,6 +271,7 @@ export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
       const pending: Uint8Array[] = []
       const append = (chunk: Uint8Array) => {
         written += chunk.length
+        report(chunk.length)
         if (written > entry.size) {
           invalid()
         }
@@ -264,6 +283,15 @@ export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
         }
       }
       const inflate = entry.method === 8 ? new Inflate(append) : null
+      let lastBreath = Date.now()
+      const breathe = async () => {
+        const now = Date.now()
+        if (now - lastBreath >= 80) {
+          lastBreath = now
+          // 让出一次宏任务，进度状态才能被浏览器绘制；否则大包会一直停在 0%。
+          await new Promise<void>((resolve) => setTimeout(resolve, 0))
+        }
+      }
       for (let offset = 0; offset < entry.compressedSize; offset += READ_CHUNK_BYTES) {
         const chunk = await readBytes(
           file,
@@ -273,6 +301,7 @@ export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
         if (!inflate) {
           append(chunk)
           yield* pending.splice(0)
+          await breathe()
           continue
         }
         for (let cursor = 0; cursor < chunk.length; cursor += INFLATE_CHUNK_BYTES) {
@@ -280,6 +309,7 @@ export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
           inflate.push(chunk.subarray(cursor, end), offset + end === entry.compressedSize)
           // yield 暂停解压，等待调用方完成异步写入；不缓存整个条目。
           yield* pending.splice(0)
+          await breathe()
         }
       }
       if (inflate && entry.compressedSize === 0) {
@@ -296,15 +326,25 @@ export async function* readArchive(file: File): AsyncGenerator<ArchiveEntry> {
       invalid()
     }
   }
+  onProgress?.(total, total)
 }
 
 /** 读出整个条目：会话 JSON 需要完整解析，图片需要识别类型后整张保存。 */
 export const readEntry = async (entry: ArchiveEntry): Promise<Blob> => {
-  const parts: Blob[] = []
+  // 一次分配完整条目再填充，避免为每张图片创建大量小 Blob 分片。
+  const buffer = new Uint8Array(entry.size)
+  let offset = 0
   for await (const chunk of entry.stream) {
-    parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>]))
+    if (offset + chunk.length > buffer.length) {
+      invalid()
+    }
+    buffer.set(chunk, offset)
+    offset += chunk.length
   }
-  return new Blob(parts)
+  if (offset !== buffer.length) {
+    invalid()
+  }
+  return new Blob([buffer])
 }
 
 /** 不需要的条目也要读完，以校验大小与 CRC。 */
