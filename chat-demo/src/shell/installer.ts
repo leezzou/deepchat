@@ -5,17 +5,24 @@
 
 type UpdaterBridge = {
   installApk?: (url: string) => void
+  installApkWithFallback?: (url: string, fallbackUrl: string) => void
 }
 
 const bridge = (): UpdaterBridge | undefined =>
   (window as unknown as { AndroidUpdater?: UpdaterBridge }).AndroidUpdater
 
 /** 原生壳里能否走「下载 + 系统安装器」这条路 */
-export const canInstallInApp = (): boolean => typeof bridge()?.installApk === 'function'
+export const canInstallInApp = (): boolean =>
+  typeof bridge()?.installApkWithFallback === 'function' ||
+  typeof bridge()?.installApk === 'function'
 
-/** 触发下载安装；返回 false 表示当前环境不支持，调用方应退回浏览器打开 */
-export const installApk = (url: string): boolean => {
+/** 触发下载安装；fallbackUrl 在首选镜像失败时由原生侧自动尝试 */
+export const installApk = (url: string, fallbackUrl?: string): boolean => {
   const target = bridge()
+  if (target?.installApkWithFallback) {
+    target.installApkWithFallback(url, fallbackUrl ?? '')
+    return true
+  }
   if (!target?.installApk) {
     return false
   }

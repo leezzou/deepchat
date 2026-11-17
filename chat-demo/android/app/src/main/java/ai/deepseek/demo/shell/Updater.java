@@ -11,6 +11,7 @@ import android.widget.Toast;
 import androidx.core.content.FileProvider;
 
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
@@ -31,6 +32,12 @@ public class Updater {
 
     @JavascriptInterface
     public void installApk(final String url) {
+        installApkWithFallback(url, "");
+    }
+
+    /** 优先使用镜像地址；镜像失败时自动尝试 GitHub 原始地址。 */
+    @JavascriptInterface
+    public void installApkWithFallback(final String url, final String fallbackUrl) {
         activity.runOnUiThread(
                 new Runnable() {
                     @Override
@@ -47,34 +54,52 @@ public class Updater {
                             return;
                         }
                         toast("开始下载更新…");
-                        new Thread(() -> download(url)).start();
+                        new Thread(() -> download(url, fallbackUrl)).start();
                     }
                 });
     }
 
-    private void download(String url) {
-        File target = new File(activity.getCacheDir(), APK_NAME);
+    private void download(String url, String fallbackUrl) {
         try {
-            HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-            connection.setInstanceFollowRedirects(true);
-            connection.setConnectTimeout(15000);
-            connection.setReadTimeout(30000);
-            connection.connect();
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                fail("下载失败：HTTP " + connection.getResponseCode());
-                return;
-            }
-            try (InputStream input = connection.getInputStream();
-                    FileOutputStream output = new FileOutputStream(target)) {
-                byte[] buffer = new byte[8192];
-                int read;
-                while ((read = input.read(buffer)) > 0) {
-                    output.write(buffer, 0, read);
-                }
-            }
+            downloadFile(url);
             activity.runOnUiThread(this::launchInstaller);
         } catch (Exception error) {
+            if (fallbackUrl != null
+                    && !fallbackUrl.isEmpty()
+                    && !fallbackUrl.equals(url)) {
+                // 镜像不可用时不打扰用户，直接换 GitHub 原始地址再试一次
+                download(fallbackUrl, "");
+                return;
+            }
             fail("下载失败：" + error.getMessage());
+        }
+    }
+
+    private void downloadFile(String url) throws Exception {
+        File target = new File(activity.getCacheDir(), APK_NAME);
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        connection.setInstanceFollowRedirects(true);
+        connection.setConnectTimeout(15000);
+        connection.setReadTimeout(30000);
+        connection.setRequestProperty("User-Agent", "DeepChat-Updater");
+        connection.connect();
+        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+            throw new Exception("HTTP " + connection.getResponseCode());
+        }
+        try (InputStream input = connection.getInputStream();
+                FileOutputStream output = new FileOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = input.read(buffer)) > 0) {
+                output.write(buffer, 0, read);
+            }
+        }
+        // 代理可能返回 200 的 HTML 错误页；APK 是 ZIP，至少要以 PK 开头。
+        try (FileInputStream input = new FileInputStream(target)) {
+            byte[] magic = new byte[2];
+            if (input.read(magic) != 2 || magic[0] != 'P' || magic[1] != 'K') {
+                throw new Exception("下载内容不是 APK");
+            }
         }
     }
 

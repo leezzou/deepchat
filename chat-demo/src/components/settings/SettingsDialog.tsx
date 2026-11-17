@@ -547,7 +547,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       return
     }
     // 原生壳里直接下载 APK 并拉起系统安装器；浏览器里退回 GitHub 发布页
-    if (release.apkUrl && installApk(release.apkUrl)) {
+    if (release.apkUrl && installApk(release.apkUrl, release.apkUrlFallback ?? undefined)) {
       showToast({ key: 'updateDownloading' })
       setUpdateOpen(false)
       return

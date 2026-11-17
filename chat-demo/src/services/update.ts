@@ -46,6 +46,8 @@ export type ReleaseInfo = {
   pageUrl: string
   /** release 里上传的 APK 直链，没有则为 null */
   apkUrl: string | null
+  /** APK 下载兜底地址（GitHub 原始地址） */
+  apkUrlFallback: string | null
 }
 
 type GithubRelease = {
@@ -62,6 +64,7 @@ type Manifest = {
   notes?: unknown
   pageUrl?: unknown
   apkUrl?: unknown
+  apkUrlFallback?: unknown
   publishedAt?: unknown
 }
 
@@ -75,6 +78,10 @@ const parseManifest = (data: Manifest): ReleaseInfo | null => {
     notes: typeof data.notes === 'string' ? data.notes : '',
     pageUrl: typeof data.pageUrl === 'string' ? data.pageUrl : '',
     apkUrl: typeof data.apkUrl === 'string' && data.apkUrl ? data.apkUrl : null,
+    apkUrlFallback:
+      typeof data.apkUrlFallback === 'string' && data.apkUrlFallback
+        ? data.apkUrlFallback
+        : null,
   }
 }
 
@@ -121,5 +128,6 @@ const fetchLatestFromApi = async (): Promise<ReleaseInfo | null> => {
     notes: typeof data.body === 'string' ? data.body : '',
     pageUrl: typeof data.html_url === 'string' ? data.html_url : '',
     apkUrl: typeof apk?.browser_download_url === 'string' ? apk.browser_download_url : null,
+    apkUrlFallback: null,
   }
 }
