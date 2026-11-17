@@ -119,8 +119,7 @@ export const en = {
     'Importing chat history replaces all local chats and attachments. Supports ZIP files exported from DeepSeek.',
   historyImportedOne: 'Imported 1 chat',
   historyImported: 'Imported {count} chats',
-  historyImportFailed:
-    'File import failed. The file format may be invalid, or the ZIP file may use an older chat export format. Please export your chat history from DeepSeek again and retry the import.',
+  historyImportFailed: 'Import failed: {message}',
   historyExportFailed: 'Export failed: {message}',
   exportAllLabel: 'Export all chats',
   historyExportDescription:
@@ -145,6 +144,8 @@ export const en = {
   apiProfileAdd: 'Add API key',
   apiProfileEdit: 'Edit this profile',
   apiProfileProvider: 'Provider',
+  replyContextFull:
+    'This conversation has reached the model context limit. Start a new chat to continue; the old one stays in history.',
   checkUpdate: 'Check for updates',
   updateChecking: 'Checking for updates…',
   updateLatest: 'You are on the latest version',
@@ -162,7 +163,7 @@ export const en = {
   deepseekImportPlaceholder: 'Paste the link from DeepSeek “Export data”',
   deepseekImportAction: 'Download and import',
   deepseekImportFailed:
-    'Download failed: the link may have expired (valid 7 days) or the host blocks cross-origin downloads. Use the local ZIP import above instead.',
+    'Download failed: {message}. Links are valid for 7 days; if cross-origin is blocked, use the local ZIP import above.',
   deepseekImportHint:
     'In the official app, “Settings → Export data” gives a link valid for 7 days. Paste it here to import directly, or download it and use “Import chat history” with the local ZIP.',
   apiAttachmentUnsupported:

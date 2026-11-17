@@ -112,8 +112,7 @@ export const zh = {
   historyImportDescription: '导入历史对话会覆盖全部本地对话和附件，支持 DeepSeek 导出的 ZIP 文件。',
   historyImportedOne: '已导入 1 个对话',
   historyImported: '已导入 {count} 个对话',
-  historyImportFailed:
-    '文件导入失败，可能是文件格式错误或使用了旧版的对话导出 ZIP 文件，请前往 DeepSeek 重新导出历史对话文件后再次导入。',
+  historyImportFailed: '导入失败：{message}',
   historyExportFailed: '导出失败：{message}',
   exportAllLabel: '导出所有历史对话',
   historyExportDescription:
@@ -137,6 +136,7 @@ export const zh = {
   apiProfileAdd: '添加 API Key',
   apiProfileEdit: '编辑此配置',
   apiProfileProvider: '服务商',
+  replyContextFull: '这个对话已经超出模型的上下文长度了。开启一个新对话继续聊吧，旧内容仍保留在历史里。',
   checkUpdate: '检查更新',
   updateChecking: '正在检查更新…',
   updateLatest: '已经是最新版本',
@@ -153,7 +153,8 @@ export const zh = {
   deepseekImportLink: '导出链接',
   deepseekImportPlaceholder: '粘贴 DeepSeek「导出数据」得到的链接',
   deepseekImportAction: '下载并导入',
-  deepseekImportFailed: '下载失败：链接可能已过期（7 天有效），或该地址不允许跨域下载。可以改用上方的本地 ZIP 导入。',
+  deepseekImportFailed:
+    '下载失败：{message}。链接 7 天有效；若是跨域被拦，可改用上方的本地 ZIP 导入。',
   deepseekImportHint:
     '在官方 App 里点「设置 → 导出数据」会生成一个 7 天有效的下载链接，粘贴到这里就能直接导入对话；也可以下载后用上面的「导入历史对话」选本地 ZIP。',
   apiAttachmentUnsupported: '当前 API 配置不支持上传附件，附件只在 DeepSeek 官方配置下可用',

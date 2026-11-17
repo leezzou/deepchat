@@ -43,6 +43,16 @@ export const classifyApiError = (error: unknown): ApiErrorCondition => {
   return classifyStatus(error.status)
 }
 
+/**
+ * 上下文超限：各家 400 文案不一样（maximum context length / context_length_exceeded / 上下文过长…），
+ * 只能按关键字认，认到就给一句能指导操作的提示。
+ */
+const CONTEXT_OVERFLOW_PATTERN =
+  /context length|context_length|maximum context|context window|too many tokens|prompt is too long|上下文(长度|过长|超)/i
+
+export const isContextOverflow = (error: unknown): boolean =>
+  error instanceof ApiError && error.status === 400 && CONTEXT_OVERFLOW_PATTERN.test(error.message)
+
 /** 重试可能成功的情况：网络、限流、服务端繁忙；参数或鉴权类错误重试无用 */
 export const isRetryableApiError = (error: unknown): boolean => {
   const condition = classifyApiError(error)

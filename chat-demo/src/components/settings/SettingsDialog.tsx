@@ -54,6 +54,7 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { saveBlob } from '../../shell/saveFile.js'
+import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import styles from './Settings.module.css'
 
@@ -659,7 +660,8 @@ const providerPresets: {
   { value: 'openrouter', label: 'OpenRouter', name: 'OpenRouter', protocol: 'openai', origin: 'https://openrouter.ai/api/v1', model: 'z-ai/glm-4.6' },
   { value: 'perplexity', label: 'Perplexity', name: 'Perplexity', protocol: 'openai', origin: 'https://api.perplexity.ai', model: 'sonar' },
   { value: 'cohere', label: 'Cohere', name: 'Cohere', protocol: 'openai', origin: 'https://api.cohere.ai/compatibility/v1', model: 'command-r-plus' },
-  { value: 'opencode', label: 'OpenCode Zen', name: 'OpenCode', protocol: 'openai', origin: 'https://opencode.ai/zen/v1', model: 'gpt-5' },
+  { value: 'opencode', label: 'OpenCode Zen（按量）', name: 'OpenCode', protocol: 'openai', origin: 'https://opencode.ai/inference/openai/v1', model: 'deepseek-v4.1-flash' },
+  { value: 'opencode-go', label: 'OpenCode Go（订阅）', name: 'OpenCode Go', protocol: 'openai', origin: 'https://opencode.ai/inference/go/openai/v1', model: 'deepseek-v4.1-flash' },
   { value: 'ollama', label: 'Ollama（本机）', name: 'Ollama', protocol: 'openai', origin: 'http://localhost:11434/v1', model: 'llama3.2' },
   { value: 'lmstudio', label: 'LM Studio（本机）', name: 'LM Studio', protocol: 'openai', origin: 'http://localhost:1234/v1', model: 'local-model' },
   {
@@ -1041,14 +1043,15 @@ const MobileDataContent = ({
     }
     setDownloading(true)
     try {
-      const response = await fetch(url)
-      if (!response.ok) {
-        throw new Error(String(response.status))
-      }
-      const blob = await response.blob()
-      historyImport.select(new File([blob], 'deepseek-export.zip', { type: 'application/zip' }))
-    } catch {
-      showToast({ key: 'deepseekImportFailed' })
+      // 原生壳里走 Filesystem.downloadFile，绕开 WebView 的 CORS 限制
+      historyImport.select(await downloadArchive(url))
+    } catch (error) {
+      // 把真实原因带出来：过期、跨域、网络都可能失败，只给一句通用话没法排查
+      const detail = error instanceof Error ? error.message : String(error)
+      showToast({
+        key: 'deepseekImportFailed',
+        params: { message: detail.slice(0, 160) },
+      })
     } finally {
       setDownloading(false)
     }
@@ -1559,8 +1562,9 @@ const useHistoryImport = () => {
     try {
       const count = await importHistory(file)
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
-    } catch {
-      setStatus({ key: 'historyImportFailed', error: true })
+    } catch (error) {
+      // 带上具体原因（无法识别 / 版本过新 / 内容不完整），否则用户不知道是文件问题还是下载问题
+      setStatus(errorStatus('historyImportFailed', error))
     } finally {
       importing.current = false
       setBusy(false)

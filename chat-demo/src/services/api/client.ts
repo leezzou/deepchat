@@ -111,7 +111,7 @@ export const fetchModelIds = async (
   const base = origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()
   const response = await request(`${base}/models`, {
     method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: { Authorization: `Bearer ${apiKey}`, 'x-opencode-session': OPENCODE_SESSION },
     signal,
   })
   const body = (await response.json()) as { data?: { id?: unknown }[] }
@@ -160,6 +160,15 @@ const hasFile = (body: CreateMessageRequest) =>
       message.content.some((block) => block.type === 'image' || block.type === 'document')
   )
 
+/** OpenCode 的 Go/Zen 需要稳定的会话 ID（x-opencode-session），其他兼容服务商会忽略这个头 */
+const OPENCODE_SESSION = (() => {
+  try {
+    return crypto.randomUUID()
+  } catch {
+    return `chat-${Date.now().toString(36)}`
+  }
+})()
+
 /** 把 Anthropic 风格的 messages 摊平成 OpenAI 兼容的纯文本消息（附件与扩展角色跳过） */
 const toOpenAiMessages = (body: CreateMessageRequest) => {
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = []
@@ -202,6 +211,7 @@ async function* streamOpenAiChat(
       Authorization: `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
+      'x-opencode-session': OPENCODE_SESSION,
     },
     body: JSON.stringify({
       model,

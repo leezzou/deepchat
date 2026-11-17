@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
-import { extractFileIds, getFileErrorCode, isRetryableApiError } from '../api/errors.js'
+import { extractFileIds, getFileErrorCode, isRetryableApiError, isContextOverflow } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -1068,7 +1068,10 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             kind: error.kind,
             message: error.message,
             status: error.status,
-            localMessage: error.localMessage,
+            // 上下文超限：换成「开启新对话」的提示，比原始报错可读
+            localMessage: isContextOverflow(error)
+              ? { key: 'replyContextFull' }
+              : error.localMessage,
           })
         } else {
           reply = settleReply(reply, 'error', Date.now(), {
