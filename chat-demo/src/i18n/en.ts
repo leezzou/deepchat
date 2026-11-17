@@ -146,6 +146,21 @@ export const en = {
   apiProfileProvider: 'Provider',
   contextCompactedLabel: 'Context compacted: earlier turns folded into a summary',
   contextAlmostFull: 'Context at {percent}%, close to the model limit',
+  contextRiskTitle: 'Before you compact',
+  contextRiskIntro:
+    'Compacting asks the model to summarise earlier messages and keeps only that summary. For everyday chats this loses things:',
+  contextRiskItem1:
+    'The original wording, tone, and emotional nuance disappear — later turns only see a paraphrase.',
+  contextRiskItem2:
+    'The summary is model-generated and may miss or misremember names, dates, or small promises.',
+  contextRiskItem3: 'Compaction inside the app cannot be undone; old messages are not kept.',
+  contextRiskItem4: 'If you use this conversation as a diary or record, only an outline will remain.',
+  contextRiskNote:
+    'Export all chats to a ZIP first — the file keeps the full text and can be re-imported at any time.',
+  contextRiskBackup: 'Export a backup first (ZIP)',
+  contextBackingUp: 'Exporting…',
+  contextBackupDone: 'Exported — save it from the share sheet',
+  contextRiskConfirm: 'I understand, compact anyway',
   contextCompactHint:
     'You can compact the context: keep the recent turns and condense the earlier ones into a summary.',
   contextCompact: 'Compact context',

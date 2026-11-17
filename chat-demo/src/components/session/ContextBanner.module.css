@@ -72,3 +72,60 @@
   line-height: 16px;
   text-align: center;
 }
+
+/* 压缩前的风险确认 */
+.riskBody {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: #0f0f0f;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+[data-ds-dark-theme] .riskBody {
+  color: #f8f8f8;
+}
+
+.riskIntro {
+  margin: 0;
+  font-weight: 600;
+}
+
+.riskList {
+  margin: 0;
+  padding-left: 20px;
+  color: #4b4b4b;
+}
+
+[data-ds-dark-theme] .riskList {
+  color: #b9babb;
+}
+
+.riskList li {
+  margin-bottom: 4px;
+}
+
+.riskNote {
+  margin: 0;
+  color: #8e9094;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.backupButton {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #426efe;
+  font: inherit;
+  font-size: 13px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.backupButton:disabled {
+  color: #b9babb;
+  cursor: default;
+}
