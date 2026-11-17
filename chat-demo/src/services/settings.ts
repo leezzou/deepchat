@@ -27,6 +27,8 @@ export type ApiProfile = {
   origin: string
   /** 仅 openai 协议使用 */
   model: string
+  /** 上下文窗口（token）；不填按协议默认（DeepSeek 1M / 其他 128k） */
+  contextWindow?: number
   apiKey: string
 }
 
@@ -138,6 +140,10 @@ const initialApiProfiles = (): ApiProfile[] => {
             protocol: raw.protocol === 'openai' ? 'openai' : 'deepseek',
             origin: normalizeOrigin(typeof raw.origin === 'string' ? raw.origin : ''),
             model: typeof raw.model === 'string' ? raw.model.trim() : '',
+            contextWindow:
+              typeof raw.contextWindow === 'number' && raw.contextWindow > 0
+                ? raw.contextWindow
+                : undefined,
             apiKey,
           },
         ]
@@ -250,6 +256,8 @@ export const saveApiProfile = (profile: ApiProfile) => {
     name: profile.name.trim() || 'DeepSeek',
     origin: normalizeOrigin(profile.origin),
     model: profile.model.trim(),
+    contextWindow:
+      profile.contextWindow && profile.contextWindow > 0 ? profile.contextWindow : undefined,
     apiKey: profile.apiKey.trim(),
   }
   const exists = apiProfiles.some((item) => item.id === normalized.id)

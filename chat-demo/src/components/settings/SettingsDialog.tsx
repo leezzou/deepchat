@@ -765,6 +765,9 @@ const MobileApiProfileForm = ({
   // 默认地址就不必让人看见，留空即代表官方地址
   const [origin, setOrigin] = useState(profile.origin === defaultApiOrigin ? '' : profile.origin)
   const [model, setModel] = useState(profile.model)
+  const [contextWindow, setContextWindow] = useState(
+    profile.contextWindow ? String(profile.contextWindow) : ''
+  )
   const [apiKey, setApiKey] = useState(profile.apiKey)
   // 模型列表：能拉到就让用户从下拉里挑，拉不到就退回手填
   const [models, setModels] = useState<string[]>([])
@@ -839,6 +842,7 @@ const MobileApiProfileForm = ({
         protocol,
         origin: origin.trim(),
         model: model.trim(),
+        contextWindow: Number(contextWindow) > 0 ? Number(contextWindow) : undefined,
         apiKey: key,
       })
       onDone()
@@ -887,6 +891,20 @@ const MobileApiProfileForm = ({
             spellCheck={false}
             inputMode="url"
             onChange={(event) => setOrigin(event.target.value)}
+          />
+        </div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="api-profile-window">
+            {t('apiProfileContextWindow')}
+          </label>
+          <input
+            id="api-profile-window"
+            className={styles.fieldInput}
+            value={contextWindow}
+            placeholder={protocol === 'deepseek' ? '1000000' : '128000'}
+            inputMode="numeric"
+            autoComplete="off"
+            onChange={(event) => setContextWindow(event.target.value.replace(/[^0-9]/g, ''))}
           />
         </div>
         {protocol === 'openai' ? (

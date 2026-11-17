@@ -144,8 +144,16 @@ export const en = {
   apiProfileAdd: 'Add API key',
   apiProfileEdit: 'Edit this profile',
   apiProfileProvider: 'Provider',
+  contextCompactedLabel: 'Context compacted: earlier turns folded into a summary',
+  contextAlmostFull: 'Context at {percent}%, close to the model limit',
+  contextCompactHint:
+    'You can compact the context: keep the recent turns and condense the earlier ones into a summary.',
+  contextCompact: 'Compact context',
+  contextCompacting: 'Compacting…',
+  contextCompacted: 'Compacted {count} turns',
+  contextCompactFailed: 'Compaction failed: {message}',
   replyContextFull:
-    'This conversation has reached the model context limit. Start a new chat to continue; the old one stays in history.',
+    'This conversation has reached the model context limit. Tap “Compact context” below to condense older turns, or start a new chat.',
   checkUpdate: 'Check for updates',
   updateChecking: 'Checking for updates…',
   updateLatest: 'You are on the latest version',
@@ -168,6 +176,7 @@ export const en = {
     'In the official app, “Settings → Export data” gives a link valid for 7 days. Paste it here to import directly, or download it and use “Import chat history” with the local ZIP.',
   apiAttachmentUnsupported:
     'The current API profile does not support attachments; they only work with the official DeepSeek profile.',
+  apiProfileContextWindow: 'Context window (tokens)',
   apiProfileModel: 'Model',
   apiProfileModelBuiltin: 'Official DeepSeek model (no need to pick)',
   apiProfileModelCustom: 'Custom…',

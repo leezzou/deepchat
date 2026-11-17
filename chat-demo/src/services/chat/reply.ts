@@ -305,9 +305,14 @@ export const toRequestMessages = (
   question: UserMessage,
   prefix?: AssistantMessage,
   thinking = prefix?.thinking ?? false,
-  latestReminder?: string
+  latestReminder?: string,
+  /** 上下文压缩产生的检查点，作为最前面的 user 消息 */
+  checkpoint?: string
 ): MessageParam[] => {
   const messages: MessageParam[] = []
+  if (checkpoint) {
+    messages.push({ role: 'user', content: checkpoint })
+  }
   let previousReminder: string | undefined
   const appendReminder = (reminder: string | undefined) => {
     // 仅在当前分支首次出现或内容变化时插入快照；缺少快照的消息保持原有内容。

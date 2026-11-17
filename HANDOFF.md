@@ -429,3 +429,32 @@ Header 56dp；抽屉 310dp；抽屉搜索胶囊 48dp；抽屉行高 46dp；设�
 - 首页 logo 就是官方鲸鱼（44×33）；
 - 服务商下拉 36 项可滚动、选中后自动填地址与模型。
 
+---
+
+## 15. 第 5 轮：应用内更新 + 上下文压缩
+
+### 15.1 应用内更新（不跳 GitHub 页面）
+
+- `src/services/update.ts` 读仓库根目录的 `update.json`（raw.githubusercontent，避开 GitHub API 60 次/小时的限制），
+  字段：`version / notes / pageUrl / apkUrl`。
+- `src/shell/installer.ts` → `Updater.java`：原生 HTTP 下载 APK 到 cache，`FileProvider` + `ACTION_VIEW` 拉起系统安装器。
+  已改为**显式指定系统「软件包安装程序」**，不再弹「打开方式」选择框（v1.0.2）。
+- 首次安装仍需手动装一次 APK，之后所有版本都能在 App 内更新。
+- 发版一键脚本：`scripts/release.sh 1.0.3 "说明"` → 改版本号 → 打包 → 刷新 update.json → 推送 → `gh release create`。
+
+### 15.2 上下文压缩（照搬 DSH compaction-basic）
+
+- 阈值 `thresholdRatio = 0.8`、保留 `retainRatio = 0.16`，与 DSH 默认值一致。
+- 摘要提示词原样照抄 `@deepseek-ai/dsh-compaction-basic` 的 `COMPACTION_INSTRUCTION`：
+  八个固定小节（Primary Request and Intent / Key Technical Concepts / Files and Code / Errors and Fixes /
+  Pending Jobs / Current Work / Next Step / Critical Context）。
+- 检查点用 `<compacted-summary>...</compacted-summary>` 包裹，前面加 DSH 的 `CHECKPOINT_PREAMBLE`，
+  作为会话的 `checkpoint` 字段保存；请求时作为最前面的 user 消息发给模型。
+- 触发方式：`src/components/session/ContextBanner.tsx` 在用量 ≥80% 时提示，点「压缩上下文」执行；
+  压缩后输入框上方显示「上下文已压缩：更早的对话已折叠为摘要」。
+- 上下文窗口：DeepSeek 官方默认 1,000,000；OpenAI 兼容默认 128,000；可在 API 配置里手填覆盖。
+
+### 15.3 版本线
+
+v1.0.0 首发 → v1.0.1 导入走原生下载 + 错误提示带原因 + OpenCode Go/Zen 预设 + 上下文超限提示
+→ v1.0.2 更新时直连系统安装器 → v1.0.3 上下文压缩。

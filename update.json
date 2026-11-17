@@ -1,7 +1,7 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publishedAt": "2026-11-17",
-  "notes": "修复：应用内更新不再弹出「打开方式」选择框，直接调用系统安装器；确认应用名为 DeepChat",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.2",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.2/deepchat.apk"
+  "notes": "新增：上下文压缩（接近上限 80% 时提示，可按 DeepSeek Harness 的方式把更早的对话压成结构化摘要，保留最近 16%）；API 配置可填上下文窗口；应用内更新直连系统安装器",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.3",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.3/deepchat.apk"
 }

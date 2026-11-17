@@ -114,6 +114,11 @@ export type Session = {
   messages: Message[]
   /** undefined 表示线性消息列表；null 表示空会话。 */
   rootMessageId?: string | null
+  /**
+   * 上下文压缩后的检查点：被压缩的旧轮次只保留这段摘要。
+   * 请求时作为最前面的 user 消息发给模型，界面上显示为「上下文已压缩」。
+   */
+  checkpoint?: { text: string; createdAt: number; coveredMessages: number }
 }
 
 /** 会话列表元数据；消息只在打开会话时加载。 */

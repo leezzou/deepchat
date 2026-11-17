@@ -179,6 +179,16 @@ const updateReply = (sessionId: string, reply: AssistantMessage) =>
     ),
   }))
 
+/** 上下文压缩：用摘要检查点 + 最近若干轮替换整个会话历史 */
+export const applyCompaction = (
+  sessionId: string,
+  messages: Session['messages'],
+  checkpoint: NonNullable<Session['checkpoint']>
+) => {
+  updateSession(sessionId, (session) => ({ ...session, messages, checkpoint, updatedAt: Date.now() }))
+  persist(sessionId)
+}
+
 const persist = (sessionId: string) => {
   const session = getSession(sessionId)
   if (session) {
@@ -994,7 +1004,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           prepared.question,
           prepared.prefix,
           initial.thinking ?? false,
-          latestReminder
+          latestReminder,
+          getSession(sessionId)?.checkpoint?.text
         )
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
