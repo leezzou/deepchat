@@ -1549,7 +1549,7 @@ const MobileDataContent = ({
             <IconDownloadOutline16 />
           </span>
           <span className={styles.rowLabel}>{t('deepseekImportAction')}</span>
-          <span className={styles.rowValue}>{downloading ? t('apiKeyVerifying') : ''}</span>
+          <span className={styles.rowValue}>{downloading ? t('deepseekImportDownloading') : ''}</span>
         </button>
       </MobileGroup>
       <div className={styles.profileHint}>{t('deepseekImportHint')}</div>
@@ -2174,7 +2174,7 @@ const useHistoryImport = () => {
     importing.current = true
     setFile(null)
     setBusy(true)
-    setStatus(null)
+    setStatus({ key: 'historyImporting' })
     try {
       const count = await importHistory(file)
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })

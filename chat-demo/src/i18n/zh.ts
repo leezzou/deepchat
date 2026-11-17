@@ -120,6 +120,8 @@ export const zh = {
   historyImportedOne: '已导入 1 个对话',
   historyImported: '已导入 {count} 个对话',
   historyImportFailed: '导入失败：{message}',
+  historyImporting: '正在导入，请稍候…',
+  deepseekImportDownloading: '正在下载…',
   historyExportFailed: '导出失败：{message}',
   exportAllLabel: '导出所有历史对话',
   historyExportDescription:

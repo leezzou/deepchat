@@ -1,7 +1,7 @@
 {
-  "version": "1.0.20",
+  "version": "1.0.21",
   "publishedAt": "2026-11-17",
-  "notes": "API Key 校验增加 15 秒超时，接口不响应时不再一直卡在「正在验证」；超时后提示检查网络或接口地址",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.20",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.20/deepchat.apk"
+  "notes": "从 DeepSeek 导入时显示真实的「正在下载」状态，不再误显示 API Key 的「正在验证」；导入过程显示「正在导入，请稍候」",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.21",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.21/deepchat.apk"
 }

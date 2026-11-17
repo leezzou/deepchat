@@ -127,6 +127,8 @@ export const en = {
   historyImportedOne: 'Imported 1 chat',
   historyImported: 'Imported {count} chats',
   historyImportFailed: 'Import failed: {message}',
+  historyImporting: 'Importing, please wait…',
+  deepseekImportDownloading: 'Downloading…',
   historyExportFailed: 'Export failed: {message}',
   exportAllLabel: 'Export all chats',
   historyExportDescription:
