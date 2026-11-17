@@ -1174,3 +1174,10 @@
     }
   }
 }
+
+@media not all and (min-width: 768px) {
+  /* range 滑块自己处理手势，避免被整页滚动拦截 */
+  .fontSlider {
+    touch-action: none;
+  }
+}

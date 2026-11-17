@@ -49,6 +49,7 @@ import { ApiError, fetchModelIds, verifyApiKey } from '../../services/api/client
 import { classifyApiError } from '../../services/api/errors.js'
 import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
+import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { installApk } from '../../shell/installer.js'
 import { openExternal } from '../../shell/native.js'
 import { useTranslate, type TranslationKey, type TranslationMessage } from '../../i18n/index.js'
@@ -174,6 +175,7 @@ type MobilePage =
   | 'appearance'
   | 'fontSize'
   | 'personalize'
+  | 'profile'
   | 'location'
 
 /** 二级页标题（根页统一用「设置」） */
@@ -185,6 +187,7 @@ const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
   appearance: '外观',
   fontSize: '字体大小',
   personalize: '个性化',
+  profile: '账号资料',
   location: '位置信息',
 }
 
@@ -314,8 +317,9 @@ const MobileSettings = () => {
             {page === 'compacted' ? <MobileCompactedContent /> : null}
             {page === 'appearance' ? <MobileAppearanceContent /> : null}
             {page === 'fontSize' ? <MobileFontSizeContent /> : null}
-            {page === 'personalize' ? (
-              <MobilePersonalizeContent onOpenLocation={() => setPage('location')} />
+            {page === 'personalize' ? <MobilePersonalizeContent /> : null}
+            {page === 'profile' ? (
+              <MobileProfileContent onOpenLocation={() => setPage('location')} />
             ) : null}
             {page === 'location' ? <MobileLocationContent /> : null}
           </div>
@@ -497,6 +501,7 @@ const MobileSelectRow = ({
 const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
   const apiKey = useSettings((state) => state.apiKey)
+  const displayName = useSettings((state) => state.displayName)
   const locale = useSettings((state) => state.locale)
   const themePreference = useSettings((state) => state.themePreference)
   const ttsVoice = useSettings((state) => state.ttsVoice)
@@ -508,6 +513,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
     | null
   >(null)
   const version = readAppVersion()
+  const updateAvailable = useUpdateNotice((state) => state.available)
 
   const runUpdateCheck = async () => {
     setUpdate(null)
@@ -548,6 +554,12 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           label="API Key 管理"
           value={apiKey ? '已设置' : '未设置'}
           onClick={() => onOpenPage('apiKey')}
+        />
+        <MobileRow
+          icon={<IconPersonalize />}
+          label={t('settingsProfile')}
+          value={displayName}
+          onClick={() => onOpenPage('profile')}
         />
         <MobileRow
           icon={<IconDataOutline16 />}
@@ -615,7 +627,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
               <IconInfo />
             </span>
             <span className={styles.rowLabel}>{t('checkUpdate')}</span>
-            <span className={styles.rowValue}>{version}</span>
+            <span className={styles.rowValue}>
+              {updateAvailable ? t('updateBadge') : version}
+            </span>
             <span className={styles.rowChevron}>
               <IconChevronRightOutline14 />
             </span>
@@ -1516,6 +1530,13 @@ const MobileFontSizeContent = () => {
         <div className={styles.fontBubble}>{t('fontSizePreviewBubble')}</div>
         <p className={styles.fontParagraph}>{t('fontSizePreviewLine1')}</p>
         <p className={styles.fontParagraph}>{t('fontSizePreviewLine2')}</p>
+        <button
+          type="button"
+          className={styles.fetchButton}
+          onClick={() => void openExternal('https://github.com/leezzou/deepchat/issues')}
+        >
+          github.com/leezzou/deepchat/issues
+        </button>
       </div>
       <div className={styles.fontSheet}>
         <div className={styles.fontFollowRow}>
@@ -1560,12 +1581,36 @@ const MobileFontSizeContent = () => {
   )
 }
 
-/** 个性化：头像、昵称、位置 */
-const MobilePersonalizeContent = ({ onOpenLocation }: { onOpenLocation: () => void }) => {
+/** 个性化：照官方——只有「思考内容自动折叠」一个开关和说明 */
+const MobilePersonalizeContent = () => {
+  const t = useTranslate()
+  const autoCollapseThinking = useSettings((state) => state.autoCollapseThinking)
+  return (
+    <>
+      <MobileGroup>
+        <div className={clsx(styles.row, styles.rowStatic)}>
+          <span className={styles.rowLabel}>{t('personalizeCollapseThinking')}</span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoCollapseThinking}
+            className={clsx(styles.fontSwitch, autoCollapseThinking && styles.fontSwitchOn)}
+            onClick={() => setAutoCollapseThinking(!autoCollapseThinking)}
+          >
+            <span className={styles.fontSwitchKnob} />
+          </button>
+        </div>
+      </MobileGroup>
+      <div className={styles.profileHint}>{t('personalizeCollapseHint')}</div>
+    </>
+  )
+}
+
+/** 账号资料：头像、昵称、位置（本 App 无登录体系，资料只存本机） */
+const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }) => {
   const t = useTranslate()
   const displayName = useSettings((state) => state.displayName)
   const avatar = useSettings((state) => state.avatar)
-  const autoCollapseThinking = useSettings((state) => state.autoCollapseThinking)
   const location = useSettings((state) => state.location)
   const [name, setName] = useState(displayName)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -1589,21 +1634,6 @@ const MobilePersonalizeContent = ({ onOpenLocation }: { onOpenLocation: () => vo
 
   return (
     <>
-      <MobileGroup>
-        <div className={clsx(styles.row, styles.rowStatic)}>
-          <span className={styles.rowLabel}>{t('personalizeCollapseThinking')}</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoCollapseThinking}
-            className={clsx(styles.fontSwitch, autoCollapseThinking && styles.fontSwitchOn)}
-            onClick={() => setAutoCollapseThinking(!autoCollapseThinking)}
-          >
-            <span className={styles.fontSwitchKnob} />
-          </button>
-        </div>
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('personalizeCollapseHint')}</div>
       <MobileGroup>
         <div className={styles.field}>
           <div className={styles.fieldLabel}>{t('personalizeAvatar')}</div>

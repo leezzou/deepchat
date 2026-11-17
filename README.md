@@ -170,7 +170,8 @@ cd android
 
 ## 更新
 
-App 内「设置 → 检查更新」读的是仓库根目录的 **`update.json`**（走 raw.githubusercontent，避开 GitHub API 的
+App **启动时、回到前台时、以及每 30 分钟**会自动轮询仓库根目录的 **`update.json`**，发现新版本会在抽屉设置入口显示红点，
+设置里的「检查更新」也会显示「有新版本」。手动点「设置 → 检查更新」读的同样是 **`update.json`**（走 raw.githubusercontent，避开 GitHub API 的
 60 次/小时限制），发现新版本可以直接下载 APK 并拉起系统安装器；API 只在清单缺失时兜底。
 
 发版一条命令：

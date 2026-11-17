@@ -14,6 +14,10 @@ const preventPageScroll = (event: TouchEvent) => {
   if (event.touches.length !== 1) {
     return
   }
+  // 表单控件（尤其是 range 滑块）需要自己的手势，不能被整页滚动拦截
+  if (event.target instanceof Element && event.target.closest('input, textarea, select')) {
+    return
+  }
   for (
     let element = event.target instanceof Element ? event.target : null;
     element && element !== document.body;

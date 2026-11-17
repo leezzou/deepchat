@@ -394,3 +394,21 @@
     }
   }
 }
+
+.footerMoreWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* 有新版本时设置入口右上角的红点 */
+.updateDot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #ec1313;
+  pointer-events: none;
+}

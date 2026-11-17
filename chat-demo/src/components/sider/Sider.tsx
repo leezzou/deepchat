@@ -18,6 +18,7 @@ import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
+import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SessionItem } from './SessionItem.js'
 import styles from './Sider.module.css'
 
@@ -39,6 +40,7 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
   const userName = useSettings((state) => state.displayName)
   const avatar = useSettings((state) => state.avatar)
+  const hasUpdate = useUpdateNotice((state) => state.available !== null)
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
@@ -162,12 +164,15 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
             {avatar ? <img className={styles.avatarImage} src={avatar} alt="" /> : <AvatarGlyph />}
           </div>
           <div className={styles.userName}>{userName}</div>
-          <IconButton
-            className={styles.footerMore}
-            icon={<IconEllipsisOutline16 />}
-            aria-label={t('settings')}
-            onClick={() => openSettings('general')}
-          />
+          <span className={styles.footerMoreWrap}>
+            <IconButton
+              className={styles.footerMore}
+              icon={<IconEllipsisOutline16 />}
+              aria-label={t('settings')}
+              onClick={() => openSettings('general')}
+            />
+            {hasUpdate ? <span className={styles.updateDot} /> : null}
+          </span>
         </div>
       ) : (
         <div className={styles.bottom}>

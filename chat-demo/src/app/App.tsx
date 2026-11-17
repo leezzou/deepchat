@@ -25,6 +25,7 @@ import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider, openMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
 import { isNative, useNativeShell } from '../shell/native.js'
 import { useEdgeSwipe } from './edgeSwipe.js'
+import { useUpdateWatcher } from '../services/updateWatcher.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import styles from './App.module.css'
 
@@ -55,6 +56,8 @@ export const App = () => {
 
   usePreventPageScroll(isMobile)
   useNativeShell()
+  // App 启动/回前台/每 30 分钟轮询新版本（官方也是设置页才提示，这里用红点提示）
+  useUpdateWatcher()
   // 左缘右滑打开对话抽屉，抽屉打开时左滑关闭
   useEdgeSwipe(
     isMobile,
