@@ -13,7 +13,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$ROOT/chat-demo"
 TAG="v$VERSION"
 
-export JAVA_HOME="${JAVA_HOME:-/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home}"
+# 必须 JDK 17（系统默认可能是 21/27，AGP 8.2.1 会直接崩）
+JDK17="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
+if [ -x "$JDK17/bin/java" ]; then
+  export JAVA_HOME="$JDK17"
+fi
+if ! "$JAVA_HOME/bin/java" -version 2>&1 | grep -q '\"17\.'; then
+  echo "错误：需要 JDK 17，当前是 $("$JAVA_HOME/bin/java" -version 2>&1 | head -1)" >&2
+  exit 1
+fi
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 export PATH="$JAVA_HOME/bin:$ANDROID_HOME/platform-tools:$PATH"
 
