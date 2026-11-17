@@ -43,7 +43,124 @@
   padding-bottom: 24px;
 }
 
-/* 删除单条消息的确认文案 */
+.locatedMessage {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 6px;
+  border-radius: 12px;
+}
+
+.locationLabel {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--dsw-alias-bg-layer-3);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.locationHeading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin-bottom: 6px;
+}
+.locationHeading button {
+  min-height: 36px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-brand-primary);
+  font: inherit;
+  cursor: pointer;
+}
+.locationHeading button:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
+}
+
+:global(::highlight(history-search)) {
+  background-color: #fce79b;
+  color: #171717;
+}
+[data-ds-dark-theme] :global(::highlight(history-search)) {
+  background-color: #66541d;
+  color: #fff3bf;
+}
+
+.deleteDialog {
+  width: 460px;
+}
 .deleteMessageText {
   line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.deleteMessageText p {
+  margin: 0 0 12px;
+}
+.deleteScopes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  border: 0;
+}
+.deleteScopes legend {
+  padding: 0 0 8px;
+  color: var(--dsw-alias-label-primary);
+}
+.deleteScope {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 44px;
+  padding: 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 12px;
+  cursor: pointer;
+}
+.deleteScope:has(input:checked) {
+  border-color: var(--dsw-alias-brand-primary);
+}
+.deleteScope input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 3px 0 0;
+  accent-color: var(--dsw-alias-brand-primary);
+}
+.deleteScope > span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.deleteScope strong {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+.deleteScope > span > span {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.deleteCount,
+.deleteMode {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+.deletePreview {
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+.deletePreview li {
+  padding: 4px 0;
+}
+.deleteRole {
+  display: block;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
 }

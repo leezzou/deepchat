@@ -1,4 +1,5 @@
 import { useTranslate } from '../../i18n/index.js'
+import { usePendingEdit } from '../../services/pendingEdits.js'
 import clsx from 'clsx'
 import { memo, useLayoutEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
@@ -43,6 +44,7 @@ export const UserMessage = memo(function UserMessage({
 }) {
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
+  usePendingEdit(editing)
   const [draft, setDraft] = useState(message.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMobile = useIsMobile()

@@ -20,6 +20,7 @@ import { openSettings } from '../settings/settingsDialogState.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SessionItem } from './SessionItem.js'
+import { openHistorySearch } from '../historySearch/historySearchState.js'
 import styles from './Sider.module.css'
 
 /** 没有账号头像时的中性线稿头像 */
@@ -47,23 +48,6 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const groups = useMemo(() => groupSessions(sessions, now, t), [sessions, now, t])
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
   const [deletePending, setDeletePending] = useState(false)
-  // 移动端抽屉顶部搜索：只按标题过滤当前列表
-  const [query, setQuery] = useState('')
-  const open = useMobileSider((state) => state.open)
-  const visibleGroups = useMemo(() => {
-    const keyword = query.trim().toLowerCase()
-    if (!keyword) {
-      return groups
-    }
-    return groups
-      .map((group) => ({
-        ...group,
-        sessions: group.sessions.filter((session) =>
-          (session.title || t('untitledChat')).toLowerCase().includes(keyword)
-        ),
-      }))
-      .filter((group) => group.sessions.length > 0)
-  }, [groups, query, t])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -89,30 +73,21 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
     }
   }, [])
 
-  // 抽屉关闭后清空搜索词，下次打开回到完整列表
-  useEffect(() => {
-    if (!open) {
-      setQuery('')
-    }
-  }, [open])
-
   return (
     <div className={clsx(styles.sider, mobile && styles.mobile)}>
       {mobile ? (
         <div className={styles.searchWrap}>
-          <div className={styles.searchPill}>
+          <button
+            type="button"
+            className={styles.searchPill}
+            onClick={openHistorySearch}
+            aria-label={t('historySearch')}
+          >
             <span className={styles.searchIcon}>
               <IconSearchOutline16 />
             </span>
-            <input
-              className={styles.searchInput}
-              value={query}
-              placeholder="搜索对话内容..."
-              aria-label="搜索对话内容"
-              enterKeyHint="search"
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
+            <span className={styles.searchInput}>{t('historySearchPlaceholder')}</span>
+          </button>
         </div>
       ) : (
         <>
@@ -139,11 +114,15 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
             </span>
             {t('newChat')}
           </button>
+          <button type="button" className={styles.searchButton} onClick={openHistorySearch}>
+            <IconSearchOutline16 />
+            <span>{t('historySearch')}</span>
+          </button>
         </>
       )}
       <div className={styles.listWrap}>
         <div className={styles.list}>
-          {visibleGroups.map((group) => (
+          {groups.map((group) => (
             <div key={group.key} className={styles.section}>
               <div className={styles.sectionHeader}>{group.label}</div>
               {group.sessions.map((session) => (

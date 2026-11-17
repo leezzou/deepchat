@@ -1,8 +1,14 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
+import { getApiConfig } from '../api/origin.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
-import { extractFileIds, getFileErrorCode, isRetryableApiError, isContextOverflow } from '../api/errors.js'
+import {
+  extractFileIds,
+  getFileErrorCode,
+  isRetryableApiError,
+  isContextOverflow,
+} from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
 import { resolveLocale } from '../../i18n/index.js'
@@ -16,10 +22,17 @@ import {
   prepareDraftMessage,
 } from './drafts.js'
 import { createLatestReminder } from './latestReminder.js'
+import { useContextPreferences } from './contextPreferences.js'
+import { estimateRequestTokens } from './contextBudget.js'
+import { createContextBatcher } from './contextStreamBatcher.js'
+import { buildMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
+export { previewMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
 import {
   applyEvent,
   canContinueReply,
   getContextRounds,
+  getEffectiveContext,
+  isReplyForQuestion,
   settleReply,
   toRequestMessages,
 } from './reply.js'
@@ -74,6 +87,9 @@ type ChatState = {
   activeId: string | null
   /** 正在生成回复的会话 */
   streaming: Record<string, AbortController>
+  /** 手动/自动摘要共享会话锁，可取消；不写入磁盘。 */
+  compacting: Record<string, AbortController>
+  contextErrors: Record<string, string>
 }
 
 export const useChatStore = create<ChatState>(() => ({
@@ -86,6 +102,8 @@ export const useChatStore = create<ChatState>(() => ({
   sessionSaveErrors: {},
   activeId: null,
   streaming: {},
+  compacting: {},
+  contextErrors: {},
 }))
 
 const { getState: get, setState: set } = useChatStore
@@ -103,6 +121,10 @@ const getStreamController = (id: string) => {
   return Object.hasOwn(streams, id) ? streams[id] : undefined
 }
 
+const isSessionBusy = (id: string) => Boolean(getStreamController(id) || get().compacting[id])
+
+export const cancelCompaction = (id: string) => get().compacting[id]?.abort()
+
 const sameSummary = (a: SessionSummary, b: SessionSummary) =>
   a.title === b.title && a.createdAt === b.createdAt && a.updatedAt === b.updatedAt
 
@@ -115,6 +137,7 @@ const pendingFileDeletes = new Map<string, Set<string>>()
 const deletingSessions = new Set<string>()
 const deletionTasks = new Set<Promise<boolean>>()
 const streamFlushes = new Map<string, () => void>()
+const pendingSaves = new Set<Promise<void>>()
 let accessSequence = 0
 let historyEpoch = 0
 let initTask: Promise<void> | undefined
@@ -202,6 +225,14 @@ export const applyCompaction = (
 
 /** 编辑压缩摘要：只替换 checkpoint 文本，消息与压缩时间保持不变 */
 export const updateCheckpointText = (sessionId: string, text: string) => {
+  if (
+    get().importingHistory ||
+    deletingSessions.has(sessionId) ||
+    isSessionBusy(sessionId) ||
+    !text.trim()
+  ) {
+    return
+  }
   updateSession(sessionId, (session) =>
     session.checkpoint
       ? { ...session, checkpoint: { ...session.checkpoint, text }, updatedAt: Date.now() }
@@ -212,6 +243,9 @@ export const updateCheckpointText = (sessionId: string, text: string) => {
 
 /** 恢复完整上下文：清掉压缩标记，让全部原始消息重新参与请求 */
 export const clearCompaction = (sessionId: string) => {
+  if (get().importingHistory || deletingSessions.has(sessionId) || isSessionBusy(sessionId)) {
+    return
+  }
   updateSession(sessionId, (session) => {
     if (!session.checkpoint && !session.compactedThrough) {
       return session
@@ -221,6 +255,67 @@ export const clearCompaction = (sessionId: string) => {
     delete restored.compactedThrough
     return restored
   })
+  persist(sessionId)
+}
+
+/** 按整轮修改上下文；来源受影响的摘要必须失效，避免被排除内容经摘要回流。 */
+export const setContextRoundIncluded = (sessionId: string, userId: string, included: boolean) => {
+  if (get().importingHistory || deletingSessions.has(sessionId) || isSessionBusy(sessionId)) {
+    return
+  }
+  updateSession(sessionId, (session) => {
+    if (
+      !getVisibleMessages(session).some(
+        (message) => message.id === userId && message.role === 'user'
+      )
+    ) {
+      return session
+    }
+    const excluded = new Set(session.excludedContextRoundIds ?? [])
+    if (included) {
+      excluded.delete(userId)
+    } else {
+      excluded.add(userId)
+    }
+    if (
+      excluded.size === (session.excludedContextRoundIds?.length ?? 0) &&
+      [...excluded].every((id) => session.excludedContextRoundIds?.includes(id))
+    ) {
+      return session
+    }
+    // 恢复曾被排除的旧轮也会改变摘要覆盖区间，因此一并恢复原文后重新选择。
+    const next = { ...session, excludedContextRoundIds: [...excluded], updatedAt: Date.now() }
+    delete next.checkpoint
+    delete next.compactedThrough
+    return next
+  })
+  persist(sessionId)
+}
+
+export const retainContextRounds = (sessionId: string, count: 5 | 10 | 'all') => {
+  if (get().importingHistory || deletingSessions.has(sessionId) || isSessionBusy(sessionId)) {
+    return
+  }
+  updateSession(sessionId, (session) => {
+    const rounds = getContextRounds(getVisibleMessages(session))
+    const visible = new Set(rounds.map(([user]) => user.id))
+    const excluded =
+      count === 'all'
+        ? []
+        : [
+            ...(session.excludedContextRoundIds ?? []).filter((id) => !visible.has(id)),
+            ...rounds.slice(0, Math.max(0, rounds.length - count)).map(([user]) => user.id),
+          ]
+    const next = { ...session, excludedContextRoundIds: excluded, updatedAt: Date.now() }
+    delete next.checkpoint
+    delete next.compactedThrough
+    return next
+  })
+  set((state) => ({
+    contextErrors: Object.fromEntries(
+      Object.entries(state.contextErrors).filter(([id]) => id !== sessionId)
+    ),
+  }))
   persist(sessionId)
 }
 
@@ -234,7 +329,7 @@ const persist = (sessionId: string) => {
     const epoch = historyEpoch
     const files = pendingFiles.get(sessionId)
     const fileDeletes = pendingFileDeletes.get(sessionId)
-    void db
+    const task = db
       .saveSession(session, files, fileDeletes ? [...fileDeletes] : [])
       .then(() => {
         if (epoch !== historyEpoch || !getSession(sessionId)) {
@@ -264,12 +359,27 @@ const persist = (sessionId: string) => {
           }))
         }
       })
+      .finally(() => pendingSaves.delete(task))
+    pendingSaves.add(task)
   }
 }
 
 export const retrySaveSessions = () => {
   if (!get().importingHistory) {
     unsavedSessions.forEach(persist)
+  }
+}
+
+/** 更新/刷新前的可等待保存屏障；失败拒绝，调用者可继续保留当前页面。 */
+export const flushChatPersistence = async (): Promise<void> => {
+  for (const [id, flush] of streamFlushes) {
+    flush()
+    persist(id)
+  }
+  unsavedSessions.forEach(persist)
+  await Promise.all(pendingSaves)
+  if (unsavedSessions.size > 0 || Object.keys(get().sessionSaveErrors).length > 0) {
+    throw new Error('Local conversations could not be saved')
   }
 }
 
@@ -303,11 +413,12 @@ export const bindChatPersistence = () => {
 }
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
-const createReply = (): AssistantMessage => {
+const createReply = (contextUserId: string): AssistantMessage => {
   const { thinking, search } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
+    contextUserId,
     createdAt: Date.now(),
     model: MODEL,
     thinking,
@@ -420,8 +531,8 @@ const waitForIdle = (sessionId?: string) =>
   new Promise<void>((resolve) => {
     const isIdle = (state: ChatState) =>
       sessionId === undefined
-        ? Object.keys(state.streaming).length === 0
-        : !Object.hasOwn(state.streaming, sessionId)
+        ? Object.keys(state.streaming).length === 0 && Object.keys(state.compacting).length === 0
+        : !Object.hasOwn(state.streaming, sessionId) && !Object.hasOwn(state.compacting, sessionId)
     if (isIdle(get())) {
       resolve()
       return
@@ -444,15 +555,19 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
   }
   set({ importingHistory: true })
   try {
-    for (const controller of Object.values(get().streaming)) {
+    for (const controller of [
+      ...Object.values(get().streaming),
+      ...Object.values(get().compacting),
+    ]) {
       controller.abort()
     }
-    // 已开始的单条删除先同步到内存，避免本次替换失败后列表残留已被删除的记录。
+    // 已开始的删除与生成先收尾，写入原文/附件成功后才允许创建恢复快照和替换历史。
     await Promise.all(deletionTasks)
+    await waitForIdle()
+    await flushChatPersistence()
     historyEpoch += 1
     initTask = undefined
     sessionLoads.clear()
-    await waitForIdle()
     await db.clearStaging()
     let summaries: SessionSummary[]
     try {
@@ -474,6 +589,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
       sessionCache: {},
       sessionLoadErrors: {},
       sessionSaveErrors: {},
+      contextErrors: {},
       activeId: null,
     })
     return summaries.length
@@ -504,6 +620,71 @@ export const selectSession = (id: string) => {
     void ensureSessionLoaded(id)
     trimSessionCache()
   }
+}
+
+/** 搜索结果跳转：加载目标并一次恢复全部祖先选择，不改变列表排序时间。 */
+export const revealMessage = async (
+  sessionId: string,
+  messageId: string,
+  signal?: AbortSignal
+): Promise<'ok' | 'missing' | 'busy' | 'failed'> => {
+  if (get().importingHistory || deletingSessions.has(sessionId)) {
+    return 'busy'
+  }
+  if (!get().sessions.some((session) => session.id === sessionId)) {
+    return 'missing'
+  }
+  touchSession(sessionId)
+  await ensureSessionLoaded(sessionId)
+  if (signal?.aborted) {
+    return 'failed'
+  }
+  if (get().importingHistory || deletingSessions.has(sessionId)) {
+    return 'busy'
+  }
+  const current = getSession(sessionId)
+  if (!current) {
+    return get().sessionLoadErrors[sessionId] ? 'failed' : 'missing'
+  }
+  if (!current.messages.some((message) => message.id === messageId)) {
+    return 'missing'
+  }
+  if (!getVisibleMessages(current).some((message) => message.id === messageId)) {
+    if (isSessionBusy(sessionId)) {
+      return 'busy'
+    }
+    const session = normalizeSession(current)
+    const byId = new Map(session.messages.map((message) => [message.id, message]))
+    const selection = new Map<string, string>()
+    const visited = new Set<string>()
+    let node = byId.get(messageId)
+    while (node?.parentId) {
+      if (visited.has(node.id)) {
+        return 'failed'
+      }
+      visited.add(node.id)
+      selection.set(node.parentId, node.id)
+      node = byId.get(node.parentId)
+    }
+    if (!node) {
+      return 'failed'
+    }
+    const rootMessageId = node.id
+    updateSession(sessionId, () => ({
+      ...session,
+      rootMessageId,
+      messages: session.messages.map((message) =>
+        selection.has(message.id)
+          ? { ...message, selectedChildId: selection.get(message.id) }
+          : message
+      ),
+    }))
+    persist(sessionId)
+  }
+  touchSession(sessionId)
+  set({ activeId: sessionId })
+  trimSessionCache()
+  return 'ok'
 }
 
 export const renameSession = (id: string, title: string) => {
@@ -545,6 +726,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   deletingSessions.add(id)
   try {
     getStreamController(id)?.abort()
+    cancelCompaction(id)
     // 等本会话的流收尾，避免删除之后又被收尾保存写回来。
     await waitForIdle(id)
     if (epoch !== historyEpoch) {
@@ -590,7 +772,10 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   }
 }
 
-export const stopReply = (sessionId: string) => getStreamController(sessionId)?.abort()
+export const stopReply = (sessionId: string) => {
+  getStreamController(sessionId)?.abort()
+  cancelCompaction(sessionId)
+}
 
 /**
  * 提交指定会话的最新草稿；null 表示新建会话。
@@ -609,7 +794,7 @@ export const sendMessage = (targetSessionId: string | null) => {
   let sessionId = targetSessionId
   if (
     sessionId !== null &&
-    (deletingSessions.has(sessionId) || getStreamController(sessionId) || !getSession(sessionId))
+    (deletingSessions.has(sessionId) || isSessionBusy(sessionId) || !getSession(sessionId))
   ) {
     return false
   }
@@ -649,7 +834,7 @@ export const sendMessage = (targetSessionId: string | null) => {
     })),
     createdAt: now,
   }
-  const reply = createReply()
+  const reply = createReply(question.id)
   updateSession(sessionId, (session) => ({
     ...appendBranch(session, history.at(-1)?.id ?? null, [question, reply]),
     updatedAt: now,
@@ -672,18 +857,23 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || isSessionBusy(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
   const index =
     messageId === undefined ? path.length - 1 : path.findIndex((m) => m.id === messageId)
   const question = path[index - 1]
-  if (question?.role !== 'user' || path[index]?.role !== 'assistant') {
+  const previous = path[index]
+  if (
+    question?.role !== 'user' ||
+    previous?.role !== 'assistant' ||
+    !isReplyForQuestion(previous, question)
+  ) {
     return
   }
   const history = path.slice(0, index - 1)
-  const reply = createReply()
+  const reply = createReply(question.id)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, question.id, [reply]),
     updatedAt: Date.now(),
@@ -698,7 +888,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     return false
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || isSessionBusy(sessionId)) {
     return false
   }
   const path = getVisibleMessages(session)
@@ -715,7 +905,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     files: previous.files,
     createdAt: Date.now(),
   }
-  const reply = createReply()
+  const reply = createReply(question.id)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, path[index - 1]?.id ?? null, [question, reply]),
     updatedAt: Date.now(),
@@ -725,86 +915,28 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
   return true
 }
 
-/**
- * 删除当前分支上的一条消息及其全部后代。
- * 删除提问时对应回答和后续轮次一起移除；删除回答时只移除该版本及其后续。
- * 父节点若指向被删分支，自动切到仍存在的兄弟版本。
- */
-export const deleteMessage = (sessionId: string, messageId: string): boolean => {
-  if (get().importingHistory || deletingSessions.has(sessionId) || getStreamController(sessionId)) {
+/** 按确认范围删除单条或目标全部后代；执行前再次核对范围，避免确认期间变化。 */
+export const deleteMessage = (
+  sessionId: string,
+  messageId: string,
+  mode: MessageDeletionMode = 'following',
+  expectedIds?: string[]
+): boolean => {
+  if (get().importingHistory || deletingSessions.has(sessionId) || isSessionBusy(sessionId)) {
     return false
   }
   const session = getSession(sessionId)
   if (!session) {
     return false
   }
-  const path = getVisibleMessages(session)
-  if (!path.some((message) => message.id === messageId)) {
+  const deletion = buildMessageDeletion(session, messageId, mode, expectedIds)
+  if (!deletion) {
     return false
   }
-  const byId = new Map(session.messages.map((message) => [message.id, message]))
-  const children = new Map<string, string[]>()
-  for (const message of session.messages) {
-    if (message.parentId) {
-      children.set(message.parentId, [...(children.get(message.parentId) ?? []), message.id])
-    }
-  }
-  const removed = new Set<string>()
-  const stack = [messageId]
-  while (stack.length > 0) {
-    const id = stack.pop() ?? ''
-    if (!id || removed.has(id)) {
-      continue
-    }
-    removed.add(id)
-    stack.push(...(children.get(id) ?? []))
-  }
-  const target = byId.get(messageId)
-  const parent = target?.parentId ? byId.get(target.parentId) : undefined
-  const sibling = parent
-    ? session.messages
-        .filter((message) => message.parentId === parent.id && !removed.has(message.id))
-        .at(-1)
-    : undefined
-  const messages = session.messages
-    .filter((message) => !removed.has(message.id))
-    .map((message) =>
-      parent && message.id === parent.id && message.selectedChildId && removed.has(message.selectedChildId)
-        ? { ...message, selectedChildId: sibling?.id }
-        : message
-    )
-  const removedFiles = new Set<string>()
-  for (const message of session.messages) {
-    if (removed.has(message.id) && message.role === 'user') {
-      for (const file of message.files) {
-        removedFiles.add(file.id)
-      }
-    }
-  }
-  // 被压缩摘要覆盖的消息可能已被模型总结过；删除它们时清掉旧检查点，
-  // 否则之后仍会把包含已删内容的摘要发给模型。
-  const compactedIndex = session.compactedThrough
-    ? session.messages.findIndex((message) => message.id === session.compactedThrough)
-    : -1
-  const targetIndex = session.messages.findIndex((message) => message.id === messageId)
-  const clearsCompaction = compactedIndex >= 0 && targetIndex >= 0 && targetIndex <= compactedIndex
-  updateSession(sessionId, () => {
-    const next: Session = {
-      ...session,
-      messages,
-      rootMessageId:
-        session.rootMessageId && removed.has(session.rootMessageId) ? null : session.rootMessageId,
-      updatedAt: Date.now(),
-    }
-    if (clearsCompaction) {
-      delete next.checkpoint
-      delete next.compactedThrough
-    }
-    return next
-  })
-  if (removedFiles.size > 0) {
+  updateSession(sessionId, () => deletion.session)
+  if (deletion.removedFileIds.length > 0) {
     const pending = pendingFileDeletes.get(sessionId) ?? new Set<string>()
-    for (const id of removedFiles) {
+    for (const id of deletion.removedFileIds) {
       pending.add(id)
     }
     pendingFileDeletes.set(sessionId, pending)
@@ -817,7 +949,7 @@ export const selectMessageVersion = (sessionId: string, messageId: string) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
     return
   }
-  if (getStreamController(sessionId)) {
+  if (isSessionBusy(sessionId)) {
     return
   }
   updateSession(sessionId, (session) => selectVersion(session, messageId))
@@ -830,7 +962,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || isSessionBusy(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
@@ -840,6 +972,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
     question?.role !== 'user' ||
     previous?.role !== 'assistant' ||
     previous.id !== messageId ||
+    !isReplyForQuestion(previous, question) ||
     !canContinueReply(previous)
   ) {
     return
@@ -857,7 +990,18 @@ export const continueReply = (sessionId: string, messageId: string) => {
     error: undefined,
   }
   updateReply(sessionId, reply)
-  updateSession(sessionId, (s) => ({ ...s, updatedAt: Date.now() }))
+  updateSession(sessionId, (s) => {
+    const next = { ...s, updatedAt: Date.now() }
+    // 续写会原位扩展同一消息；旧摘要不再代表这条消息的完整内容。
+    if (
+      s.compactedThrough === previous.id ||
+      s.checkpoint?.coveredMessageIds?.includes(previous.id)
+    ) {
+      delete next.checkpoint
+      delete next.compactedThrough
+    }
+    return next
+  })
   persist(sessionId)
   void streamReply(sessionId, reply, { history: path.slice(0, -2), question, prefix: previous })
 }
@@ -868,7 +1012,7 @@ export const retryUpload = (sessionId: string, messageId: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || getStreamController(sessionId)) {
+  if (!session || isSessionBusy(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
@@ -878,6 +1022,7 @@ export const retryUpload = (sessionId: string, messageId: string) => {
   if (
     question?.role !== 'user' ||
     previous?.role !== 'assistant' ||
+    !isReplyForQuestion(previous, question) ||
     previous.error?.kind !== 'upload'
   ) {
     return
@@ -946,6 +1091,17 @@ const refreshRequest = (sessionId: string, request: Request): Request => {
   }
 }
 
+const requestContext = (sessionId: string, request: Request) => {
+  const session = getSession(sessionId)
+  return getEffectiveContext(
+    request.history,
+    session?.checkpoint?.text,
+    session?.compactedThrough,
+    session?.excludedContextRoundIds,
+    session?.checkpoint?.coveredMessageIds
+  )
+}
+
 /**
  * 发送前补齐附件的 serverId。
  * - 本轮提问的附件并行补齐，任一失败则整体失败，已成功的照常写回，重试时复用成功结果；
@@ -983,7 +1139,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
   }
 
   const pending = new Map<string, FileAttachment>()
-  for (const [user] of getContextRounds(request.history).toReversed()) {
+  for (const [user] of requestContext(sessionId, request).rounds.toReversed()) {
     for (const file of user.files) {
       if (!file.serverId && !serverIds.has(file.id) && !pending.has(file.id)) {
         pending.set(file.id, file)
@@ -1015,7 +1171,7 @@ const prepareFiles = async (sessionId: string, request: Request, signal: AbortSi
 }
 
 /** 本次请求实际会用到的服务端 file_id */
-const collectServerFileIds = (request: Request): Set<string> => {
+const collectServerFileIds = (sessionId: string, request: Request): Set<string> => {
   const ids = new Set<string>()
   const add = (files: FileAttachment[]) => {
     for (const file of files) {
@@ -1025,7 +1181,7 @@ const collectServerFileIds = (request: Request): Set<string> => {
     }
   }
   add(request.question.files)
-  for (const [user] of getContextRounds(request.history)) {
+  for (const [user] of requestContext(sessionId, request).rounds) {
     add(user.files)
   }
   return ids
@@ -1045,7 +1201,7 @@ const reuploadInvalidatedFiles = (sessionId: string, request: Request, error: un
   const targets =
     mentioned.length > 0
       ? new Set(mentioned)
-      : collectServerFileIds(refreshRequest(sessionId, request))
+      : collectServerFileIds(sessionId, refreshRequest(sessionId, request))
   const session = getSession(sessionId)
   if (targets.size === 0 || !session) {
     return false
@@ -1094,24 +1250,34 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
   })
 
 /**
- * 请求并消费流：先补齐附件的 serverId，再发请求；流式增量按动画帧刷新内存，完成、失败或停止后落盘。
+ * 请求并消费流：先补齐附件的 serverId，再发请求；流式增量约 80ms 合并刷新内存，完成、失败或停止后落盘。
  * 补传失败时回复记为 upload 错误，可重试。
  * 服务端判定 file_id 失效时重新补传后重发，退避重试且次数有上限，超过则按原始报错收尾。
  */
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
+  const configuration = () =>
+    JSON.stringify([
+      getApiConfig(),
+      useSettings.getState().activeProfileId,
+      useSettings.getState().apiKey,
+      useSettings.getState().apiProfiles,
+    ])
+  const initialConfiguration = configuration()
   const controller = new AbortController()
   if (!getSession(sessionId)?.title) {
     titleRequests.add(controller)
   }
-  set((state) => ({ streaming: { ...state.streaming, [sessionId]: controller } }))
+  set((state) => ({
+    streaming: { ...state.streaming, [sessionId]: controller },
+    contextErrors: Object.fromEntries(
+      Object.entries(state.contextErrors).filter(([id]) => id !== sessionId)
+    ),
+  }))
   let reply = initial
-  let frame = 0
-  const flush = () => {
-    cancelAnimationFrame(frame)
-    frame = 0
-    updateReply(sessionId, reply)
-  }
+  const batcher = createContextBatcher(() => updateReply(sessionId, reply))
+  const flush = () => batcher.flush()
   streamFlushes.set(sessionId, flush)
+  controller.signal.addEventListener('abort', flush, { once: true })
 
   try {
     for (let attempt = 0; ; attempt += 1) {
@@ -1121,22 +1287,63 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       try {
         const prepared = await prepareFiles(sessionId, request, controller.signal)
         preparing = false
+        if (configuration() !== initialConfiguration) {
+          throw new ApiError('protocol', { key: 'contextSummaryChanged' })
+        }
         // 附件就绪后获取本轮信息；续写沿用原回答快照，重新生成的快照独立保存。
         const latestReminder = prepared.prefix
           ? prepared.prefix.latestReminder
-          : createLatestReminder({ ...useSettings.getState(), locale: resolveLocale(useSettings.getState().locale) })
+          : createLatestReminder({
+              ...useSettings.getState(),
+              locale: resolveLocale(useSettings.getState().locale),
+            })
         reply = { ...reply, latestReminder }
         updateReply(sessionId, reply)
         persist(sessionId)
-        const messages = toRequestMessages(
-          prepared.history,
-          prepared.question,
-          prepared.prefix,
-          initial.thinking ?? false,
-          latestReminder,
-          getSession(sessionId)?.checkpoint?.text,
-          getSession(sessionId)?.compactedThrough
-        )
+        const buildMessages = () => {
+          const session = getSession(sessionId)
+          return toRequestMessages(
+            prepared.history,
+            prepared.question,
+            prepared.prefix,
+            initial.thinking ?? false,
+            latestReminder,
+            session?.checkpoint?.text,
+            session?.compactedThrough,
+            session?.excludedContextRoundIds,
+            session?.checkpoint?.coveredMessageIds
+          )
+        }
+        let messages = buildMessages()
+        if (useContextPreferences.getState().autoCompact) {
+          const { compactSession, contextWindowTokens } = await import('./compact.js')
+          const window = contextWindowTokens()
+          if (estimateRequestTokens(messages) >= window * 0.8) {
+            const result = await compactSession(sessionId, {
+              history: prepared.history,
+              signal: controller.signal,
+              automatic: true,
+            })
+            if (!result.ok && result.cancelled) {
+              controller.abort()
+            }
+            controller.signal.throwIfAborted()
+            if (!result.ok) {
+              set((state) => ({
+                contextErrors: { ...state.contextErrors, [sessionId]: result.message },
+              }))
+            }
+            messages = buildMessages()
+            // 失败不降级为截断；仍超窗时保留问题和原文，交由用户选择轮次再重试。
+            if (estimateRequestTokens(messages) >= window * 0.95) {
+              throw new ApiError('protocol', { key: 'contextRequestTooLarge' })
+            }
+          }
+        }
+        controller.signal.throwIfAborted()
+        if (configuration() !== initialConfiguration) {
+          throw new ApiError('protocol', { key: 'contextSummaryChanged' })
+        }
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',
           {
@@ -1166,11 +1373,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             titleRequests.delete(controller)
           }
           reply = applyEvent(reply, event, Date.now(), blockIndexes)
-          if (document.visibilityState === 'hidden') {
-            flush()
-          } else {
-            frame ||= requestAnimationFrame(flush)
-          }
+          batcher.schedule()
         }
         reply = settleReply(reply, 'done', Date.now())
         break
@@ -1226,8 +1429,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
   } finally {
     titleRequests.delete(controller)
     streamFlushes.delete(sessionId)
-    cancelAnimationFrame(frame)
-    updateReply(sessionId, reply)
+    controller.signal.removeEventListener('abort', flush)
+    batcher.finish()
     set((state) => ({
       streaming: Object.fromEntries(
         Object.entries(state.streaming).filter(([id]) => id !== sessionId)

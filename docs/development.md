@@ -89,3 +89,22 @@ pnpm --dir chat-demo exec cap sync android
 ## 验证建议
 
 提交界面变更前，至少运行类型检查和生产构建。涉及 Android 的改动应在安装后的应用上检查返回键、键盘、触控和深浅主题；涉及 API 的改动应使用相应服务商真实支持的接口验证，不应以预设存在或 `GET /models` 成功代替完整聊天验证。
+
+### 上下文、搜索、备份与草稿回归
+
+以下从 `chat-demo/` 运行。浏览器脚本需要相邻 `tools/node_modules/playwright` 及 Chrome；在非默认 macOS 安装位置时设置 `CHROME_PATH`，Markdown Hook 脚本使用 `CHROME_EXECUTABLE_PATH`。测试在隔离浏览器上下文中注入合成历史、模拟 API 或原生桥，不使用真实 Key、用户历史或付费接口。
+
+```bash
+node --test src/services/chat/contextFeature.test.mjs
+node --test src/components/historySearch/historySearch.test.mjs
+node --test --import ./src/services/markdown/test-register.mjs ./src/services/markdown/*.test.mjs
+node --test src/components/markdown/useThrottleMarkdownRender.browser.test.mjs
+node src/services/backup/verify-browser.mjs
+node src/services/verifySafety.browser.mjs
+```
+
+前两项覆盖请求轮次、自动摘要、分支搜索和删除范围。浏览器验证覆盖真实 IndexedDB/ZIP 往返、恢复前快照、配额错误、草稿文字与附件恢复、跨页面写入、两阶段安装与旧原生桥降级。解析基准仅衡量 Markdown 解析工作量，不等同整页帧率或真实设备性能。
+
+运行 `pnpm dev` 后可执行 `node src/services/backup/verify-ui.mjs`，检查手机、平板和桌面的备份状态流。完整搜索、上下文与三次删除确认矩阵脚本位于仓库 `tools/verify-feature-ui.mjs`，验证 390×844、820×1180、1180×820 的深浅主题，输出到 `artifacts/feature-validation/`。
+
+APK 安装只走提供 `installDownloadedApk` / `isDownloadedUpdateReady` 的新桥。下载完成只发就绪事件；用户再点击安装时，网页先检查所有活动和持久化状态，Java 在拉起系统安装器前再调用 `window.__deepchatCanInstallUpdate()`。旧桥缺少这项能力时转向发布页。

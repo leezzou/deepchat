@@ -185,8 +185,7 @@ export const canContinueReply = (reply: AssistantMessage): boolean => {
     return false
   }
   return (
-    reply.status === 'stopped' ||
-    (reply.status === 'done' && reply.stopReason === 'max_tokens')
+    reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
   )
 }
 
@@ -283,17 +282,61 @@ const toAssistantParam = (
   }
 }
 
-/** 历史中会进入请求上下文的轮次：提问后紧跟可用回答的才保留 */
+/** 单条删除可能形成相邻但不属于同一轮的问答，不能把它们串成请求。 */
+export const isReplyForQuestion = (reply: AssistantMessage, question: UserMessage): boolean =>
+  reply.contextUserId === undefined || reply.contextUserId === question.id
+
+/** 历史中会进入请求上下文的轮次：提问后紧跟属于本轮的可用回答才保留 */
 export const getContextRounds = (history: Message[]): [UserMessage, AssistantMessage][] => {
   const rounds: [UserMessage, AssistantMessage][] = []
   for (let i = 0; i + 1 < history.length; i++) {
     const [user, reply] = [history[i], history[i + 1]]
-    if (user.role === 'user' && isUsableReply(reply)) {
+    if (user.role === 'user' && isUsableReply(reply) && isReplyForQuestion(reply, user)) {
       rounds.push([user, reply])
       i++
     }
   }
   return rounds
+}
+
+/** 先验证摘要的分支来源，再按整轮选择；当前问题/续写前缀由调用方始终保留。 */
+export const getEffectiveContext = (
+  history: Message[],
+  checkpoint?: string,
+  compactedThrough?: string,
+  excludedContextRoundIds: string[] = [],
+  coveredMessageIds?: string[]
+) => {
+  const excluded = new Set(excludedContextRoundIds)
+  const boundary = compactedThrough
+    ? history.findIndex((message) => message.id === compactedThrough)
+    : -1
+  const beforeBoundary = boundary >= 0 ? history.slice(0, boundary + 1) : []
+  const positions = new Map(beforeBoundary.map((message, index) => [message.id, index]))
+  // 新摘要严格验证来源顺序；旧摘要仍要求覆盖终点在当前路径，且没有排除其旧轮次。
+  let previous = -1
+  const matches =
+    !coveredMessageIds ||
+    coveredMessageIds.every((id) => {
+      const position = positions.get(id)
+      if (position === undefined || position <= previous) {
+        return false
+      }
+      previous = position
+      return true
+    })
+  const sourceIds = coveredMessageIds ? new Set(coveredMessageIds) : null
+  const excludedSource = beforeBoundary.some(
+    (message) =>
+      message.role === 'user' &&
+      excluded.has(message.id) &&
+      (!sourceIds || sourceIds.has(message.id))
+  )
+  const summary = checkpoint && boundary >= 0 && matches && !excludedSource ? checkpoint : undefined
+  const rounds = getContextRounds(summary ? history.slice(boundary + 1) : history).filter(
+    ([user]) => !excluded.has(user.id)
+  )
+  return { rounds, checkpoint: summary, boundary: summary ? boundary : -1 }
 }
 
 /**
@@ -309,18 +352,21 @@ export const toRequestMessages = (
   /** 上下文压缩产生的检查点，作为最前面的 user 消息 */
   checkpoint?: string,
   /** 压缩覆盖到的最后一条消息 id：它及之前的消息不再发给模型 */
-  compactedThrough?: string
+  compactedThrough?: string,
+  excludedContextRoundIds: string[] = [],
+  coveredMessageIds?: string[]
 ): MessageParam[] => {
   const messages: MessageParam[] = []
-  const compactedIndex = compactedThrough
-    ? history.findIndex((message) => message.id === compactedThrough)
-    : -1
-  // 旧版本删除消息后可能留下引用已删消息的检查点；找不到覆盖位置时
-  // 不再发送这段摘要，避免已删除内容通过摘要回到模型上下文。
-  if (checkpoint && (!compactedThrough || compactedIndex >= 0)) {
-    messages.push({ role: 'user', content: checkpoint })
+  const context = getEffectiveContext(
+    history,
+    checkpoint,
+    compactedThrough,
+    excludedContextRoundIds,
+    coveredMessageIds
+  )
+  if (context.checkpoint) {
+    messages.push({ role: 'user', content: context.checkpoint })
   }
-  const start = compactedThrough && compactedIndex >= 0 ? compactedIndex + 1 : 0
   let previousReminder: string | undefined
   const appendReminder = (reminder: string | undefined) => {
     // 仅在当前分支首次出现或内容变化时插入快照；缺少快照的消息保持原有内容。
@@ -329,7 +375,7 @@ export const toRequestMessages = (
       previousReminder = reminder
     }
   }
-  for (const [user, reply] of getContextRounds(history.slice(start))) {
+  for (const [user, reply] of context.rounds) {
     // 历史提问没有文字、附件也都没有 serverId 时，提问为空，连同回答一起省略。
     if (!user.content && toFileBlocks(user.files).length === 0) {
       continue

@@ -203,6 +203,9 @@ const message: Read<ChatMessage> = (value) => {
     id: count(item.id),
     parent_id: nullable(count)(item.parent_id),
     role: oneOf('USER', 'ASSISTANT')(item.role),
+    ...(item.deepchat_context_user_id === undefined ? {} : {
+      deepchat_context_user_id: nullable(count)(item.deepchat_context_user_id),
+    }),
     status: oneOf(
       'WIP',
       'FINISHED',
@@ -249,8 +252,52 @@ export const readSessionIndex: Read<SessionIndexEntry[]> = list((value) => {
   }
 })
 
+const contextMetadata: Read<NonNullable<SessionFile['deepchat_context']>> = (value) => {
+  const item = record(value)
+  if (item.version !== 1) {
+    return invalid()
+  }
+  const checkpoint = item.checkpoint === undefined ? undefined : record(item.checkpoint)
+  return {
+    version: 1,
+    ...(item.excluded_round_ids === undefined ? {} : { excluded_round_ids: list(count)(item.excluded_round_ids) }),
+    ...(item.compacted_through === undefined ? {} : { compacted_through: count(item.compacted_through) }),
+    ...(checkpoint === undefined ? {} : {
+      checkpoint: {
+        text: string(checkpoint.text),
+        created_at: count(checkpoint.created_at),
+        covered_messages: count(checkpoint.covered_messages),
+        ...(checkpoint.covered_message_ids === undefined ? {} : { covered_message_ids: list(count)(checkpoint.covered_message_ids) }),
+      },
+    }),
+  }
+}
+
 export const readSessionFile: Read<SessionFile> = (value) => {
   const item = record(value)
+  const messages = list(message)(item.messages)
+  const context = item.deepchat_context === undefined ? undefined : contextMetadata(item.deepchat_context)
+  const messageIds = new Map(messages.map((message) => [message.id, message]))
+  if (messages.some((message) => message.deepchat_context_user_id !== undefined && (
+    message.role !== 'ASSISTANT' ||
+    (message.deepchat_context_user_id !== null && messageIds.get(message.deepchat_context_user_id)?.role !== 'USER')
+  ))) {
+    return invalid()
+  }
+  if (context) {
+    const ids = new Map(messages.map((message) => [message.id, message]))
+    const excluded = context.excluded_round_ids ?? []
+    const covered = context.checkpoint?.covered_message_ids ?? []
+    if (
+      new Set(excluded).size !== excluded.length ||
+      excluded.some((id) => ids.get(id)?.role !== 'USER') ||
+      new Set(covered).size !== covered.length ||
+      covered.some((id) => !ids.has(id)) ||
+      (context.compacted_through !== undefined && !ids.has(context.compacted_through))
+    ) {
+      return invalid()
+    }
+  }
   return {
     id: sessionId(item.id),
     title: nullable(string)(item.title),
@@ -258,6 +305,7 @@ export const readSessionFile: Read<SessionFile> = (value) => {
     current_message_id: count(item.current_message_id),
     inserted_at: time(item.inserted_at),
     updated_at: time(item.updated_at),
-    messages: list(message)(item.messages),
+    messages,
+    ...(context === undefined ? {} : { deepchat_context: context }),
   }
 }

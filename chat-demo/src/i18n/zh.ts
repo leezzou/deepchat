@@ -1,4 +1,15 @@
+import { safetyFeatureZh } from './safetyFeature.js'
+import { searchFeatureZh } from './searchFeature.js'
+import { backupFeatureZh } from './backupFeature.js'
+import { contextFeatureZh } from './contextFeature.js'
+import { deleteFeatureZh } from './deleteFeature.js'
+
 export const zh = {
+  ...safetyFeatureZh,
+  ...searchFeatureZh,
+  ...backupFeatureZh,
+  ...contextFeatureZh,
+  ...deleteFeatureZh,
   welcomeGreeting: '欢迎回来，想从哪里开始？',
   contentCaveat: '回答由 AI 生成，仅供参考',
   expandSiderbarButton: '打开边栏',
@@ -152,7 +163,8 @@ export const zh = {
   contextPanelTitle: '上下文额度',
   contextUsed: '上下文 {percent}%',
   contextSummaryEdit: '编辑摘要',
-  contextSummaryEditHint: '可以直接改这段摘要：补充模型漏掉的细节，或删掉不需要的内容。保存后下一轮对话就会用新摘要。',
+  contextSummaryEditHint:
+    '可以直接改这段摘要：补充模型漏掉的细节，或删掉不需要的内容。保存后下一轮对话就会用新摘要。',
   contextSummarySaved: '摘要已保存',
   save: '保存',
   contextSummaryTitle: '上下文摘要',
@@ -161,10 +173,12 @@ export const zh = {
   contextCompactedLabel: '上下文已压缩（原始记录仍保留）',
   contextAlmostFull: '上下文已使用 {percent}%，接近模型上限',
   contextRiskTitle: '压缩上下文前请确认',
-  contextRiskIntro: '压缩会把较早的对话交给模型总结，只保留摘要。对日常聊天来说，这会损失一些东西：',
+  contextRiskIntro:
+    '压缩会把较早的对话交给模型总结，只保留摘要。对日常聊天来说，这会损失一些东西：',
   contextRiskItem1: '原话、语气和情绪细节会消失——之后模型只能看到一段概括，不再有当时的原句。',
   contextRiskItem2: '摘要由模型生成，可能漏掉或记错人名、时间、约定过的小事。',
-  contextRiskItem3: '压缩只是把旧消息移出上下文，原始记录仍完整保存在本机对话里，可以随时回看；但摘要内容本身不能撤销。',
+  contextRiskItem3:
+    '压缩只是把旧消息移出上下文，原始记录仍完整保存在本机对话里，可以随时回看；但摘要内容本身不能撤销。',
   contextRiskItem4: '如果你把这段对话当日记或记录用，压缩后就只剩梗概了。',
   contextRiskNote:
     '建议先「导出全部历史对话」备份成 ZIP，再决定是否压缩。导出文件包含完整原文，可随时重新导入。',
@@ -177,7 +191,8 @@ export const zh = {
   contextCompacting: '压缩中…',
   contextCompacted: '已压缩 {count} 轮对话',
   contextCompactFailed: '压缩失败：{message}',
-  replyContextFull: '这个对话已经超出模型的上下文长度了。点下方「压缩上下文」把更早的内容压成摘要后可以接着聊；也可以开启新对话。',
+  replyContextFull:
+    '这个对话已经超出模型的上下文长度了。点下方「压缩上下文」把更早的内容压成摘要后可以接着聊；也可以开启新对话。',
   compactedEntry: '已压缩的对话',
   compactedEmpty: '还没有压缩过对话。当对话接近上下文上限时，输入框上方会出现「压缩上下文」。',
   compactedMeta: '{time} · 覆盖 {count} 条消息',
@@ -190,7 +205,8 @@ export const zh = {
   settingsPersonalize: '个性化',
   fontSizePreviewBubble: '预览文字大小',
   fontSizePreviewLine1: '你可以拖动滑块来调整字体大小。',
-  fontSizePreviewLine2: '如果在使用过程中遇到问题或有建议，欢迎到 GitHub 提 Issue，我们会跟进处理。',
+  fontSizePreviewLine2:
+    '如果在使用过程中遇到问题或有建议，欢迎到 GitHub 提 Issue，我们会跟进处理。',
   fontSizeFollowSystem: '跟随系统',
   fontSizeSmallMedium: '较小',
   fontSizeMediumLarge: '较大',
@@ -210,7 +226,8 @@ export const zh = {
   personalizeNamePlaceholder: '给自己起个名字',
   personalizeHint: '头像和昵称只保存在这台手机上，用于抽屉底部的账号信息。',
   settingsSignOut: '退出登录',
-  settingsSignOutHint: '退出后会清除本机保存的 API Key 配置（对话记录保留）。需要重新填写 Key 才能继续聊天。',
+  settingsSignOutHint:
+    '退出后会清除本机保存的 API Key 配置（对话记录保留）。需要重新填写 Key 才能继续聊天。',
   signedOut: '已退出登录',
   checkUpdate: '检查更新',
   updateChecking: '正在检查更新…',
@@ -265,7 +282,8 @@ export const zh = {
   apiProfileDelete: '删除此配置',
   apiProfileDeleteTitle: '删除这条 API 配置？',
   apiProfileDeleteDescription: '删除后这条配置里的 Key 也会一起移除，需要重新填写才能再用。',
-  apiProfileHint: '点一行即可切换当前使用的配置；接口地址留空表示使用 DeepSeek 官方地址，填中转地址可走兼容网关。',
+  apiProfileHint:
+    '点一行即可切换当前使用的配置；接口地址留空表示使用 DeepSeek 官方地址，填中转地址可走兼容网关。',
   deactivatedSearchTooltip: '按需搜索网页',
   search: '智能搜索',
   uploadFile: '上传文件',

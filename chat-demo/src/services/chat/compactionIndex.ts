@@ -46,3 +46,21 @@ export const recordCompaction = (record: CompactionRecord) => {
 export const forgetCompaction = (sessionId: string) => {
   write(read().filter((item) => item.sessionId !== sessionId))
 }
+
+/** Rebuild after history replacement so imported summaries appear and stale entries disappear. */
+export const rebuildCompactionIndex = async () => {
+  const { loadSessionSummaries, loadSession } = await import('./db.js')
+  const records: CompactionRecord[] = []
+  for (const summary of await loadSessionSummaries()) {
+    const session = await loadSession(summary.id)
+    if (session?.checkpoint && session.compactedThrough) {
+      records.push({
+        sessionId: session.id,
+        title: session.title,
+        createdAt: session.checkpoint.createdAt,
+        coveredMessages: session.checkpoint.coveredMessages,
+      })
+    }
+  }
+  write(records)
+}

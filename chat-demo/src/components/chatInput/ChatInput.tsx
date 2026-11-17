@@ -34,6 +34,7 @@ import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
 import { Spectrum } from './Spectrum.js'
 import { useTranslate } from '../../i18n/index.js'
+import { usePendingEdit } from '../../services/pendingEdits.js'
 import styles from './ChatInput.module.css'
 
 /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
@@ -49,7 +50,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const setText = (value: string) => setDraftText(sessionId, value)
   const draftReady = useUploads((state) => prepareDraftMessage(draft, state.tasks) !== null)
   const streaming = useChatStore(
-    (state) => sessionId !== null && Object.hasOwn(state.streaming, sessionId)
+    (state) =>
+      sessionId !== null &&
+      (Object.hasOwn(state.streaming, sessionId) || Object.hasOwn(state.compacting, sessionId))
   )
   const thinking = useSettings((state) => state.thinking)
   const importingHistory = useChatStore((state) => state.importingHistory)
@@ -139,6 +142,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
 
   // 移动端录音时用频谱替代输入框内容
   const recording = voice.status === 'recording'
+  usePendingEdit(voice.status !== 'idle')
 
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
   const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady

@@ -2,14 +2,17 @@ import { streamMessage } from '../api/client.js'
 import { getApiConfig } from '../api/origin.js'
 import type { CreateMessageRequest, MessageParam } from '../api/types.js'
 import { useSettings } from '../settings.js'
-import { getContextRounds, getReplyText } from './reply.js'
+import { getContextRounds, getEffectiveContext, getReplyText, toRequestMessages } from './reply.js'
 import { applyCompaction, useChatStore } from './store.js'
+import { getVisibleMessages } from './branches.js'
+import { estimateTokens, estimateRequestTokens, splitContextText } from './contextBudget.js'
+import { translate } from '../../i18n/index.js'
 import { recordCompaction } from './compactionIndex.js'
 import type { Message, Session } from './types.js'
 
 /**
- * 上下文压缩。算法与提示词照搬 DeepSeek Harness 的 compaction-basic：
- * 阈值 80%、保留最近约 16%，把更早的轮次压成一份结构化 checkpoint（不是逐字摘要），
+ * 沿用既有结构化检查点，按当前分支与用户选择生成模型摘要。
+ * 阈值 80%、保留最近约 16%，把更早的轮次压成一份结构化 checkpoint，
  * 检查点用 <compacted-summary> 包住，并配一段「这是既定背景」的前言。
  */
 const THRESHOLD_RATIO = 0.8
@@ -17,7 +20,7 @@ const RETAIN_RATIO = 0.16
 /** 低于这个比例不允许压缩（用户要求：80% 之后再压缩） */
 export const MIN_COMPACT_RATIO = 0.8
 
-/** 是否允许手动压缩（30% 以上） */
+/** 沿用手动摘要的 80% 门槛。 */
 export const canCompact = (session: Session): boolean =>
   contextPressure(session) >= MIN_COMPACT_RATIO
 
@@ -70,56 +73,71 @@ export const buildCheckpointText = (body: string): string =>
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
 
-/**
- * 粗略 token 估算：中日韩字符约 1 字 0.7 token，其他 4 字符 1 token。
- * 只用来判断「接近上限」和切分保留区间，保守偏大一点。
- */
-export const estimateTokens = (text: string): number => {
-  let cjk = 0
-  for (let index = 0; index < text.length; index += 1) {
-    if (text.charCodeAt(index) > 0x2e80) {
-      cjk += 1
-    }
-  }
-  return Math.ceil(cjk * 0.7 + (text.length - cjk) / 4)
-}
+export { estimateTokens } from './contextBudget.js'
 
-/** 上下文窗口：优先用配置里填的，否则 DeepSeek 官方 1M、OpenAI 兼容按 128k 保守估计 */
+/** 当前选中 API 配置的窗口优先；不把默认 DeepSeek 窗口套到其他模型。 */
 export const contextWindowTokens = (): number => {
   const state = useSettings.getState()
   const active = state.apiProfiles.find((profile) => profile.id === state.activeProfileId)
-  if (active?.contextWindow && active.contextWindow > 0) {
+  if (active?.contextWindow && Number.isFinite(active.contextWindow) && active.contextWindow > 0) {
     return active.contextWindow
   }
   return getApiConfig().protocol === 'deepseek' ? 1_000_000 : 128_000
 }
 
-const messageText = (message: Message): string =>
-  message.role === 'user' ? message.content : getReplyText(message)
-
-/** 当前会话占用（checkpoint + 全部轮次），单位 token */
-export const sessionContextTokens = (session: Session): number => {
-  const checkpoint = session.checkpoint?.text ?? ''
-  // 压缩覆盖到的消息不再计入上下文
-  const start = session.compactedThrough
-    ? session.messages.findIndex((message) => message.id === session.compactedThrough) + 1
-    : 0
-  const rounds = getContextRounds(session.messages.slice(start))
-  const fromRounds = rounds.reduce(
-    (sum, [user, reply]) => sum + estimateTokens(messageText(user)) + estimateTokens(messageText(reply)),
-    0
+export const sessionContext = (session: Session, history = getVisibleMessages(session)) =>
+  getEffectiveContext(
+    history,
+    session.checkpoint?.text,
+    session.compactedThrough,
+    session.excludedContextRoundIds,
+    session.checkpoint?.coveredMessageIds
   )
-  return estimateTokens(checkpoint) + fromRounds
+
+/** 与真实请求共用轮次、提醒快照、工具块、附件和摘要选择；只估算当前分支。 */
+export const sessionContextTokens = (session: Session): number => {
+  const path = getVisibleMessages(session)
+  const context = sessionContext(session, path)
+  const rounds = context.rounds
+  const last = rounds.at(-1)
+  let messages: MessageParam[] = context.checkpoint
+    ? [{ role: 'user', content: context.checkpoint }]
+    : []
+  if (last) {
+    // 作为历史而不是续写估算，避免回传旧思考块。
+    const placeholder = { ...last[0], id: '__budget__', content: '', files: [] }
+    messages = toRequestMessages(
+      path,
+      placeholder,
+      undefined,
+      false,
+      undefined,
+      session.checkpoint?.text,
+      session.compactedThrough,
+      session.excludedContextRoundIds,
+      session.checkpoint?.coveredMessageIds
+    ).slice(0, -1)
+  }
+  const pending = path.at(-1)
+  const question =
+    pending?.role === 'user'
+      ? pending
+      : pending?.role === 'assistant' &&
+          (pending.status === 'pending' || pending.status === 'streaming')
+        ? path.at(-2)
+        : undefined
+  if (question?.role === 'user') {
+    messages.push(...toRequestMessages([], question))
+  }
+  return estimateRequestTokens(messages)
 }
 
-/** 是否该提示用户压缩上下文 */
 export const contextPressure = (session: Session): number =>
   sessionContextTokens(session) / contextWindowTokens()
 
 export const shouldWarnContext = (session: Session): boolean =>
   contextPressure(session) >= THRESHOLD_RATIO
 
-/** 摘要用的请求体：不带工具、不开深度思考，尽量便宜 */
 const summaryRequest = (messages: MessageParam[]): CreateMessageRequest => ({
   model: 'deepseek-flash',
   system: '该助手为DeepSeek，由深度求索公司创造。',
@@ -129,98 +147,219 @@ const summaryRequest = (messages: MessageParam[]): CreateMessageRequest => ({
   safety_check: { level: 'high' },
 })
 
-export type CompactResult = { ok: true; covered: number; kept: number } | { ok: false; message: string }
+export type CompactResult =
+  | { ok: true; covered: number; kept: number }
+  | { ok: false; message: string; cancelled?: boolean }
+export type CompactOptions = {
+  /** 自动摘要只接收当前请求的历史，不触碰本轮问题或续写前缀。 */
+  history?: Message[]
+  signal?: AbortSignal
+  automatic?: boolean
+}
 
-/**
- * 压缩会话：把较早的轮次交给模型压成结构化 checkpoint，最近若干轮原样保留。
- * 已经压缩过的会话会把上一份 checkpoint 一起参与再压缩（合并成一份）。
- */
-export const compactSession = async (sessionId: string): Promise<CompactResult> => {
+const profileSignature = () =>
+  JSON.stringify([
+    getApiConfig(),
+    useSettings.getState().activeProfileId,
+    useSettings.getState().apiKey,
+    contextWindowTokens(),
+  ])
+
+/** 单轮超过窗口时逐段摘要所有文字；不截掉原文尾部，附件仍按原 file_id 传入。 */
+const roundFragments = (
+  round: ReturnType<typeof getContextRounds>[number],
+  budget: number
+): MessageParam[][] => {
+  const [user, reply] = round
+  const placeholder = { ...user, id: '__summary__', content: '', files: [] }
+  const messages = toRequestMessages(round, placeholder).slice(0, -1)
+  if (estimateRequestTokens(messages) <= budget) {
+    return [messages]
+  }
+  const transcript = JSON.stringify({
+    question: user.content,
+    files: user.files.map((file) => file.name),
+    answer: getReplyText(reply),
+    reminder: reply.latestReminder,
+    tools: reply.blocks.filter((block) => block.type !== 'text' && block.type !== 'thinking'),
+  })
+  const attachmentMessages = toRequestMessages([], { ...user, content: '' })
+  const attachmentCost = user.files.some((file) => file.serverId)
+    ? estimateRequestTokens(attachmentMessages)
+    : 0
+  const textBudget = budget - attachmentCost - 512
+  if (textBudget < 256) {
+    throw new Error(translate('contextSummaryAttachmentLimit'))
+  }
+  return splitContextText(transcript, textBudget).map((text, index) => {
+    const fragment: MessageParam = {
+      role: 'user',
+      content: `Conversation fragment ${index + 1}:\n${text}`,
+    }
+    return attachmentCost ? [...attachmentMessages, fragment] : [fragment]
+  })
+}
+
+/** 原文和旧检查点只在完整有效摘要完成后一起提交；任何失败/取消均不替换。 */
+export const compactSession = async (
+  sessionId: string,
+  options: CompactOptions = {}
+): Promise<CompactResult> => {
   const state = useSettings.getState()
+  const store = useChatStore.getState()
+  const session = store.sessionCache[sessionId]
+  const failure = (message: string): CompactResult => ({ ok: false, message })
   if (!state.apiKey) {
-    return { ok: false, message: 'missing api key' }
+    return failure(translate('contextSummaryKeyMissing'))
   }
-  const session = useChatStore.getState().sessionCache[sessionId]
-  if (!session) {
-    return { ok: false, message: 'session not found' }
+  if (!session || store.importingHistory) {
+    return failure(translate('contextSummaryChanged'))
   }
-  // 80% 以下不准压缩
-  if (contextPressure(session) < MIN_COMPACT_RATIO) {
-    return { ok: false, message: 'context below 30%' }
+  if (store.compacting[sessionId] || (!options.automatic && store.streaming[sessionId])) {
+    return failure(translate('contextControlsBusy'))
   }
-  const rounds = getContextRounds(session.messages)
-  if (rounds.length === 0 && !session.checkpoint) {
-    return { ok: false, message: 'nothing to compact' }
+  if (!options.automatic && !canCompact(session)) {
+    return failure(translate('contextCompactLocked'))
   }
-
-  // 从最新往回保留约 16% 窗口的轮次；至少留一轮，只有一轮时可整段压缩
-  const retainBudget = contextWindowTokens() * RETAIN_RATIO
-  let keepFrom = rounds.length
-  let keptTokens = 0
-  while (keepFrom > 1) {
-    const [user, reply] = rounds[keepFrom - 1]
-    const cost = estimateTokens(messageText(user)) + estimateTokens(messageText(reply))
-    if (keptTokens + cost > retainBudget) {
-      break
-    }
-    keptTokens += cost
-    keepFrom -= 1
+  const history = options.history ?? getVisibleMessages(session)
+  const context = sessionContext(session, history)
+  const rounds = context.rounds
+  if (rounds.length === 0) {
+    return failure(translate('contextNothingToSummarize'))
   }
-
-  // 只有一轮时整段压缩；否则至少保留最后一轮
-  const oldRounds = rounds.length === 1 ? rounds : rounds.slice(0, keepFrom)
-  const keptRounds = rounds.length === 1 ? [] : rounds.slice(keepFrom)
-  if (oldRounds.length === 0) {
-    return { ok: false, message: 'nothing to compact' }
-  }
-
-  const messages: MessageParam[] = []
-  if (session.checkpoint?.text) {
-    messages.push({ role: 'user', content: session.checkpoint.text })
-  }
-  for (const [user, reply] of oldRounds) {
-    const userText = messageText(user)
-    const replyText = messageText(reply)
-    if (userText.trim()) {
-      messages.push({ role: 'user', content: userText })
-    }
-    if (replyText.trim()) {
-      messages.push({ role: 'assistant', content: [{ type: 'text', text: replyText }] })
-    }
-  }
-  messages.push({ role: 'user', content: COMPACTION_INSTRUCTION })
-
   const controller = new AbortController()
-  let summary = ''
+  const cancel = () => controller.abort()
+  if (options.signal?.aborted) {
+    controller.abort()
+  }
+  options.signal?.addEventListener('abort', cancel, { once: true })
+  useChatStore.setState((current) => ({
+    compacting: { ...current.compacting, [sessionId]: controller },
+  }))
+  const signature = profileSignature()
+  const unchanged = () => {
+    controller.signal.throwIfAborted()
+    const current = useChatStore.getState()
+    if (
+      current.importingHistory ||
+      current.sessionCache[sessionId] !== session ||
+      profileSignature() !== signature
+    ) {
+      throw new Error(translate('contextSummaryChanged'))
+    }
+  }
   try {
-    for await (const event of streamMessage(state.apiKey, summaryRequest(messages), controller.signal)) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        summary += event.delta.text
+    const window = contextWindowTokens()
+    // 至少保留最近一整轮，单轮历史可压缩；本轮问题从未进入 rounds。
+    let keepFrom = rounds.length === 1 ? 1 : rounds.length - 1
+    let keptTokens = rounds.length > 1 ? estimateTokens(JSON.stringify(rounds.at(-1))) : 0
+    while (keepFrom > 1) {
+      const cost = estimateTokens(JSON.stringify(rounds[keepFrom - 1]))
+      if (keptTokens + cost > window * RETAIN_RATIO) {
+        break
+      }
+      keptTokens += cost
+      keepFrom -= 1
+    }
+    const oldRounds = rounds.slice(0, keepFrom)
+    const instruction = `${COMPACTION_INSTRUCTION}\n- Keep the checkpoint under ${Math.max(128, Math.floor(window * 0.1))} tokens. Do not omit unresolved requirements.`
+    const reserve = estimateTokens(instruction) + 512
+    const batchBudget = Math.floor(window * 0.55) - reserve
+    if (batchBudget < 512) {
+      return failure(translate('contextSummaryWindowSmall'))
+    }
+    const fragments = oldRounds.flatMap((round) => roundFragments(round, batchBudget))
+    let checkpoint = context.checkpoint ?? ''
+    let cursor = 0
+    while (cursor < fragments.length) {
+      unchanged()
+      const messages: MessageParam[] = checkpoint ? [{ role: 'user', content: checkpoint }] : []
+      const start = cursor
+      while (
+        cursor < fragments.length &&
+        estimateRequestTokens([...messages, ...fragments[cursor]]) + reserve < window * 0.8
+      ) {
+        messages.push(...fragments[cursor++])
+      }
+      if (cursor === start) {
+        return failure(translate('contextSummaryNotSmaller'))
+      }
+      messages.push({ role: 'user', content: instruction })
+      let summary = ''
+      let completed = false
+      let stopReason: string | undefined
+      for await (const event of streamMessage(
+        state.apiKey,
+        summaryRequest(messages),
+        controller.signal
+      )) {
+        controller.signal.throwIfAborted()
+        if (event.type === 'content_block_start' && event.content_block.type === 'text') {
+          summary += event.content_block.text
+        }
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          summary += event.delta.text
+        }
+        if (event.type === 'message_delta') {
+          stopReason = event.delta.stop_reason
+        }
+        if (event.type === 'message_stop') {
+          completed = true
+        }
+      }
+      if (!completed || stopReason !== 'end_turn' || !summary.trim()) {
+        return failure(translate('contextSummaryIncomplete'))
+      }
+      checkpoint = buildCheckpointText(summary)
+      if (estimateTokens(checkpoint) > window * 0.2) {
+        return failure(translate('contextSummaryNotSmaller'))
       }
     }
+    unchanged()
+    const previousIds = context.checkpoint
+      ? (session.checkpoint?.coveredMessageIds ??
+        history.slice(0, context.boundary + 1).map((message) => message.id))
+      : []
+    const coveredMessageIds = [
+      ...new Set([...previousIds, ...oldRounds.flat().map((message) => message.id)]),
+    ]
+    const before =
+      estimateTokens(context.checkpoint ?? '') +
+      oldRounds.reduce((sum, round) => {
+        const placeholder = { ...round[0], content: '', files: [] }
+        return sum + estimateRequestTokens(toRequestMessages(round, placeholder).slice(0, -1))
+      }, 0)
+    if (estimateTokens(checkpoint) >= before) {
+      return failure(translate('contextSummaryNotSmaller'))
+    }
+    const lastCovered = oldRounds.at(-1)?.[1]
+    if (!lastCovered) {
+      return failure(translate('contextNothingToSummarize'))
+    }
+    const createdAt = Date.now()
+    applyCompaction(sessionId, lastCovered.id, {
+      text: checkpoint,
+      createdAt,
+      coveredMessages: coveredMessageIds.length,
+      coveredMessageIds,
+    })
+    recordCompaction({
+      sessionId,
+      title: session.title || 'Untitled',
+      createdAt,
+      coveredMessages: coveredMessageIds.length,
+    })
+    return { ok: true, covered: oldRounds.length, kept: rounds.length - oldRounds.length }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return controller.signal.aborted
+      ? { ok: false, cancelled: true, message: translate('contextSummaryCancelled') }
+      : failure(error instanceof Error ? error.message : String(error))
+  } finally {
+    options.signal?.removeEventListener('abort', cancel)
+    useChatStore.setState((current) => ({
+      compacting: Object.fromEntries(
+        Object.entries(current.compacting).filter(([id]) => id !== sessionId)
+      ),
+    }))
   }
-
-  const text = summary.trim()
-  if (!text) {
-    return { ok: false, message: 'empty summary' }
-  }
-
-  // 原始消息全部保留在会话里（用户可回看），只记录压缩覆盖到哪条
-  const lastCovered = oldRounds[oldRounds.length - 1][1]
-
-  const createdAt = Date.now()
-  applyCompaction(sessionId, lastCovered.id, {
-    text: buildCheckpointText(text),
-    createdAt,
-    coveredMessages: oldRounds.length * 2,
-  })
-  recordCompaction({
-    sessionId,
-    title: session.title || '未命名对话',
-    createdAt,
-    coveredMessages: oldRounds.length * 2,
-  })
-  return { ok: true, covered: oldRounds.length, kept: keptRounds.length }
 }

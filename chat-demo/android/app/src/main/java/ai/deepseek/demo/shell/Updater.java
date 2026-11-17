@@ -16,6 +16,7 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 应用内更新：把 GitHub Release 里的 APK 下到缓存目录，再拉起系统安装器。
@@ -25,9 +26,42 @@ public class Updater {
     private static final String APK_NAME = "update.apk";
 
     private final MainActivity activity;
+    private final AtomicBoolean downloading = new AtomicBoolean(false);
+    private volatile boolean downloadedReady;
 
     public Updater(MainActivity activity) {
         this.activity = activity;
+        this.downloadedReady = activity.getPreferences(0).getBoolean("updateReady", false)
+                && new File(activity.getCacheDir(), APK_NAME).isFile();
+    }
+
+    private void setDownloadedReady(boolean ready) {
+        downloadedReady = ready;
+        activity.getPreferences(0).edit().putBoolean("updateReady", ready).apply();
+    }
+
+    private void notifyWeb(String event) {
+        activity.runOnUiThread(() -> activity.getBridge().getWebView().evaluateJavascript(
+                "window.dispatchEvent(new Event('" + event + "'))", null));
+    }
+
+    @JavascriptInterface
+    public boolean isDownloadedUpdateReady() {
+        return downloadedReady && new File(activity.getCacheDir(), APK_NAME).isFile();
+    }
+
+    /** Recheck immediately before leaving the WebView; a draft may have changed since the click. */
+    @JavascriptInterface
+    public void installDownloadedApk() {
+        activity.runOnUiThread(() -> {
+            if (!isDownloadedUpdateReady()) return;
+            activity.getBridge().getWebView().evaluateJavascript(
+                    "Boolean(window.__deepchatCanInstallUpdate && window.__deepchatCanInstallUpdate())",
+                    allowed -> {
+                        if ("true".equals(allowed)) launchInstaller();
+                        else notifyWeb("deepchat:update-ready");
+                    });
+        });
     }
 
     @JavascriptInterface
@@ -51,8 +85,11 @@ public class Updater {
                                             Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
                                             Uri.parse("package:" + activity.getPackageName()));
                             activity.startActivity(settings);
+                            notifyWeb("deepchat:update-permission");
                             return;
                         }
+                        if (!downloading.compareAndSet(false, true)) return;
+                        setDownloadedReady(false);
                         toast("开始下载更新…");
                         new Thread(() -> download(url, fallbackUrl)).start();
                     }
@@ -62,7 +99,9 @@ public class Updater {
     private void download(String url, String fallbackUrl) {
         try {
             downloadFile(url);
-            activity.runOnUiThread(this::launchInstaller);
+            setDownloadedReady(true);
+            downloading.set(false);
+            notifyWeb("deepchat:update-ready");
         } catch (Exception error) {
             if (fallbackUrl != null
                     && !fallbackUrl.isEmpty()
@@ -71,6 +110,8 @@ public class Updater {
                 download(fallbackUrl, "");
                 return;
             }
+            downloading.set(false);
+            notifyWeb("deepchat:update-failed");
             fail("下载失败：" + error.getMessage());
         }
     }
@@ -132,7 +173,9 @@ public class Updater {
                 intent.setPackage(installer);
             }
             activity.startActivity(intent);
+            setDownloadedReady(false);
         } catch (Exception error) {
+            notifyWeb("deepchat:update-ready");
             fail("无法打开安装器：" + error.getMessage());
         }
     }

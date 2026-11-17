@@ -1341,3 +1341,123 @@
   line-height: 18px;
   text-align: right;
 }
+
+.backupSection {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 16px 0;
+  border-block: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  color: var(--dsw-alias-label-primary);
+}
+
+.backupMobile {
+  padding: 16px;
+  border: 0;
+}
+
+.backupTitle {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.backupText {
+  max-width: 68ch;
+  margin: 8px 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.backupActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.backupSection button,
+.backupReminder button {
+  min-height: 44px;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.backupStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 12px 0;
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.backupStatus strong {
+  font-weight: 600;
+}
+
+.backupFilename {
+  color: var(--dsw-alias-label-secondary);
+}
+
+.backupDivider {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+}
+
+.backupToggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 44px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.backupToggle input {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  accent-color: var(--dsw-alias-brand-primary);
+}
+
+.backupError {
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+}
+
+.backupReminder {
+  position: fixed;
+  z-index: 30;
+  inset-inline: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  width: min(440px, calc(100% - 32px));
+  margin-inline: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 16px;
+  background-color: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  box-shadow: 0 4px 20px rgb(0 0 0 / 12%);
+}
+
+.backupReminder p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.backupReminder .backupActions {
+  margin-bottom: 0;
+}

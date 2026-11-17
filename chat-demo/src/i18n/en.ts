@@ -1,6 +1,16 @@
 import type { zh } from './zh.js'
+import { safetyFeatureEn } from './safetyFeature.js'
+import { searchFeatureEn } from './searchFeature.js'
+import { backupFeatureEn } from './backupFeature.js'
+import { contextFeatureEn } from './contextFeature.js'
+import { deleteFeatureEn } from './deleteFeature.js'
 
 export const en = {
+  ...safetyFeatureEn,
+  ...searchFeatureEn,
+  ...backupFeatureEn,
+  ...contextFeatureEn,
+  ...deleteFeatureEn,
   welcomeGreeting: 'Welcome back. Where would you like to start?',
   contentCaveat: 'AI-generated, for reference only',
   expandSiderbarButton: 'Open sidebar',
@@ -179,7 +189,8 @@ export const en = {
     'The summary is model-generated and may miss or misremember names, dates, or small promises.',
   contextRiskItem3:
     'Compaction only removes old messages from the context; the originals stay in this conversation on your device and remain readable. The summary itself cannot be undone.',
-  contextRiskItem4: 'If you use this conversation as a diary or record, only an outline will remain.',
+  contextRiskItem4:
+    'If you use this conversation as a diary or record, only an outline will remain.',
   contextRiskNote:
     'Export all chats to a ZIP first — the file keeps the full text and can be re-imported at any time.',
   contextRiskBackup: 'Export a backup first (ZIP)',
@@ -195,7 +206,8 @@ export const en = {
   replyContextFull:
     'This conversation has reached the model context limit. Tap “Compact context” below to condense older turns, or start a new chat.',
   compactedEntry: 'Compacted chats',
-  compactedEmpty: 'No compacted chats yet. When a chat nears the context limit, “Compact context” appears above the input.',
+  compactedEmpty:
+    'No compacted chats yet. When a chat nears the context limit, “Compact context” appears above the input.',
   compactedMeta: '{time} · {count} messages covered',
   compactedOpen: 'Open chat',
   compactedRestore: 'Restore full context',
@@ -206,7 +218,8 @@ export const en = {
   settingsPersonalize: 'Personalization',
   fontSizePreviewBubble: 'Preview text size',
   fontSizePreviewLine1: 'Drag the slider to adjust the font size.',
-  fontSizePreviewLine2: 'Found a problem or have a suggestion? Open an issue on GitHub and we will follow up.',
+  fontSizePreviewLine2:
+    'Found a problem or have a suggestion? Open an issue on GitHub and we will follow up.',
   fontSizeFollowSystem: 'Follow system',
   fontSizeSmallMedium: 'Small-medium',
   fontSizeMediumLarge: 'Medium-large',
@@ -226,7 +239,8 @@ export const en = {
   personalizeNamePlaceholder: 'Pick a name',
   personalizeHint: 'Avatar and name stay on this device and are shown at the bottom of the drawer.',
   settingsSignOut: 'Sign out',
-  settingsSignOutHint: 'Signing out removes stored API keys on this device (chat history is kept). You will need a key to chat again.',
+  settingsSignOutHint:
+    'Signing out removes stored API keys on this device (chat history is kept). You will need a key to chat again.',
   signedOut: 'Signed out',
   checkUpdate: 'Check for updates',
   updateChecking: 'Checking for updates…',
@@ -255,11 +269,14 @@ export const en = {
   apiGuideIntro:
     'No API key yet? Four steps in your phone browser, then come back and paste it here.',
   apiGuideStep1Title: 'Sign up / sign in',
-  apiGuideStep1Body: 'Log in to platform.deepseek.com with your phone number or WeChat, and verify your identity.',
+  apiGuideStep1Body:
+    'Log in to platform.deepseek.com with your phone number or WeChat, and verify your identity.',
   apiGuideStep2Title: 'Top up your balance',
-  apiGuideStep2Body: 'The API is billed per token, not monthly. A small top-up is enough to try it.',
+  apiGuideStep2Body:
+    'The API is billed per token, not monthly. A small top-up is enough to try it.',
   apiGuideStep3Title: 'Create an API key',
-  apiGuideStep3Body: 'Open “API Keys”, click “Create API key”, and give it a name such as DeepChat.',
+  apiGuideStep3Body:
+    'Open “API Keys”, click “Create API key”, and give it a name such as DeepChat.',
   apiGuideStep4Title: 'Copy it into the app',
   apiGuideStep4Body:
     'The key is shown in full only once. Copy it, then tap “I have a key” on this page to paste and save.',

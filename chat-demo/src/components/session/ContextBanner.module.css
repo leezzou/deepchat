@@ -216,6 +216,7 @@
 
 /* 仿 DSH 的上下文额度圆环：透明背景，靠右贴在输入卡片上方 */
 .ringRow {
+  box-sizing: border-box;
   display: flex;
   flex-shrink: 0;
   justify-content: flex-end;
@@ -278,7 +279,158 @@
 
 .panelHint {
   margin: 0;
-  color: #8e9094;
+  color: var(--dsw-alias-label-secondary);
   font-size: 13px;
   line-height: 19px;
+}
+
+.dialog {
+  width: 580px;
+  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+.dialogMain {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.autoRow,
+.roundLabel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.autoRow input,
+.roundLabel input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: #426efe;
+}
+
+.autoRow:has(input:disabled),
+.roundLabel:has(input:disabled) {
+  cursor: default;
+}
+
+.selectionCount {
+  margin: 12px 0 0;
+  font-weight: 500;
+}
+
+.rounds {
+  display: flex;
+  flex-direction: column;
+}
+
+.round {
+  min-width: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--dsw-alias-border-general, #ededed);
+}
+
+.roundContent {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.roundMeta {
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.roundPreview {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow-wrap: anywhere;
+}
+
+.original {
+  margin-left: 28px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.original summary {
+  width: fit-content;
+  padding: 10px 0;
+  cursor: pointer;
+}
+
+.originalText {
+  max-height: 240px;
+  overflow: auto;
+  margin: 4px 0 12px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--dsw-alias-label-primary);
+}
+
+.statusButton {
+  align-self: center;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.ring:focus-visible,
+.backupButton:focus-visible,
+.statusButton:focus-visible,
+.original summary:focus-visible {
+  outline: 2px solid #426efe;
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .ring {
+    width: 44px;
+    height: 44px;
+  }
+
+  .backupButton {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 520px) {
+  .dialog {
+    max-width: calc(100vw - 20px);
+    padding: 18px 16px;
+  }
+
+  .presets > button {
+    flex: 1 1 auto;
+    min-height: 44px;
+  }
+
+  .summaryEditor {
+    min-height: 30dvh;
+  }
 }

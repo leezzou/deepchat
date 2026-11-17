@@ -1,6 +1,7 @@
 .frame {
-  position: absolute;
-  inset: 0;
+  position: fixed;
+  inset: var(--app-viewport-top, 0px) 0 auto;
+  height: var(--app-viewport-height, 100dvh);
   display: flex;
   overflow: hidden;
   background-color: var(--dsw-alias-bg-base);
@@ -52,11 +53,8 @@
   text-align: center;
 }
 
-@media not all and (min-width: 768px) {
-  .frame {
-    position: fixed;
-    top: var(--app-viewport-top, 0px);
-    bottom: auto;
-    height: var(--app-viewport-height, 100dvh);
+@media (pointer: coarse) {
+  .saveError button {
+    min-height: 44px;
   }
 }

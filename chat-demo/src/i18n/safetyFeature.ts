@@ -1,0 +1,48 @@
+export const safetyFeatureZh = {
+  draftLoadFailed: '草稿读取失败，请重试后继续，避免覆盖未发送的内容。',
+  draftSaveFailed: '草稿或附件尚未保存到本机，请重试后再退出或更新。',
+  draftRecoveryWarning: '已恢复草稿文字，但部分附件未能保存，请重新添加这些附件。',
+  draftAttachmentRestored: '原件已恢复，点击重新上传',
+  updateWaiting: '更新已暂缓：{reason}。处理完成后再继续。',
+  updateWaitGenerating: '正在生成回答或整理摘要',
+  updateWaitDrafts: '还有未发送内容，或正在编辑、录音',
+  updateWaitStorage: '正在保存或恢复本地数据',
+  updateWaitImport: '正在导入历史记录',
+  updateReadySafe: '更新已下载，可以安装。安装前会再次检查聊天和草稿状态。',
+  updateInstall: '安装更新',
+  updateContinue: '继续更新',
+  updateShowDraft: '查看未发送草稿',
+  updateCanContinue: '聊天和草稿已就绪，可以继续更新。',
+  updateCancelWaiting: '暂不更新',
+  updateReloadPending: '页面资源已更新，当前内容保留。空闲时可重新加载。',
+  updateReload: '重新加载',
+  updateInstallFailed: '更新未能完成，请稍后重试。',
+  updateStorageFailed: '本地数据尚未保存，已暂停更新。',
+  updateAwaitDownload: '正在下载更新，完成后会提示安装。',
+}
+
+export const safetyFeatureEn = {
+  draftLoadFailed:
+    'Drafts could not be loaded. Retry before continuing to avoid overwriting unsent work.',
+  draftSaveFailed:
+    'Drafts or attachments have not been saved locally. Retry before leaving or updating.',
+  draftRecoveryWarning:
+    'Draft text was recovered, but some attachments were not saved. Please attach them again.',
+  draftAttachmentRestored: 'Original restored. Tap to upload again',
+  updateWaiting: 'Update paused: {reason}. Continue after finishing your work.',
+  updateWaitGenerating: 'a reply or summary is being generated',
+  updateWaitDrafts: 'there is unsent content, an open edit, or an active recording',
+  updateWaitStorage: 'local data is being saved or restored',
+  updateWaitImport: 'history is being imported',
+  updateReadySafe: 'Update downloaded. Chats and drafts will be checked again before installation.',
+  updateInstall: 'Install update',
+  updateContinue: 'Continue update',
+  updateShowDraft: 'View unsent draft',
+  updateCanContinue: 'Chats and drafts are ready. You can continue the update.',
+  updateCancelWaiting: 'Not now',
+  updateReloadPending: 'Page resources changed. Your work is retained; reload when you are ready.',
+  updateReload: 'Reload',
+  updateInstallFailed: 'The update could not be completed. Please try again.',
+  updateStorageFailed: 'Local data has not been saved. Update paused.',
+  updateAwaitDownload: 'Downloading update. You will be notified when it is ready to install.',
+} satisfies Record<keyof typeof safetyFeatureZh, string>

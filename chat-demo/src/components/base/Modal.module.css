@@ -1,7 +1,11 @@
 .overlay {
   --overlay-opacity: 0.36;
   position: fixed;
-  inset: 0;
+  inset: var(--dialog-top, 0px) 0 auto;
+  height: var(--dialog-height, 100dvh);
+  box-sizing: border-box;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
   z-index: 1000;
   display: flex;
   align-items: center;
@@ -19,7 +23,10 @@
   flex-direction: column;
   box-sizing: border-box;
   width: 380px;
-  max-width: calc(100vw - 32px);
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  outline: none;
   padding: 22px 24px;
   border-radius: 24px;
   font-size: 14px;
@@ -57,10 +64,15 @@
 }
 
 .main {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
   color: var(--dsw-alias-label-secondary);
 }
 
 .footer {
+  flex-shrink: 0;
+  flex-wrap: wrap;
   display: flex;
   justify-content: flex-end;
   gap: 8px;

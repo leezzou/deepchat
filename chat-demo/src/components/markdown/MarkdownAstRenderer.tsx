@@ -155,60 +155,61 @@ const TextContent = memo(function TextContent({ children }: { children: string }
   return result
 })
 
+const MarkdownBlockItem = memo(function MarkdownBlockItem({
+  node,
+  loading,
+}: {
+  node: BlockContent | DefinitionContent
+  loading: boolean
+}) {
+  switch (node.type) {
+    case 'math':
+      return <MathBlock value={node.value} />
+    case 'thematicBreak':
+      return <hr />
+    case 'blockquote':
+      return (
+        <blockquote>
+          <MarkdownBlockContentOrDefinitionContent nodes={node.children} loading={loading} />
+        </blockquote>
+      )
+    case 'html':
+      return <Html value={node.value} />
+    case 'heading':
+      return node.children.length === 0
+        ? null
+        : createElement(`h${node.depth}`, null, <MarkdownPhrasingContent nodes={node.children} />)
+    case 'paragraph':
+      return (
+        <p className="ds-markdown-paragraph">
+          <MarkdownPhrasingContent nodes={node.children} />
+        </p>
+      )
+    case 'code':
+      return <CodeBlock code={node.value} infostring={node.lang || 'text'} loading={loading} />
+    case 'table':
+      return <Table node={node} />
+    case 'list':
+      return <List node={node} loading={loading} />
+    default:
+      // 脚注与定义已在解析时换成段落
+      return null
+  }
+})
+
 const MarkdownBlockContentOrDefinitionContent = memo(
   function MarkdownBlockContentOrDefinitionContent({
     nodes,
     loading,
+    stableCount = 0,
   }: {
     nodes: Array<BlockContent | DefinitionContent>
     loading: boolean
+    stableCount?: number
   }) {
-    return nodes.map((node, index) => {
-      switch (node.type) {
-        case 'math':
-          return <MathBlock key={index} value={node.value} />
-        case 'thematicBreak':
-          return <hr key={index} />
-        case 'blockquote':
-          return (
-            <blockquote key={index}>
-              <MarkdownBlockContentOrDefinitionContent nodes={node.children} loading={loading} />
-            </blockquote>
-          )
-        case 'html':
-          return <Html key={index} value={node.value} />
-        case 'heading':
-          return node.children.length === 0
-            ? null
-            : createElement(
-                `h${node.depth}`,
-                { key: index },
-                <MarkdownPhrasingContent nodes={node.children} />
-              )
-        case 'paragraph':
-          return (
-            <p key={index} className="ds-markdown-paragraph">
-              <MarkdownPhrasingContent nodes={node.children} />
-            </p>
-          )
-        case 'code':
-          return (
-            <CodeBlock
-              key={index}
-              code={node.value}
-              infostring={node.lang || 'text'}
-              loading={loading}
-            />
-          )
-        case 'table':
-          return <Table node={node} key={index} />
-        case 'list':
-          return <List key={index} node={node} loading={loading} />
-        default:
-          // 脚注与定义已在解析时换成段落
-          return null
-      }
-    })
+    return nodes.map((node, index) => (
+      <MarkdownBlockItem key={index} node={node} loading={loading && index >= stableCount} />
+    ))
   }
 )
 
@@ -217,8 +218,10 @@ export const MarkdownAstRenderer = memo(function MarkdownAstRenderer({
   onUpdate,
   className,
   loading = false,
+  stableCount = 0,
 }: {
   ast: Root
+  stableCount?: number
   className?: string
   loading?: boolean
   /**
@@ -239,9 +242,10 @@ export const MarkdownAstRenderer = memo(function MarkdownAstRenderer({
         <MarkdownBlockContentOrDefinitionContent
           nodes={ast.children as Array<BlockContent | DefinitionContent>}
           loading={loading}
+          stableCount={stableCount}
         />
       </div>
     ),
-    [className, ast.children, loading]
+    [className, ast.children, loading, stableCount]
   )
 })

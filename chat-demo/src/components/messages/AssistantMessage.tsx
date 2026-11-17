@@ -34,6 +34,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   isLast,
   streaming,
   busy,
+  canRegenerate,
   versions,
   onSelectVersion,
   onDelete,
@@ -43,6 +44,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   isLast: boolean
   streaming: boolean
   busy: boolean
+  canRegenerate: boolean
   versions: MessageVersions
   onSelectVersion: SelectMessageVersion
   onDelete: (message: AssistantMessageType) => void
@@ -164,14 +166,14 @@ export const AssistantMessage = memo(function AssistantMessage({
               className={clsx(actionStyles.action, styles.regenerate)}
               tooltip={t('regenerate')}
               tooltipPlacement="bottom"
-              disabled={busy || refused}
+              disabled={busy || refused || !canRegenerate}
               onClick={() => {
                 stopReadAloud()
                 regenerateReply(sessionId, message.id)
               }}
             />
           </div>
-          {isLast && canContinueReply(message) ? (
+          {isLast && canRegenerate && canContinueReply(message) ? (
             <Button
               variant="outlined"
               size="s"

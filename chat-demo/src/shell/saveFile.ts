@@ -19,15 +19,20 @@ const blobToBase64 = (blob: Blob) =>
  * - Capacitor WebView：a[download] + blob: 会静默失败，改成写入缓存目录再唤起系统分享
  *   （分享面板里可以「保存到文件」，微信/邮件也能直接发出去）。
  */
-export const saveBlob = async (name: string, blob: Blob): Promise<void> => {
+export type SaveBlobResult = { status: 'download-requested' | 'shared' }
+
+/** 返回交付给浏览器/系统的结果；分享完成和下载请求都不能证明文件已持久保存。 */
+export const saveBlob = async (name: string, blob: Blob): Promise<SaveBlobResult> => {
   if (!isNative) {
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.download = name
+    document.body.append(link)
     link.click()
+    link.remove()
     setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    return
+    return { status: 'download-requested' }
   }
 
   const [{ Filesystem, Directory }, { Share }] = await Promise.all([
@@ -42,4 +47,5 @@ export const saveBlob = async (name: string, blob: Blob): Promise<void> => {
     recursive: true,
   })
   await Share.share({ title: name, url: uri, dialogTitle: name })
+  return { status: 'shared' }
 }

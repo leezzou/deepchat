@@ -15,14 +15,28 @@ import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey } from '../components/settings/settingsDialogState.js'
-import { SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { BackupReminder, SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { HistorySearch } from '../components/historySearch/HistorySearch.js'
+import {
+  bindDraftPersistence,
+  flushDrafts,
+  initDrafts,
+  useDrafts,
+} from '../services/chat/drafts.js'
+import { initializeAutoBackup } from '../services/backup/automatic.js'
+import { bindUpdateSafety } from '../services/updateSafety.js'
+import { UpdateSafetyNotice } from './UpdateSafetyNotice.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider, openMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
+import {
+  closeMobileSider,
+  openMobileSider,
+  useMobileSider,
+} from '../components/sider/mobileSiderState.js'
 import { isNative, useNativeShell } from '../shell/native.js'
 import { useEdgeSwipe } from './edgeSwipe.js'
 import { useUpdateWatcher } from '../services/updateWatcher.js'
@@ -36,6 +50,9 @@ export const App = () => {
   // 移动端侧边栏以独立抽屉管理开合状态
   const siderCollapsed = useSettings((state) => state.siderCollapsed) && !isMobile
   const ready = useChatStore((state) => state.ready)
+  const draftsReady = useDrafts((state) => state.ready)
+  const draftSaveError = useDrafts((state) => state.saveError)
+  const draftRecoveryWarning = useDrafts((state) => state.recoveryWarning)
   const initError = useChatStore((state) => state.initError)
   const saveError = useChatStore((state) => Object.values(state.sessionSaveErrors).some(Boolean))
   const importingHistory = useChatStore((state) => state.importingHistory)
@@ -48,9 +65,12 @@ export const App = () => {
     state.activeId === null ? false : state.sessionLoadErrors[state.activeId] === true
   )
   // Android 由 windowSoftInputMode=adjustResize 处理键盘，原生壳里不再做 visualViewport 补偿
-  const frameRef = useMobileViewport(isMobile && !isNative)
+  const frameRef = useMobileViewport(!isNative)
   const streaming = useChatStore((state) =>
-    state.activeId === null ? false : Object.hasOwn(state.streaming, state.activeId)
+    state.activeId === null
+      ? false
+      : Object.hasOwn(state.streaming, state.activeId) ||
+        Object.hasOwn(state.compacting, state.activeId)
   )
   const activeId = useChatStore((state) => state.activeId)
 
@@ -79,6 +99,9 @@ export const App = () => {
   // 文件数、存储空间达到上限时，附件上只显示「上传失败」，原因用 toast 说明
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])
+  useEffect(bindDraftPersistence, [])
+  useEffect(bindUpdateSafety, [])
+  useEffect(() => (ready && draftsReady ? initializeAutoBackup() : undefined), [ready, draftsReady])
 
   // 搜索结果面板只属于当前会话
   useEffect(closeSearchPanel, [activeId])
@@ -89,6 +112,7 @@ export const App = () => {
 
   useEffect(() => {
     void initChat()
+    void initDrafts()
     // 首次打开先在设置里输入 API Key
     ensureApiKey()
   }, [])
@@ -111,9 +135,36 @@ export const App = () => {
               </Button>
             </div>
           ) : null}
+          {draftSaveError || draftRecoveryWarning ? (
+            <div className={styles.saveError} role="alert">
+              <span>
+                {t(
+                  draftSaveError
+                    ? draftsReady
+                      ? 'draftSaveFailed'
+                      : 'draftLoadFailed'
+                    : 'draftRecoveryWarning'
+                )}
+              </span>
+              <Button
+                variant="outlined"
+                size="s"
+                onClick={() => {
+                  if (draftSaveError) {
+                    void (draftsReady ? flushDrafts() : initDrafts())
+                  } else {
+                    useDrafts.setState({ recoveryWarning: false })
+                  }
+                }}
+              >
+                {t(draftSaveError ? 'retry' : 'close')}
+              </Button>
+            </div>
+          ) : null}
+          <UpdateSafetyNotice />
           <div className={styles.content}>
             {siderCollapsed ? <CollapsedSider /> : null}
-            {!ready || (activeId !== null && !session) ? (
+            {!ready || !draftsReady || (activeId !== null && !session) ? (
               <div className={styles.loadingView}>
                 {isMobile ? <MobileHeader /> : null}
                 <div className={styles.loadingState} role="status" aria-live="polite">
@@ -153,6 +204,8 @@ export const App = () => {
         <SearchPanel />
       </div>
       <SettingsDialog />
+      <HistorySearch />
+      <BackupReminder />
       <Toast />
     </>
   )

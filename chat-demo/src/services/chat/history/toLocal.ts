@@ -223,6 +223,9 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
   return {
     id,
     role: 'assistant',
+    ...(message.deepchat_context_user_id === undefined ? {} : {
+      contextUserId: message.deepchat_context_user_id === null ? null : String(message.deepchat_context_user_id),
+    }),
     createdAt: time(message.inserted_at),
     model: null,
     thinking: message.thinking_enabled,
@@ -240,7 +243,8 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
 }
 
 /**
- * 按 id 排序还原消息树：父消息的 id 必须更小、角色交替、根为提问。
+ * 按 id 排序还原消息树：父消息的 id 必须更小。官方包要求角色交替、根为提问；
+ * DeepChat 扩展允许单条删除后出现同角色相邻/孤立回答，由 contextUserId 保留原始轮次归属。
  * current_message_id 到根的路径为当前分支；其余节点默认选中 id 最大的子消息。
  */
 const buildTree = (file: SessionFile): Pick<Session, 'messages' | 'rootMessageId'> => {
@@ -251,8 +255,11 @@ const buildTree = (file: SessionFile): Pick<Session, 'messages' | 'rootMessageId
     const parent = parent_id === null ? undefined : byId.get(parent_id)
     if (
       byId.has(id) ||
-      (parent_id === null ? message.role !== 'USER' : !parent) ||
-      (parent && parent.role === (message.role === 'USER' ? 'user' : 'assistant'))
+      (parent_id !== null && !parent) ||
+      (!file.deepchat_context && (
+        (parent_id === null && message.role !== 'USER') ||
+        (parent && parent.role === (message.role === 'USER' ? 'user' : 'assistant'))
+      ))
     ) {
       fail('backupInvalidBranches')
     }
@@ -287,6 +294,22 @@ export const toLocalSession = (file: SessionFile): LocalSession => {
     createdAt: time(file.inserted_at),
     updatedAt: time(file.updated_at),
     ...buildTree(file),
+    ...(file.deepchat_context?.excluded_round_ids === undefined ? {} : {
+      excludedContextRoundIds: file.deepchat_context.excluded_round_ids.map(String),
+    }),
+    ...(file.deepchat_context?.compacted_through === undefined ? {} : {
+      compactedThrough: String(file.deepchat_context.compacted_through),
+    }),
+    ...(file.deepchat_context?.checkpoint === undefined ? {} : {
+      checkpoint: {
+        text: file.deepchat_context.checkpoint.text,
+        createdAt: file.deepchat_context.checkpoint.created_at,
+        coveredMessages: file.deepchat_context.checkpoint.covered_messages,
+        ...(file.deepchat_context.checkpoint.covered_message_ids === undefined ? {} : {
+          coveredMessageIds: file.deepchat_context.checkpoint.covered_message_ids.map(String),
+        }),
+      },
+    }),
   }
   const images = new Map<string, string>()
   for (const message of file.messages) {

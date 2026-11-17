@@ -35,6 +35,18 @@ export type SessionFile = {
   updated_at: Iso8601Utc
   /** 消息树，分支靠 parent_id */
   messages: ChatMessage[]
+  /** DeepChat 可选扩展；消息引用使用归档内重新编号后的 ID，旧官方包可缺省。 */
+  deepchat_context?: {
+    version: 1
+    excluded_round_ids?: number[]
+    compacted_through?: number
+    checkpoint?: {
+      text: string
+      created_at: number
+      covered_messages: number
+      covered_message_ids?: number[]
+    }
+  }
 }
 
 export type ChatRole = 'USER' | 'ASSISTANT'
@@ -54,6 +66,8 @@ export type ChatMessage = {
   /** null 表示该会话的第一条 */
   parent_id: number | null
   role: ChatRole
+  /** 原始提问引用；显式 null 表示删除后孤立的回答，不允许推断成其他提问的回答。 */
+  deepchat_context_user_id?: number | null
   status: ChatMessageStatus
   thinking_enabled: boolean
   search_enabled: boolean

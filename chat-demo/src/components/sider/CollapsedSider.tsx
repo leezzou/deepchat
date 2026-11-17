@@ -1,4 +1,5 @@
-import { IconPanelLeftOutline16, NewChatIcon } from '../base/icons.js'
+import { IconPanelLeftOutline16, IconSearchOutline16, NewChatIcon } from '../base/icons.js'
+import { openHistorySearch } from '../historySearch/historySearchState.js'
 import { useTranslate } from '../../i18n/index.js'
 import { setSiderCollapsed } from '../../services/settings.js'
 import { newChat } from '../../services/chat/store.js'
@@ -18,7 +19,11 @@ export const CollapsedSider = () => {
             size="m"
             tone="primary"
             icon={<IconPanelLeftOutline16 />}
-            tooltip={hasUpdate ? `${t('expandSiderbarButton')}（${t('updateBadge')}）` : t('expandSiderbarButton')}
+            tooltip={
+              hasUpdate
+                ? `${t('expandSiderbarButton')}（${t('updateBadge')}）`
+                : t('expandSiderbarButton')
+            }
             onClick={() => setSiderCollapsed(false)}
           />
           {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
@@ -29,6 +34,13 @@ export const CollapsedSider = () => {
           icon={<NewChatIcon />}
           tooltip={t('newChat')}
           onClick={newChat}
+        />
+        <IconButton
+          size="m"
+          tone="primary"
+          icon={<IconSearchOutline16 />}
+          tooltip={t('historySearch')}
+          onClick={openHistorySearch}
         />
       </div>
     </div>

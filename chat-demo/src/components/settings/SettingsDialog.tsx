@@ -19,9 +19,17 @@ import {
 } from '../base/icons.js'
 import {
   BackupError,
+  SnapshotError,
   clearHistory,
+  confirmBackupSaved,
   exportHistory,
   importHistory,
+  loadBackupState,
+  restoreSafetySnapshot,
+  saveLatestBackup,
+  saveSafetySnapshot,
+  setAutomaticBackup,
+  useBackupState,
 } from '../../services/chat/backup.js'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
@@ -50,7 +58,7 @@ import { classifyApiError } from '../../services/api/errors.js'
 import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
-import { installApk } from '../../shell/installer.js'
+import { requestUpdateInstall } from '../../services/updateSafety.js'
 import { openExternal } from '../../shell/native.js'
 import {
   resolveLocale,
@@ -64,12 +72,11 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
-import { saveBlob } from '../../shell/saveFile.js'
 import { popLayer, pushLayer } from '../../shell/native.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
-import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import { closeSettings, openSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
 import styles from './Settings.module.css'
@@ -105,7 +112,8 @@ const SettingsContent = () => {
   const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
-  const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory
+  const backupBusy = useBackupState((state) => state.operation !== null)
+  const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory || backupBusy
   return (
     <>
       <Modal
@@ -237,7 +245,6 @@ const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
 const helpText = [
   '在「账户 → API Key 管理」中填写 DeepSeek API Key 后即可开始对话。',
   '「数据管理」可以导入或导出全部历史对话，导出的 ZIP 文件也能再次导入。',
-  '「清除数据」会删除本机保存的所有对话、附件和草稿，且无法恢复。',
 ].join('\n')
 
 /** 版本号来自构建时注入的 <meta name="application-version">，拿不到就不展示 */
@@ -248,13 +255,15 @@ const readAppVersion = () =>
 const MobileSettings = () => {
   const t = useTranslate()
   const historyImport = useHistoryImport()
-  const historyExport = useHistoryExport()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
-  const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory
+  const backupBusy = useBackupState((state) => state.operation !== null)
+  const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory || backupBusy
   // 首次启动没有 API Key 时会以「数据管理」打开，直接停在 API Key 页
   const [page, setPage] = useState<MobilePage>(() =>
-    useSettingsDialog.getState().section === 'data' ? 'apiKey' : 'root'
+    useSettingsDialog.getState().section === 'data'
+      ? useSettings.getState().apiKey || useBackupState.getState().latest ? 'data' : 'apiKey'
+      : 'root'
   )
   // 从申请指引点「我已拿到 Key」后，直接展开新增表单
   const [autoAddKey, setAutoAddKey] = useState(false)
@@ -315,7 +324,6 @@ const MobileSettings = () => {
             {page === 'data' ? (
               <MobileDataContent
                 historyImport={historyImport}
-                historyExport={historyExport}
                 disabled={historyBusy}
                 onOpenCompacted={() => setPage('compacted')}
                 onDeleteAll={historyDelete.open}
@@ -541,18 +549,13 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
     }
   }
 
-  const downloadUpdate = () => {
+  const downloadUpdate = async () => {
     const release = update?.release
     if (!release) {
       return
     }
-    // 原生壳里直接下载 APK 并拉起系统安装器；浏览器里退回 GitHub 发布页
-    if (release.apkUrl && installApk(release.apkUrl, release.apkUrlFallback ?? undefined)) {
-      showToast({ key: 'updateDownloading' })
-      setUpdateOpen(false)
-      return
-    }
-    void openExternal(release.pageUrl)
+    await requestUpdateInstall(release)
+    setUpdateOpen(false)
   }
   return (
     <>
@@ -804,7 +807,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
             </Button>
           }
         >
-          <div className={styles.helpText}>{helpText}</div>
+          <div className={styles.helpText}>{helpText}{'\n'}{t('backupHelpClear')}</div>
         </Modal>
       ) : null}
     </>
@@ -1424,13 +1427,11 @@ const MobileCompactedContent = () => {
 /** 数据管理：导入 / 导出各占一行，结果在卡片下方提示 */
 const MobileDataContent = ({
   historyImport,
-  historyExport,
   disabled,
   onOpenCompacted,
   onDeleteAll,
 }: {
   historyImport: ReturnType<typeof useHistoryImport>
-  historyExport: ReturnType<typeof useHistoryExport>
   disabled: boolean
   onOpenCompacted: () => void
   onDeleteAll: () => void
@@ -1514,18 +1515,6 @@ const MobileDataContent = ({
             <IconChevronRightOutline14 />
           </span>
         </button>
-        <button
-          type="button"
-          className={styles.row}
-          disabled={disabled || historyExport.busy || empty}
-          onClick={() => void historyExport.run()}
-        >
-          <span className={styles.rowIcon}>
-            <IconDownloadOutline16 />
-          </span>
-          <span className={styles.rowLabel}>{t('exportAllLabel')}</span>
-          <span className={styles.rowValue}>{t('exportAllDownload')}</span>
-        </button>
       </MobileGroup>
       <input
         ref={inputRef}
@@ -1540,6 +1529,7 @@ const MobileDataContent = ({
           }
         }}
       />
+      <MobileGroup wide><BackupControls disabled={disabled} mobile /></MobileGroup>
       <MobileGroup title={t('deepseekImportTitle')}>
         <div className={styles.field}>
           <label className={styles.fieldLabel} htmlFor="deepseek-export-link">
@@ -1580,7 +1570,7 @@ const MobileDataContent = ({
           label={t('deepseekImportDownloading')}
         />
       ) : null}
-      <MobileStatus status={historyImport.status ?? historyExport.status} />
+      <MobileStatus status={historyImport.status} />
       <ProgressBar progress={historyImport.progress} label={t('historyImporting')} />
     </>
   )
@@ -1921,7 +1911,7 @@ const DeleteAllConfirm = ({
   const t = useTranslate()
   return (
     <Modal
-      title={t('deleteAllSessionsModalTitle')}
+      title={t('backupClearTitle')}
       className={styles.deleteConfirm}
       onClose={historyDelete.cancel}
       footer={
@@ -1944,7 +1934,7 @@ const DeleteAllConfirm = ({
         </div>
       }
     >
-      {t('deleteAllSessionsModalDescription')}
+      {t('backupClearSafety')}
     </Modal>
   )
 }
@@ -1964,8 +1954,8 @@ const useHistoryDelete = () => {
       await clearHistory()
       setOpened(false)
       showToast({ key: 'historyDeleted' })
-    } catch {
-      showToast({ key: 'historyDeleteFailed', type: 'error' })
+    } catch (error) {
+      showToast({ key: error instanceof SnapshotError ? 'backupSnapshotFailed' : 'historyDeleteFailed', type: 'error' })
     } finally {
       deleting.current = false
       setBusy(false)
@@ -2117,7 +2107,7 @@ const ImportConfirm = ({
         </>
       }
     >
-      <div className={styles.importConfirmText}>{t('historyImportConfirmDescription')}</div>
+      <div className={styles.importConfirmText}>{t('backupImportSafety')}</div>
     </Modal>
   )
 }
@@ -2240,7 +2230,7 @@ const useHistoryImport = () => {
       setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
     } catch (error) {
       // 带上具体原因（无法识别 / 版本过新 / 内容不完整），否则用户不知道是文件问题还是下载问题
-      setStatus(errorStatus('historyImportFailed', error))
+      setStatus(error instanceof SnapshotError ? { key: 'backupSnapshotFailed', error: true } : errorStatus('historyImportFailed', error))
     } finally {
       importing.current = false
       setBusy(false)
@@ -2301,51 +2291,143 @@ const ImportHistory = ({
   )
 }
 
-/** 将全部会话及图片导出为 ZIP 文件并下载 */
-/** 将全部会话及图片导出为 ZIP 文件并下载；桌面表格与移动端行共用 */
-const useHistoryExport = () => {
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState<Status>(null)
+const ExportHistory = ({ disabled }: { disabled: boolean }) =>
+  <BackupControls disabled={disabled} />
 
-  const run = async () => {
-    setBusy(true)
+const BackupControls = ({ disabled, mobile = false }: { disabled: boolean; mobile?: boolean }) => {
+  const t = useTranslate()
+  const locale = resolveLocale(useSettings((state) => state.locale))
+  const backup = useBackupState()
+  const empty = useChatStore((state) => state.sessions.length === 0)
+  const [status, setStatus] = useState<Status>(null)
+  const [restoreOpen, setRestoreOpen] = useState(false)
+  const [autoPreview, setAutoPreview] = useState<boolean | null>(null)
+  const [running, setRunning] = useState(false)
+  const inFlight = useRef(false)
+  const busy = disabled || running || backup.operation !== null
+  const date = (time: number) => new Date(time).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  useEffect(() => { void loadBackupState().catch(() => {}) }, [])
+
+  const run = async (action: () => Promise<unknown>, success?: TranslationKey) => {
+    if (inFlight.current) {return}
+    inFlight.current = true
+    setRunning(true)
     setStatus(null)
     try {
-      const { name, blob } = await exportHistory()
-      // 原生壳里 a[download] 会静默失败，统一走 saveBlob（写入 + 系统分享）
-      await saveBlob(name, blob)
+      await action()
+      if (success) {setStatus({ key: success })}
     } catch (error) {
-      setStatus(errorStatus('historyExportFailed', error))
+      setStatus(error instanceof SnapshotError
+        ? { key: 'backupSnapshotFailed', error: true }
+        : errorStatus('backupActionFailed', error))
     } finally {
-      setBusy(false)
+      inFlight.current = false
+      setRunning(false)
     }
   }
-
-  return { busy, status, run }
+  const operationKey: Record<NonNullable<typeof backup.operation>, TranslationKey> = {
+    generating: 'backupGenerating', saving: 'backupSaving', snapshot: 'backupSnapshotting', restoring: 'backupRestoring',
+  }
+  const saveStatusKey = {
+    generated: 'backupGenerated', 'download-requested': 'backupDownloadRequested', shared: 'backupShared', confirmed: 'backupConfirmed',
+  } as const
+  const reasonKey = {
+    'before-import': 'backupBeforeImport', 'before-clear': 'backupBeforeClear', 'before-restore': 'backupBeforeRestore',
+    manual: 'backupTitle', automatic: 'backupTitle',
+  } as const
+  const latest = backup.latest
+  const safety = backup.safety
+  return (
+    <section className={clsx(styles.backupSection, mobile && styles.backupMobile)} aria-label={t('backupTitle')} aria-busy={busy}>
+      <h3 className={styles.backupTitle}>{t('backupTitle')}</h3>
+      <p className={styles.backupText}>{t('backupContents')}</p>
+      <div className={styles.backupActions}>
+        <Button variant="outlined" size="m" disabled={busy || empty} onClick={() => void run(exportHistory)}>
+          {t(backup.operation === 'generating' ? 'backupGenerating' : 'backupGenerate')}
+        </Button>
+        {latest ? <Button variant="primary" size="m" disabled={busy} onClick={() => void run(saveLatestBackup)}>
+          <IconDownloadOutline16 />{t('backupSave')}
+        </Button> : null}
+      </div>
+      <div className={styles.backupStatus} aria-live="polite">
+        {latest ? <>
+          <strong>{t(saveStatusKey[latest.saveStatus])}</strong>
+          <span>{t('backupFileDetails', { date: date(latest.createdAt), count: latest.sessionCount })}</span>
+          <span className={styles.backupFilename}>{latest.name}</span>
+        </> : <span>{t('backupEmpty')}</span>}
+        {backup.operation ? <span>{t(operationKey[backup.operation])}</span> : null}
+      </div>
+      {latest && (latest.saveStatus === 'download-requested' || latest.saveStatus === 'shared') ? (
+        <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(() => confirmBackupSaved(latest.id))}>
+          {t('backupConfirmSaved')}
+        </Button>
+      ) : null}
+      <p className={styles.backupText}>{t('backupLocalHint')}</p>
+      <div className={styles.backupDivider}>
+        <label className={styles.backupToggle}>
+          <span>{t('backupAutoLabel')}</span>
+          <input type="checkbox" checked={autoPreview ?? backup.autoEnabled} disabled={busy || !backup.ready}
+            onChange={(event) => {
+              const enabled = event.currentTarget.checked
+              setAutoPreview(enabled)
+              void run(async () => {
+                try { await setAutomaticBackup(enabled) } finally { setAutoPreview(null) }
+              })
+            }} />
+        </label>
+        <p className={styles.backupText}>{t('backupAutoHint')}</p>
+        {backup.autoEnabled ? <p className={styles.backupText}>{t('backupAutoProgress', { count: Math.max(0, 10 - backup.completedRounds) })}</p> : null}
+      </div>
+      <div className={styles.backupDivider}>
+        <h3 className={styles.backupTitle}>{t('backupSafetyTitle')}</h3>
+        <p className={styles.backupText}>{t(safety ? 'backupSafetyHint' : 'backupSafetyEmpty')}</p>
+        {safety ? <>
+          <div className={styles.backupStatus}>
+            <span>{t(reasonKey[safety.reason])} · {t('backupFileDetails', { date: date(safety.createdAt), count: safety.sessionCount })}</span>
+          </div>
+          <div className={styles.backupActions}>
+            <Button variant="outlined" size="m" disabled={busy} onClick={() => setRestoreOpen(true)}>{t('backupRestore')}</Button>
+            <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(async () => {
+              const result = await saveSafetySnapshot()
+              setStatus({ key: saveStatusKey[result.status] })
+            })}>{t('backupDownloadSnapshot')}</Button>
+          </div>
+          <p className={styles.backupText}>{t('backupSnapshotExportHint')}</p>
+        </> : null}
+      </div>
+      {backup.error ? <div role="alert" className={styles.backupError}>
+        <p>{t(backup.error === 'load' ? 'backupStorageFailed' : 'backupAutomaticFailed')}</p>
+        {backup.error === 'load' ? <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(loadBackupState)}>{t('backupRetry')}</Button> : null}
+      </div> : null}
+      {status ? <div role={status.error ? 'alert' : 'status'} className={clsx(styles.backupStatus, status.error && styles.backupError)}>
+        {t(status.key, status.reason ? { message: t(status.reason) } : status.params)}
+      </div> : null}
+      {restoreOpen && safety ? <Modal title={t('backupRestoreTitle')} onClose={() => { if (!running) {setRestoreOpen(false)} }} footer={<>
+        <Button variant="outlined" size="m" autoFocus disabled={running} onClick={() => setRestoreOpen(false)}>{t('cancel')}</Button>
+        <Button variant="dangerOutlined" size="m" disabled={busy} onClick={() => void run(async () => {
+          await restoreSafetySnapshot()
+          setRestoreOpen(false)
+        }, 'backupRestored')}>{t(running ? 'backupRestoring' : 'backupRestore')}</Button>
+      </>}>
+        <p className={styles.backupText}>{t('backupRestoreDescription', { date: date(safety.createdAt), count: safety.sessionCount })}</p>
+        {status?.error ? <p role="alert" className={styles.backupError}>{t(status.key, status.params)}</p> : null}
+      </Modal> : null}
+    </section>
+  )
 }
 
-const ExportHistory = ({ disabled }: { disabled: boolean }) => {
+/** 自动生成仅提醒；打开设置后由用户选择保存位置，不主动唤起系统分享。 */
+export const BackupReminder = () => {
   const t = useTranslate()
-  const empty = useChatStore((state) => state.sessions.length === 0)
-  const { busy, status, run } = useHistoryExport()
-
-  return (
-    <SettingCell
-      label={t('exportAllLabel')}
-      description={t('historyExportDescription')}
-      status={status}
-      action={
-        <Button
-          variant="outlined"
-          size="m"
-          className={styles.cellButton}
-          disabled={disabled || busy || empty}
-          onClick={() => void run()}
-        >
-          <IconDownloadOutline16 />
-          {t('exportAllDownload')}
-        </Button>
-      }
-    />
-  )
+  const latest = useBackupState((state) => state.latest)
+  const settingsOpen = useSettingsDialog((state) => state.open)
+  const [dismissed, setDismissed] = useState<string | null>(null)
+  if (settingsOpen || !latest || latest.reason !== 'automatic' || latest.saveStatus === 'confirmed' || latest.id === dismissed) {return null}
+  return <aside className={styles.backupReminder} aria-label={t('backupTitle')}>
+    <p role="status">{t('backupAutoReminder')}</p>
+    <div className={styles.backupActions}>
+      <Button variant="primary" size="m" onClick={() => openSettings('data')}>{t('backupOpenSettings')}</Button>
+      <Button variant="outlined" size="m" onClick={() => setDismissed(latest.id)}>{t('backupDismissReminder')}</Button>
+    </div>
+  </aside>
 }

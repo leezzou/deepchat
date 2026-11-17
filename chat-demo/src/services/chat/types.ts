@@ -83,6 +83,8 @@ export type AssistantMessage = MessageBranch & {
   search?: boolean
   /** 本轮请求的系统信息快照；各回答版本独立保存，续写沿用。历史消息中缺省的快照保持为空。 */
   latestReminder?: string
+  /** 回答原属问题；单条删除重接后仍保留配对关系，null 表示原问题已删除。 */
+  contextUserId?: string | null
   /** 是否允许作为续写前缀；仍需满足回复状态与内容限制。 */
   prefix: boolean
   status: ReplyStatus
@@ -118,7 +120,15 @@ export type Session = {
    * 上下文压缩后的检查点：被压缩的旧轮次只保留这段摘要。
    * 请求时作为最前面的 user 消息发给模型，界面上显示为「上下文已压缩」。
    */
-  checkpoint?: { text: string; createdAt: number; coveredMessages: number }
+  checkpoint?: {
+    text: string
+    createdAt: number
+    coveredMessages: number
+    /** 摘要来源的精确消息路径；仅在该路径仍匹配时参与上下文。 */
+    coveredMessageIds?: string[]
+  }
+  /** 用户消息 ID：整轮不进入后续请求；原消息与回答版本完整保留。 */
+  excludedContextRoundIds?: string[]
   /**
    * 压缩覆盖到的最后一条消息 id。该消息及之前的内容只作为 checkpoint 参与请求，
    * 但**原始消息仍然保存在 messages 里**，用户可以在 App 内回看。

@@ -246,6 +246,9 @@ export const toSessionFile = (original: Session, exportImage: ExportImage): Sess
     return {
       ...tree,
       role: message.role === 'user' ? 'USER' : 'ASSISTANT',
+      ...(message.role !== 'assistant' || message.contextUserId === undefined ? {} : {
+        deepchat_context_user_id: message.contextUserId === null ? null : (ids.get(message.contextUserId) ?? null),
+      }),
       status: message.role === 'user' ? 'FINISHED' : replyStatus(message),
       thinking_enabled: reply?.thinking ?? false,
       search_enabled: reply?.search ?? false,
@@ -265,6 +268,25 @@ export const toSessionFile = (original: Session, exportImage: ExportImage): Sess
     inserted_at: iso(session.createdAt),
     updated_at: iso(session.updatedAt),
     messages,
+    deepchat_context: {
+      version: 1,
+      ...(session.excludedContextRoundIds === undefined ? {} : {
+        excluded_round_ids: session.excludedContextRoundIds.map((id) => ids.get(id) ?? fail('backupInvalidBranches')),
+      }),
+      ...(session.compactedThrough === undefined ? {} : {
+        compacted_through: ids.get(session.compactedThrough) ?? fail('backupInvalidBranches'),
+      }),
+      ...(session.checkpoint === undefined ? {} : {
+        checkpoint: {
+          text: session.checkpoint.text,
+          created_at: session.checkpoint.createdAt,
+          covered_messages: session.checkpoint.coveredMessages,
+          ...(session.checkpoint.coveredMessageIds === undefined ? {} : {
+            covered_message_ids: session.checkpoint.coveredMessageIds.map((id) => ids.get(id) ?? fail('backupInvalidBranches')),
+          }),
+        },
+      }),
+    },
   }
 }
 
