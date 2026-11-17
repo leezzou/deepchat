@@ -55,5 +55,14 @@ declare const styles: {
   readonly helpText: string
   readonly deleteConfirm: string
   readonly deleteActions: string
+  readonly voiceDialog: string
+  readonly voiceGrid: string
+  readonly voiceCard: string
+  readonly voiceCardActive: string
+  readonly voiceArtwork: string
+  readonly voiceName: string
+  readonly voiceTagline: string
+  readonly voiceCheck: string
+  readonly voiceConfirm: string
 }
 export = styles

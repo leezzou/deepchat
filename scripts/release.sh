@@ -34,6 +34,15 @@ pkg.version = process.argv[2];
 fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
 ' "$APP/package.json" "$VERSION"
 
+CURRENT_CODE="$(sed -n 's/.*versionCode \([0-9][0-9]*\).*/\1/p' "$APP/android/app/build.gradle" | head -1)"
+DATE_CODE="$(date +%y%m%d)"
+# 同一天发多次时日期编号不会变化，必须保证 versionCode 单调递增
+if [ -n "$CURRENT_CODE" ] && [ "$DATE_CODE" -le "$CURRENT_CODE" ]; then
+  VERSION_CODE=$((CURRENT_CODE + 1))
+else
+  VERSION_CODE="$DATE_CODE"
+fi
+
 node -e '
 const fs = require("fs");
 const path = process.argv[1];
@@ -43,7 +52,7 @@ let text = fs.readFileSync(path, "utf8");
 text = text.replace(/versionCode \d+/, `versionCode ${code}`);
 text = text.replace(/versionName "[^"]*"/, `versionName "${version}"`);
 fs.writeFileSync(path, text);
-' "$APP/android/app/build.gradle" "$VERSION" "$(date +%y%m%d)" 
+' "$APP/android/app/build.gradle" "$VERSION" "$VERSION_CODE"
 
 echo "==> 构建 Web 资源"
 (cd "$APP" && pnpm build && npx cap sync android >/dev/null)

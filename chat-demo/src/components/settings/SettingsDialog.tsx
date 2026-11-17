@@ -70,6 +70,8 @@ import { forgetCompaction, listCompactions, type CompactionRecord } from '../../
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import stellaArtwork from '../../assets/voices/stella.webp'
+import tideArtwork from '../../assets/voices/tide.webp'
 import styles from './Settings.module.css'
 
 /**
@@ -715,41 +717,54 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       {voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
+          closable
+          className={styles.voiceDialog}
           onClose={() => setVoiceOpen(false)}
           footer={
-            <Button variant="primary" size="m" onClick={() => setVoiceOpen(false)}>
+            <Button
+              variant="primary"
+              size="m"
+              className={styles.voiceConfirm}
+              onClick={() => setVoiceOpen(false)}
+            >
               {t('confirm')}
             </Button>
           }
         >
           <div className={styles.voiceGrid}>
-            {(
-              [
-                { id: 'stella' as const, name: '海星', tagline: '俏皮甜美' },
-                { id: 'tide' as const, name: '暗潮', tagline: '低沉浑厚' },
-              ] as const
-            ).map((voice) => (
+            {[
+              {
+                id: 'stella' as const,
+                name: t('voiceStellaName'),
+                tagline: t('voiceStellaTagline'),
+                artwork: stellaArtwork,
+              },
+              {
+                id: 'tide' as const,
+                name: t('voiceTideName'),
+                tagline: t('voiceTideTagline'),
+                artwork: tideArtwork,
+              },
+            ].map((voice) => (
               <button
                 key={voice.id}
                 type="button"
+                aria-pressed={ttsVoice === voice.id}
                 className={clsx(
                   styles.voiceCard,
                   ttsVoice === voice.id && styles.voiceCardActive
                 )}
                 onClick={() => setTtsVoice(voice.id)}
               >
-                <span className={styles.voiceBlob} />
+                <img className={styles.voiceArtwork} src={voice.artwork} alt="" width="144" height="144" />
                 <span className={styles.voiceName}>{voice.name}</span>
                 <span className={styles.voiceTagline}>{voice.tagline}</span>
-                {ttsVoice === voice.id ? (
-                  <span className={styles.voiceCheck}>
-                    <IconCheckOutline16 />
-                  </span>
-                ) : null}
+                <span className={styles.voiceCheck} aria-hidden="true">
+                  {ttsVoice === voice.id ? <IconCheckOutline16 /> : null}
+                </span>
               </button>
             ))}
           </div>
-          <div className={styles.profileHint}>{t('voiceLimitHint')}</div>
         </Modal>
       ) : null}
       {signOutOpen ? (
@@ -1588,6 +1603,7 @@ const MobileFontSizeContent = () => {
             type="button"
             role="switch"
             aria-checked={followSystem}
+            aria-label={t('fontSizeFollowSystem')}
             className={clsx(styles.fontSwitch, followSystem && styles.fontSwitchOn)}
             onClick={() => {
               const next = !followSystem
@@ -1637,6 +1653,7 @@ const MobilePersonalizeContent = () => {
             type="button"
             role="switch"
             aria-checked={autoCollapseThinking}
+            aria-label={t('personalizeCollapseThinking')}
             className={clsx(styles.fontSwitch, autoCollapseThinking && styles.fontSwitchOn)}
             onClick={() => setAutoCollapseThinking(!autoCollapseThinking)}
           >

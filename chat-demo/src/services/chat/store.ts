@@ -214,8 +214,10 @@ export const clearCompaction = (sessionId: string) => {
     if (!session.checkpoint && !session.compactedThrough) {
       return session
     }
-    const { checkpoint: _checkpoint, compactedThrough: _through, ...rest } = session
-    return { ...rest, updatedAt: Date.now() }
+    const restored = { ...session, updatedAt: Date.now() }
+    delete restored.checkpoint
+    delete restored.compactedThrough
+    return restored
   })
   persist(sessionId)
 }

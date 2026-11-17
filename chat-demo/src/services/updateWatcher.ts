@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { create } from 'zustand'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from './update.js'
 
-/** 后台发现的可用更新：App 启动、回到前台、以及每 30 分钟各查一次 */
+/** 可用更新：App 启动、回到前台、以及运行期间每 60 秒各查一次 */
 export const useUpdateNotice = create<{ available: ReleaseInfo | null; checking: boolean }>(() => ({
   available: null,
   checking: false,

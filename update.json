@@ -1,7 +1,7 @@
 {
-  "version": "1.0.15",
+  "version": "1.0.16",
   "publishedAt": "2026-11-17",
-  "notes": "App 每分钟自动检查更新（启动/回前台/60 秒轮询，红点提示）；语言增加跟随系统；朗读音色按官方卡片样式重做（API 仅支持海星/暗潮）；字体滑块可拖动；个性化与账号资料分开",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.15",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.15/deepchat.apk"
+  "notes": "音色选择改为中国人物形象，开关统一为品牌蓝，移除音色面板冗余说明；重写 README，新增 GPT 主视觉、应用截图和开发文档",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.16",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.16/deepchat.apk"
 }
