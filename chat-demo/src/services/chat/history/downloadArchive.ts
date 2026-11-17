@@ -1,13 +1,5 @@
+import { Capacitor } from '@capacitor/core'
 import { isNative } from '../../../shell/native.js'
-
-const base64ToBuffer = (data: string): ArrayBuffer => {
-  const binary = atob(data)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  return bytes.buffer as ArrayBuffer
-}
 
 /**
  * 下载历史导出的 ZIP。
@@ -20,14 +12,15 @@ export const downloadArchive = async (
 ): Promise<File> => {
   if (isNative) {
     const { Filesystem, Directory } = await import('@capacitor/filesystem')
-    // downloadFile 返回的是绝对路径，readFile 再用绝对路径 + directory 会二次拼接而报「File does not exist」，
-    // 所以这里始终用同一个相对文件名读。
+    // downloadFile 返回的是绝对路径；先落盘再通过 Capacitor 的本地文件 URL 读取，
+    // 避免 readFile 生成 base64 字符串后在 WebView 中再复制一份大文件导致内存峰值。
     await Filesystem.downloadFile({ url, path: name, directory: Directory.Cache })
-    const { data } = await Filesystem.readFile({ path: name, directory: Directory.Cache })
-    if (typeof data !== 'string') {
-      throw new Error('unexpected file encoding')
+    const { uri } = await Filesystem.getUri({ path: name, directory: Directory.Cache })
+    const response = await fetch(Capacitor.convertFileSrc(uri))
+    if (!response.ok) {
+      throw new Error(`本地文件读取失败：HTTP ${response.status}`)
     }
-    return new File([base64ToBuffer(data)], name, { type: 'application/zip' })
+    return new File([await response.blob()], name, { type: 'application/zip' })
   }
 
   const response = await fetch(url)

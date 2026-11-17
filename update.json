@@ -1,7 +1,7 @@
 {
-  "version": "1.0.18",
+  "version": "1.0.19",
   "publishedAt": "2026-11-17",
-  "notes": "更新提醒红点覆盖手机主界面、侧栏及平板/桌面设置入口；设置页继续显示新版本提示",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.18",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.18/deepchat.apk"
+  "notes": "修复从 DeepSeek 链接导入较大历史包时内存峰值导致闪退：原生下载后改为按本地文件读取，避免整包 base64 复制",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.19",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.19/deepchat.apk"
 }
