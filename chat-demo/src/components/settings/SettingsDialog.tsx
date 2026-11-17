@@ -1441,15 +1441,24 @@ const MobileDataContent = ({
   // 官方 App 的「导出数据」给的是一个 7 天有效的下载链接，粘进来直接下载并走同一套导入流程
   const [link, setLink] = useState('')
   const [downloading, setDownloading] = useState(false)
+  const [downloadProgress, setDownloadProgress] = useState<{
+    bytes: number
+    total: number
+  } | null>(null)
   const downloadFromLink = async () => {
     const url = link.trim()
     if (!url || downloading) {
       return
     }
     setDownloading(true)
+    setDownloadProgress(null)
     try {
       // 原生壳里走 Filesystem.downloadFile，绕开 WebView 的 CORS 限制
-      historyImport.select(await downloadArchive(url))
+      historyImport.select(
+        await downloadArchive(url, 'deepseek-export.zip', (bytes, total) =>
+          setDownloadProgress({ bytes, total })
+        )
+      )
     } catch (error) {
       // 把真实原因带出来：过期、跨域、网络都可能失败，只给一句通用话没法排查
       const detail = error instanceof Error ? error.message : String(error)
@@ -1459,8 +1468,16 @@ const MobileDataContent = ({
       })
     } finally {
       setDownloading(false)
+      setDownloadProgress(null)
     }
   }
+  const downloadStatus = downloading
+    ? downloadProgress && downloadProgress.total > 0
+      ? `${t('deepseekImportDownloading')} ${Math.min(99, Math.floor((downloadProgress.bytes / downloadProgress.total) * 100))}%`
+      : downloadProgress
+        ? `${t('deepseekImportDownloading')} ${(downloadProgress.bytes / 1024 / 1024).toFixed(1)} MB`
+        : t('deepseekImportDownloading')
+    : ''
   return (
     <>
       <MobileGroup>
@@ -1549,7 +1566,7 @@ const MobileDataContent = ({
             <IconDownloadOutline16 />
           </span>
           <span className={styles.rowLabel}>{t('deepseekImportAction')}</span>
-          <span className={styles.rowValue}>{downloading ? t('deepseekImportDownloading') : ''}</span>
+          <span className={styles.rowValue}>{downloadStatus}</span>
         </button>
       </MobileGroup>
       <div className={styles.profileHint}>{t('deepseekImportHint')}</div>

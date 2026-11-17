@@ -1,7 +1,7 @@
 {
-  "version": "1.0.21",
+  "version": "1.0.22",
   "publishedAt": "2026-11-17",
-  "notes": "从 DeepSeek 导入时显示真实的「正在下载」状态，不再误显示 API Key 的「正在验证」；导入过程显示「正在导入，请稍候」",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.21",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.21/deepchat.apk"
+  "notes": "从 DeepSeek 链接导入时显示真实下载进度（百分比/已下载 MB），下载完成后再确认导入；导入过程显示「正在导入」",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.22",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.22/deepchat.apk"
 }
