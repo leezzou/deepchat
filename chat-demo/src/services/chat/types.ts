@@ -119,6 +119,11 @@ export type Session = {
    * 请求时作为最前面的 user 消息发给模型，界面上显示为「上下文已压缩」。
    */
   checkpoint?: { text: string; createdAt: number; coveredMessages: number }
+  /**
+   * 压缩覆盖到的最后一条消息 id。该消息及之前的内容只作为 checkpoint 参与请求，
+   * 但**原始消息仍然保存在 messages 里**，用户可以在 App 内回看。
+   */
+  compactedThrough?: string
 }
 
 /** 会话列表元数据；消息只在打开会话时加载。 */

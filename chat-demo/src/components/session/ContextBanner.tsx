@@ -1,9 +1,14 @@
 import { useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { exportHistory } from '../../services/chat/backup.js'
-import { compactSession, contextPressure, shouldWarnContext } from '../../services/chat/compact.js'
+import {
+  buildCheckpointText,
+  compactSession,
+  contextPressure,
+  shouldWarnContext,
+} from '../../services/chat/compact.js'
 import type { Session } from '../../services/chat/types.js'
-import { useChatStore } from '../../services/chat/store.js'
+import { updateCheckpointText, useChatStore } from '../../services/chat/store.js'
 import { saveBlob } from '../../shell/saveFile.js'
 import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
@@ -20,6 +25,8 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   const [compacting, setCompacting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
+  const [editingSummary, setEditingSummary] = useState(false)
+  const [summaryDraft, setSummaryDraft] = useState('')
   const [backingUp, setBackingUp] = useState(false)
   // 订阅会话变化，压缩完检查点写入后横幅自然消失
   const latest = useChatStore((state) => state.sessionCache[session.id]) ?? session
@@ -69,14 +76,49 @@ export const ContextBanner = ({ session }: { session: Session }) => {
       .replace(/^[\s\S]*?<compacted-summary>/, '')
       .replace(/<\/compacted-summary>[\s\S]*$/, '')
       .trim()
+    const close = () => {
+      setSummaryOpen(false)
+      setEditingSummary(false)
+    }
     return (
       <Modal
         title={t('contextSummaryTitle')}
-        onClose={() => setSummaryOpen(false)}
+        onClose={close}
         footer={
-          <Button variant="outlined" size="m" onClick={() => setSummaryOpen(false)}>
-            {t('close')}
-          </Button>
+          editingSummary ? (
+            <>
+              <Button variant="outlined" size="m" onClick={() => setEditingSummary(false)}>
+                {t('cancel')}
+              </Button>
+              <Button
+                variant="primary"
+                size="m"
+                onClick={() => {
+                  updateCheckpointText(latest.id, buildCheckpointText(summaryDraft))
+                  setEditingSummary(false)
+                  showToast({ key: 'contextSummarySaved' })
+                }}
+              >
+                {t('save')}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outlined" size="m" onClick={close}>
+                {t('close')}
+              </Button>
+              <Button
+                variant="primary"
+                size="m"
+                onClick={() => {
+                  setSummaryDraft(body)
+                  setEditingSummary(true)
+                }}
+              >
+                {t('contextSummaryEdit')}
+              </Button>
+            </>
+          )
         }
       >
         <div className={styles.summaryBody}>
@@ -86,7 +128,19 @@ export const ContextBanner = ({ session }: { session: Session }) => {
               count: checkpoint.coveredMessages,
             })}
           </div>
-          <div className={styles.summaryText}>{body}</div>
+          {editingSummary ? (
+            <>
+              <textarea
+                className={styles.summaryEditor}
+                value={summaryDraft}
+                onChange={(event) => setSummaryDraft(event.target.value)}
+                spellCheck={false}
+              />
+              <div className={styles.riskNote}>{t('contextSummaryEditHint')}</div>
+            </>
+          ) : (
+            <div className={styles.summaryText}>{body}</div>
+          )}
         </div>
       </Modal>
     )

@@ -179,13 +179,31 @@ const updateReply = (sessionId: string, reply: AssistantMessage) =>
     ),
   }))
 
-/** 上下文压缩：用摘要检查点 + 最近若干轮替换整个会话历史 */
+/**
+ * 上下文压缩：写入摘要检查点并记录压缩覆盖到哪条消息。
+ * 原始消息一条都不删，仍保存在会话里可回看，只是不再发给模型。
+ */
 export const applyCompaction = (
   sessionId: string,
-  messages: Session['messages'],
+  compactedThrough: string,
   checkpoint: NonNullable<Session['checkpoint']>
 ) => {
-  updateSession(sessionId, (session) => ({ ...session, messages, checkpoint, updatedAt: Date.now() }))
+  updateSession(sessionId, (session) => ({
+    ...session,
+    checkpoint,
+    compactedThrough,
+    updatedAt: Date.now(),
+  }))
+  persist(sessionId)
+}
+
+/** 编辑压缩摘要：只替换 checkpoint 文本，消息与压缩时间保持不变 */
+export const updateCheckpointText = (sessionId: string, text: string) => {
+  updateSession(sessionId, (session) =>
+    session.checkpoint
+      ? { ...session, checkpoint: { ...session.checkpoint, text }, updatedAt: Date.now() }
+      : session
+  )
   persist(sessionId)
 }
 
@@ -1005,7 +1023,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           prepared.prefix,
           initial.thinking ?? false,
           latestReminder,
-          getSession(sessionId)?.checkpoint?.text
+          getSession(sessionId)?.checkpoint?.text,
+          getSession(sessionId)?.compactedThrough
         )
         const events = streamMessage(
           useSettings.getState().apiKey ?? '',

@@ -505,3 +505,17 @@ v1.0.0 首发 → v1.0.1 导入走原生下载 + 错误提示带原因 + OpenCod
 - 警戒条状态：额外给一个「查看上下文摘要」按钮；
 - 弹窗里显示压缩时间、覆盖消息条数，以及去掉 `CHECKPOINT_PREAMBLE` 和 `<compacted-summary>` 标签后的正文
   （八个小节的 Markdown 原文），可滚动。
+
+---
+
+## 20. 第 10 版：压缩不再删除原始消息
+
+之前压缩会把 `session.messages` 替换成「摘要 + 最近几轮」，旧消息直接丢了。改成：
+
+- `Session.compactedThrough` 记录压缩覆盖到的最后一条消息 id；
+- `toRequestMessages()` 从该 id 之后开始取历史（`history.slice(start)`），前面用 checkpoint 顶上；
+- `applyCompaction()` 只写 checkpoint + compactedThrough，**一条消息都不删**；
+- `sessionContextTokens()` 也只统计 checkpoint + 压缩点之后的消息，所以压缩后用量真的会降。
+
+用户侧效果：压缩后往上翻还能看到完整原文（App 本地保存），只是这些内容不再计入上下文。
+风险弹窗第 3 条也改成了「原始记录仍完整保存在本机对话里」，不再吓人说「不会留存」。

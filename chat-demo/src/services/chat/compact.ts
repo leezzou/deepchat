@@ -55,6 +55,10 @@ const COMPACTION_INSTRUCTION = [
   `- If the conversation already contains a ${SUMMARY_OPEN_TAG} block, it is a PRIOR checkpoint. Do not copy it forward verbatim: preserve still-true facts, drop stale ones, and merge newer information into a single consolidated summary under the same structure.`,
 ].join('\n')
 
+/** 把摘要正文包成 checkpoint 文本（前言 + 标签） */
+export const buildCheckpointText = (body: string): string =>
+  `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}\n${body.trim()}\n${SUMMARY_CLOSE_TAG}`
+
 /** 检查点前言：让模型把它当既定背景，而不是一条用户提问 */
 const CHECKPOINT_PREAMBLE =
   'This is an automatically generated checkpoint condensing an earlier span of the conversation to free up context. Treat the captured context as established background and build on it without restating it. Continue the task directly from the messages that follow, without acknowledging this checkpoint.'
@@ -89,7 +93,11 @@ const messageText = (message: Message): string =>
 /** 当前会话占用（checkpoint + 全部轮次），单位 token */
 export const sessionContextTokens = (session: Session): number => {
   const checkpoint = session.checkpoint?.text ?? ''
-  const rounds = getContextRounds(session.messages)
+  // 压缩覆盖到的消息不再计入上下文
+  const start = session.compactedThrough
+    ? session.messages.findIndex((message) => message.id === session.compactedThrough) + 1
+    : 0
+  const rounds = getContextRounds(session.messages.slice(start))
   const fromRounds = rounds.reduce(
     (sum, [user, reply]) => sum + estimateTokens(messageText(user)) + estimateTokens(messageText(reply)),
     0
@@ -188,14 +196,11 @@ export const compactSession = async (sessionId: string): Promise<CompactResult> 
     return { ok: false, message: 'empty summary' }
   }
 
-  // 保留最近几轮（压平成一个线性的 user/assistant 序列）
-  const keptMessages: Session['messages'] = []
-  for (const [user, reply] of keptRounds) {
-    keptMessages.push(user, reply)
-  }
+  // 原始消息全部保留在会话里（用户可回看），只记录压缩覆盖到哪条
+  const lastCovered = oldRounds[oldRounds.length - 1][1]
 
-  applyCompaction(sessionId, keptMessages, {
-    text: `${CHECKPOINT_PREAMBLE}\n\n${SUMMARY_OPEN_TAG}\n${text}\n${SUMMARY_CLOSE_TAG}`,
+  applyCompaction(sessionId, lastCovered.id, {
+    text: buildCheckpointText(text),
     createdAt: Date.now(),
     coveredMessages: oldRounds.length * 2,
   })

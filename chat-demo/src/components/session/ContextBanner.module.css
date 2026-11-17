@@ -186,3 +186,25 @@
   background-color: #3c3c3d;
   color: #f8f8f8;
 }
+
+.summaryEditor {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 46vh;
+  padding: 12px;
+  border: 1px solid #426efe;
+  border-radius: 12px;
+  background-color: #ffffff;
+  color: #0f0f0f;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  resize: vertical;
+  outline: none;
+}
+
+[data-ds-dark-theme] .summaryEditor {
+  background-color: #242424;
+  color: #f8f8f8;
+  border-color: #6392f2;
+}

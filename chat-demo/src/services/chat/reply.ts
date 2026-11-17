@@ -307,12 +307,17 @@ export const toRequestMessages = (
   thinking = prefix?.thinking ?? false,
   latestReminder?: string,
   /** 上下文压缩产生的检查点，作为最前面的 user 消息 */
-  checkpoint?: string
+  checkpoint?: string,
+  /** 压缩覆盖到的最后一条消息 id：它及之前的消息不再发给模型 */
+  compactedThrough?: string
 ): MessageParam[] => {
   const messages: MessageParam[] = []
   if (checkpoint) {
     messages.push({ role: 'user', content: checkpoint })
   }
+  const start = compactedThrough
+    ? history.findIndex((message) => message.id === compactedThrough) + 1
+    : 0
   let previousReminder: string | undefined
   const appendReminder = (reminder: string | undefined) => {
     // 仅在当前分支首次出现或内容变化时插入快照；缺少快照的消息保持原有内容。
@@ -321,7 +326,7 @@ export const toRequestMessages = (
       previousReminder = reminder
     }
   }
-  for (const [user, reply] of getContextRounds(history)) {
+  for (const [user, reply] of getContextRounds(history.slice(start))) {
     // 历史提问没有文字、附件也都没有 serverId 时，提问为空，连同回答一起省略。
     if (!user.content && toFileBlocks(user.files).length === 0) {
       continue

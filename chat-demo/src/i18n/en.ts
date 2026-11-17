@@ -145,10 +145,15 @@ export const en = {
   apiProfileEdit: 'Edit this profile',
   apiProfileProvider: 'Provider',
   contextUsed: 'Context {percent}%',
+  contextSummaryEdit: 'Edit summary',
+  contextSummaryEditHint:
+    'Edit the summary directly — add details the model missed or remove what you no longer need. The next turn uses the updated version.',
+  contextSummarySaved: 'Summary saved',
+  save: 'Save',
   contextSummaryTitle: 'Context summary',
   contextSummaryView: 'View context summary',
   contextSummaryMeta: 'Compacted {time}, covering {count} messages',
-  contextCompactedLabel: 'Context compacted: earlier turns folded into a summary',
+  contextCompactedLabel: 'Context compacted (originals kept)',
   contextAlmostFull: 'Context at {percent}%, close to the model limit',
   contextRiskTitle: 'Before you compact',
   contextRiskIntro:
@@ -157,7 +162,8 @@ export const en = {
     'The original wording, tone, and emotional nuance disappear — later turns only see a paraphrase.',
   contextRiskItem2:
     'The summary is model-generated and may miss or misremember names, dates, or small promises.',
-  contextRiskItem3: 'Compaction inside the app cannot be undone; old messages are not kept.',
+  contextRiskItem3:
+    'Compaction only removes old messages from the context; the originals stay in this conversation on your device and remain readable. The summary itself cannot be undone.',
   contextRiskItem4: 'If you use this conversation as a diary or record, only an outline will remain.',
   contextRiskNote:
     'Export all chats to a ZIP first — the file keeps the full text and can be re-imported at any time.',

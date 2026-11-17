@@ -1,7 +1,7 @@
 {
-  "version": "1.0.7",
+  "version": "1.0.8",
   "publishedAt": "2026-11-17",
-  "notes": "压缩后可以查看摘要：点「上下文已压缩」或「查看上下文摘要」打开完整摘要，含压缩时间与覆盖条数",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.7",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.7/deepchat.apk"
+  "notes": "压缩不再删除原始消息：旧对话仍完整保存在本机可回看，只是移出上下文；摘要支持编辑",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.8",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.8/deepchat.apk"
 }
