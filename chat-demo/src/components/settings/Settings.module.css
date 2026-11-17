@@ -1181,3 +1181,67 @@
     touch-action: none;
   }
 }
+
+@media not all and (min-width: 768px) {
+  .voiceGrid {
+    display: flex;
+    gap: 14px;
+  }
+
+  .voiceCard {
+    position: relative;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 18px 12px 14px;
+    border: 1px solid transparent;
+    border-radius: 18px;
+    background-color: #f7f7f7;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .voiceCardActive {
+    border-color: #426efe;
+    background-color: #edf3fe;
+  }
+
+  [data-ds-dark-theme] .voiceCard {
+    background-color: #2f2f2f;
+  }
+
+  [data-ds-dark-theme] .voiceCardActive {
+    background-color: #283142;
+    border-color: #6392f2;
+  }
+
+  .voiceBlob {
+    width: 76px;
+    height: 56px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 35%, #dce9ff, #8fb4ff 60%, #426efe);
+    filter: blur(0.4px);
+  }
+
+  .voiceName {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 22px;
+  }
+
+  .voiceTagline {
+    color: #8e9094;
+    font-size: 12px;
+    line-height: 17px;
+  }
+
+  .voiceCheck {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    color: #426efe;
+  }
+}

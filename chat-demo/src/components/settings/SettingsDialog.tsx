@@ -52,7 +52,12 @@ import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../ser
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { installApk } from '../../shell/installer.js'
 import { openExternal } from '../../shell/native.js'
-import { useTranslate, type TranslationKey, type TranslationMessage } from '../../i18n/index.js'
+import {
+  resolveLocale,
+  useTranslate,
+  type TranslationKey,
+  type TranslationMessage,
+} from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { Modal } from '../base/Modal.js'
@@ -507,6 +512,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   const ttsVoice = useSettings((state) => state.ttsVoice)
   const [helpOpen, setHelpOpen] = useState(false)
   const [signOutOpen, setSignOutOpen] = useState(false)
+  const [voiceOpen, setVoiceOpen] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
   const [update, setUpdate] = useState<
     | { status: 'latest' | 'available' | 'error' | 'no-release'; release?: ReleaseInfo }
@@ -571,13 +577,20 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         <MobileSelectRow
           icon={<IconGlobeLanguageOutline14 />}
           label={t('settingsLocalePreference')}
-          value={locale === 'zh-CN' ? '中文 (简体中文)' : t('settingsLocaleEnUS')}
+          value={
+            locale === 'system'
+              ? t('settingsLocaleSystem')
+              : locale === 'zh-CN'
+                ? '中文 (简体中文)'
+                : t('settingsLocaleEnUS')
+          }
         >
           <Select
             className={styles.selectHit}
             ariaLabel={t('settingsLocalePreference')}
             value={locale}
             options={[
+              { value: 'system', label: t('settingsLocaleSystem') },
               { value: 'zh-CN', label: t('settingsLocaleZhCN'), lang: 'zh-CN' },
               { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' },
             ]}
@@ -603,22 +616,12 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         />
       </MobileGroup>
       <MobileGroup title="语音">
-        <MobileSelectRow
+        <MobileRow
           icon={<IconPlayMediaOutline16 />}
           label={t('settingsTtsVoice')}
           value={t(ttsVoice === 'stella' ? 'settingsTtsVoiceStella' : 'settingsTtsVoiceTide')}
-        >
-          <Select
-            className={styles.selectHit}
-            ariaLabel={t('settingsTtsVoice')}
-            value={ttsVoice}
-            options={[
-              { value: 'stella', label: t('settingsTtsVoiceStella') },
-              { value: 'tide', label: t('settingsTtsVoiceTide') },
-            ]}
-            onChange={setTtsVoice}
-          />
-        </MobileSelectRow>
+          onClick={() => setVoiceOpen(true)}
+        />
       </MobileGroup>
       {version ? (
         <MobileGroup title="关于">
@@ -709,6 +712,46 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         </button>
       </MobileGroup>
       {version ? <div className={styles.meta}>版本 {version}</div> : null}
+      {voiceOpen ? (
+        <Modal
+          title={t('settingsTtsVoice')}
+          onClose={() => setVoiceOpen(false)}
+          footer={
+            <Button variant="primary" size="m" onClick={() => setVoiceOpen(false)}>
+              {t('confirm')}
+            </Button>
+          }
+        >
+          <div className={styles.voiceGrid}>
+            {(
+              [
+                { id: 'stella' as const, name: '海星', tagline: '俏皮甜美' },
+                { id: 'tide' as const, name: '暗潮', tagline: '低沉浑厚' },
+              ] as const
+            ).map((voice) => (
+              <button
+                key={voice.id}
+                type="button"
+                className={clsx(
+                  styles.voiceCard,
+                  ttsVoice === voice.id && styles.voiceCardActive
+                )}
+                onClick={() => setTtsVoice(voice.id)}
+              >
+                <span className={styles.voiceBlob} />
+                <span className={styles.voiceName}>{voice.name}</span>
+                <span className={styles.voiceTagline}>{voice.tagline}</span>
+                {ttsVoice === voice.id ? (
+                  <span className={styles.voiceCheck}>
+                    <IconCheckOutline16 />
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+          <div className={styles.profileHint}>{t('voiceLimitHint')}</div>
+        </Modal>
+      ) : null}
       {signOutOpen ? (
         <Modal
           title={t('settingsSignOut')}
@@ -1729,7 +1772,7 @@ const MobileAppearanceContent = () => {
 /** 位置信息：国内按省份 / 城市两级，其他地区只选国家或地区 */
 const MobileLocationContent = () => {
   const t = useTranslate()
-  const locale = useSettings((state) => state.locale)
+  const locale = resolveLocale(useSettings((state) => state.locale))
   const location = useSettings((state) => state.location)
   const province =
     location?.region === 'CN'
@@ -1871,7 +1914,7 @@ const useHistoryDelete = () => {
 
 const LocationSetting = () => {
   const t = useTranslate()
-  const locale = useSettings((state) => state.locale)
+  const locale = resolveLocale(useSettings((state) => state.locale))
   const location = useSettings((state) => state.location)
   const province =
     location?.region === 'CN'

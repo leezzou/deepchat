@@ -10,6 +10,8 @@ import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
 export type Locale = 'zh-CN' | 'en-US'
+/** 语言偏好：跟随系统 / 中文 / English（与官方一致） */
+export type LocalePreference = 'system' | Locale
 
 /** 主题偏好；默认跟随系统 */
 export type ThemePreference = 'light' | 'dark' | 'system'
@@ -40,7 +42,7 @@ type Settings = {
   apiOrigin: string
   apiProfiles: ApiProfile[]
   activeProfileId: string | null
-  locale: Locale
+  locale: LocalePreference
   themePreference: ThemePreference
   location: UserLocation | null
   ttsVoice: TtsVoice
@@ -98,12 +100,12 @@ const write = (key: string, value: string | null) => {
 export const isChineseBrowser = (): boolean =>
   (typeof navigator === 'undefined' ? 'zh' : navigator.language).toLowerCase().startsWith('zh')
 
-const initialLocale = (): Locale => {
+const initialLocale = (): LocalePreference => {
   const saved = read(KEYS.locale)
-  if (saved === 'zh-CN' || saved === 'en-US') {
+  if (saved === 'zh-CN' || saved === 'en-US' || saved === 'system') {
     return saved
   }
-  return isChineseBrowser() ? 'zh-CN' : 'en-US'
+  return 'system'
 }
 
 const initialLocation = (): UserLocation | null => {
@@ -220,7 +222,7 @@ export const useSettings = create<Settings>(() => ({
   autoCollapseThinking: read(KEYS.autoCollapseThinking) !== 'false',
 }))
 
-export const setLocale = (locale: Locale) => {
+export const setLocale = (locale: LocalePreference) => {
   write(KEYS.locale, locale)
   useSettings.setState({ locale })
 }

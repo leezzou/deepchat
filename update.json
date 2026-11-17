@@ -1,7 +1,7 @@
 {
-  "version": "1.0.14",
+  "version": "1.0.15",
   "publishedAt": "2026-11-17",
-  "notes": "应用内自动轮询新版本：启动/回前台/每 30 分钟检查 update.json，有新版本时抽屉设置入口显示红点；字体大小滑块可拖动；个性化页对齐官方（仅思考自动折叠），账号资料独立成页；反馈改为 GitHub Issue",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.14",
-  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.14/deepchat.apk"
+  "notes": "App 每分钟自动检查更新（启动/回前台/60 秒轮询，红点提示）；语言增加跟随系统；朗读音色按官方卡片样式重做（API 仅支持海星/暗潮）；字体滑块可拖动；个性化与账号资料分开",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.15",
+  "apkUrl": "https://github.com/leezzou/deepchat/releases/download/v1.0.15/deepchat.apk"
 }

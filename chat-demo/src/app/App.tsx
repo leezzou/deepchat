@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useTranslate } from '../i18n/index.js'
+import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
@@ -67,7 +67,7 @@ export const App = () => {
   )
 
   useEffect(() => {
-    document.documentElement.lang = locale
+    document.documentElement.lang = resolveLocale(locale)
   }, [locale])
 
   // 聊天字号倍率

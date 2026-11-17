@@ -27,8 +27,17 @@ const translators = {
   'en-US': createTranslate(en),
 }
 
+/** 把语言偏好解析成实际语言：system 跟随浏览器/系统 */
+export const resolveLocale = (preference: string): keyof typeof translators => {
+  if (preference === 'zh-CN' || preference === 'en-US') {
+    return preference
+  }
+  return (navigator.language || 'en').toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US'
+}
+
 /** 组件订阅语言变化；普通函数在调用时读取当前语言。 */
-export const useTranslate = () => useSettings((state) => translators[state.locale])
+export const useTranslate = () =>
+  useSettings((state) => translators[resolveLocale(state.locale)])
 
 export const translate = (key: TranslationKey, params?: TranslationParams): string =>
-  translators[useSettings.getState().locale](key, params)
+  translators[resolveLocale(useSettings.getState().locale)](key, params)

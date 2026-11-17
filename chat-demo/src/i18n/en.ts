@@ -93,6 +93,7 @@ export const en = {
   backupInvalidBranches: 'The message branches in this file are corrupted and cannot be imported.',
   backupInvalidFiles: 'The attachment data in this file is corrupted and cannot be imported.',
   settingsLocalePreference: 'Language',
+  voiceLimitHint: '贝壳 and 白浪 are built into the official app and are not available through the API key; only these two API voices can be synthesised.',
   settingsTtsVoice: 'Read-aloud voice',
   settingsTtsVoiceStella: 'Stella (female)',
   settingsTtsVoiceTide: 'Tide (male)',
@@ -312,6 +313,7 @@ export const en = {
   ttsFailed: 'Failed to read aloud. Please try again later.',
   retry: 'Retry',
   latestReminderLanguage: 'English',
+  settingsLocaleSystem: 'Follow system',
   settingsLocaleZhCN: 'Simplified Chinese',
   settingsLocaleEnUS: 'English',
 } satisfies Record<keyof typeof zh, string>

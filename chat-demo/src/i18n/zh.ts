@@ -88,6 +88,7 @@ export const zh = {
   backupInvalidBranches: '文件中的消息分支已损坏，无法导入',
   backupInvalidFiles: '文件中的附件数据已损坏，无法导入',
   settingsLocalePreference: '语言',
+  voiceLimitHint: '贝壳、白浪是官方 App 内置音色，API Key 不支持；这里只列出可通过 API 合成的两个音色。',
   settingsTtsVoice: '朗读音色',
   settingsTtsVoiceStella: '海星（女声）',
   settingsTtsVoiceTide: '暗潮（男声）',
@@ -291,6 +292,7 @@ export const zh = {
   ttsFailed: '朗读失败，请稍后再试',
   retry: '重试',
   latestReminderLanguage: '中文',
+  settingsLocaleSystem: '跟随系统',
   settingsLocaleZhCN: '简体中文',
   settingsLocaleEnUS: 'English',
 } as const

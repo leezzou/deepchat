@@ -34,7 +34,8 @@ export const checkUpdateAvailable = async () => {
   }
 }
 
-const CHECK_INTERVAL = 30 * 60 * 1000
+// 用户要求：App 内每分钟检查一次新版本
+const CHECK_INTERVAL = 60 * 1000
 
 /** 挂在 App 根节点：轮询新版本，设置/抽屉上的红点靠它 */
 export const useUpdateWatcher = () => {
