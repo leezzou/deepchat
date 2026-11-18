@@ -72,7 +72,7 @@ const manifest = {
   publishedAt: new Date().toISOString().slice(0, 10),
   notes,
   pageUrl: `https://github.com/${repo}/releases/tag/v${version}`,
-  apkUrl: `https://gh-proxy.com/https://github.com/${repo}/releases/download/v${version}/deepchat.apk`,
+  apkUrl: `https://ghfast.top/https://github.com/${repo}/releases/download/v${version}/deepchat.apk`,
   apkUrlFallback: `https://github.com/${repo}/releases/download/v${version}/deepchat.apk`,
 };
 fs.writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");

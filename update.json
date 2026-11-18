@@ -3,6 +3,6 @@
   "publishedAt": "2026-11-18",
   "notes": "兼容旧版 Android System WebView：补齐 Object.hasOwn、Array.at、toReversed 等新 API；启动失败时显示更新 WebView 提示，不再只显示白屏",
   "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.34",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.34/deepchat.apk",
+  "apkUrl": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.34/deepchat.apk",
   "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.34/deepchat.apk"
 }
