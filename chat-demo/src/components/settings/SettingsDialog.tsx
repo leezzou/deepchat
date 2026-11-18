@@ -23,7 +23,6 @@ import {
   clearHistory,
   confirmBackupSaved,
   exportHistory,
-  importHistory,
   loadBackupState,
   restoreSafetySnapshot,
   saveLatestBackup,
@@ -75,7 +74,7 @@ import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { popLayer, pushLayer } from '../../shell/native.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
-import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
+import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
 import { closeSettings, openSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
@@ -88,10 +87,11 @@ import styles from './Settings.module.css'
 export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   const isSettingsMobile = useIsSettingsMobile()
+  const historyImport = useHistoryImport()
   if (!open) {
     return null
   }
-  return isSettingsMobile ? <MobileSettings /> : <SettingsContent />
+  return isSettingsMobile ? <MobileSettings historyImport={historyImport} /> : <SettingsContent historyImport={historyImport} />
 }
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
@@ -103,13 +103,14 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
 ]
 
-const SettingsContent = () => {
+type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
+
+const SettingsContent = ({ historyImport }: ImportProps) => {
   const t = useTranslate()
   // 打开时按调用方指定的分组选中，之后在弹窗内切换
   const [section, setSection] = useState(() => useSettingsDialog.getState().section)
   // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
-  const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const backupBusy = useBackupState((state) => state.operation !== null)
@@ -252,9 +253,8 @@ const readAppVersion = () =>
   document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
 
 /** 移动端设置整页：根页常驻，二级页叠在根页之上 */
-const MobileSettings = () => {
+const MobileSettings = ({ historyImport }: ImportProps) => {
   const t = useTranslate()
-  const historyImport = useHistoryImport()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const backupBusy = useBackupState((state) => state.operation !== null)
@@ -302,7 +302,7 @@ const MobileSettings = () => {
       </div>
       {page === 'root' ? null : (
         <div className={styles.subPage}>
-          <MobileHeader title={mobilePageTitles[page]} onBack={goBack} />
+          <MobileHeader title={page === 'data' ? t('settingDialogAsideDataOptionLabel') : mobilePageTitles[page]} onBack={goBack} />
           <div className={styles.body}>
             {page === 'apiKey' ? (
               <MobileApiKeyContent
@@ -1441,44 +1441,7 @@ const MobileDataContent = ({
   const empty = useChatStore((state) => state.sessions.length === 0)
   // 官方 App 的「导出数据」给的是一个 7 天有效的下载链接，粘进来直接下载并走同一套导入流程
   const [link, setLink] = useState('')
-  const [downloading, setDownloading] = useState(false)
-  const [downloadProgress, setDownloadProgress] = useState<{
-    bytes: number
-    total: number
-  } | null>(null)
-  const downloadFromLink = async () => {
-    const url = link.trim()
-    if (!url || downloading) {
-      return
-    }
-    setDownloading(true)
-    setDownloadProgress(null)
-    try {
-      // 原生壳里走 Filesystem.downloadFile，绕开 WebView 的 CORS 限制
-      historyImport.select(
-        await downloadArchive(url, 'deepseek-export.zip', (bytes, total) =>
-          setDownloadProgress({ bytes, total })
-        )
-      )
-    } catch (error) {
-      // 把真实原因带出来：过期、跨域、网络都可能失败，只给一句通用话没法排查
-      const detail = error instanceof Error ? error.message : String(error)
-      showToast({
-        key: 'deepseekImportFailed',
-        params: { message: detail.slice(0, 160) },
-      })
-    } finally {
-      setDownloading(false)
-      setDownloadProgress(null)
-    }
-  }
-  const downloadStatus = downloading
-    ? downloadProgress && downloadProgress.total > 0
-      ? `${t('deepseekImportDownloading')} ${Math.min(99, Math.floor((downloadProgress.bytes / downloadProgress.total) * 100))}%`
-      : downloadProgress
-        ? `${t('deepseekImportDownloading')} ${(downloadProgress.bytes / 1024 / 1024).toFixed(1)} MB`
-        : t('deepseekImportDownloading')
-    : ''
+  const feedback = historyImport.feedback
   return (
     <>
       <MobileGroup>
@@ -1494,6 +1457,7 @@ const MobileDataContent = ({
           <span className={styles.rowLabel}>{t('historyImport')}</span>
           <span className={styles.rowValue}>{t('upload')}</span>
         </button>
+        {feedback?.source === 'file' && <HistoryImportFeedback feedback={feedback} />}
         <button
           type="button"
           className={styles.row}
@@ -1537,6 +1501,7 @@ const MobileDataContent = ({
           </label>
           <input
             id="deepseek-export-link"
+            disabled={disabled}
             className={styles.fieldInput}
             value={link}
             placeholder={t('deepseekImportPlaceholder')}
@@ -1549,68 +1514,21 @@ const MobileDataContent = ({
         <button
           type="button"
           className={styles.row}
-          disabled={disabled || downloading || !link.trim()}
-          onClick={() => void downloadFromLink()}
+          disabled={disabled || !link.trim()}
+          onClick={async () => {
+            if (await historyImport.download(link)) { setLink('') }
+          }}
         >
           <span className={styles.rowIcon}>
             <IconDownloadOutline16 />
           </span>
           <span className={styles.rowLabel}>{t('deepseekImportAction')}</span>
-          <span className={styles.rowValue}>{downloadStatus}</span>
         </button>
+        {feedback?.source === 'link' && <HistoryImportFeedback feedback={feedback} />}
       </MobileGroup>
       <div className={styles.profileHint}>{t('deepseekImportHint')}</div>
-      {downloading ? (
-        <ProgressBar
-          progress={
-            downloadProgress
-              ? { processed: downloadProgress.bytes, total: downloadProgress.total }
-              : null
-          }
-          label={t('deepseekImportDownloading')}
-        />
-      ) : null}
-      <MobileStatus status={historyImport.status} />
-      <ProgressBar progress={historyImport.progress} label={t('historyImporting')} />
     </>
   )
-}
-
-const ProgressBar = ({
-  progress,
-  label,
-}: {
-  progress: { processed: number; total: number } | null
-  label: string
-}) => {
-  if (!progress || progress.total <= 0) {
-    return null
-  }
-  const percent = Math.min(100, Math.max(0, Math.round((progress.processed / progress.total) * 100)))
-  return (
-    <div className={styles.importProgress}>
-      <div
-        className={styles.importProgressTrack}
-        role="progressbar"
-        aria-label={label}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <span className={styles.importProgressBar} style={{ width: `${percent}%` }} />
-      </div>
-      <span className={styles.importProgressPercent}>{percent}%</span>
-    </div>
-  )
-}
-
-const MobileStatus = ({ status }: { status: Status }) => {
-  const t = useTranslate()
-  return status ? (
-    <div className={clsx(styles.statusText, status.error && styles.error)}>
-      {t(status.key, status.reason ? { message: t(status.reason) } : status.params)}
-    </div>
-  ) : null
 }
 
 /** 字体大小：照官方——顶部预览、底部「跟随系统」开关 + A—A 七档滑块 */
@@ -2206,41 +2124,6 @@ const SettingCell = ({
   )
 }
 
-/** 选文件后先提示覆盖；确认后才检查文件并执行导入，任何错误都提示导入失败。 */
-const useHistoryImport = () => {
-  const [file, setFile] = useState<File | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [status, setStatus] = useState<Status>(null)
-  const [progress, setProgress] = useState<{ processed: number; total: number } | null>(null)
-  const importing = useRef(false)
-
-  const confirm = async () => {
-    if (!file || importing.current) {
-      return
-    }
-    importing.current = true
-    setFile(null)
-    setBusy(true)
-    setStatus({ key: 'historyImporting' })
-    setProgress({ processed: 0, total: file.size })
-    try {
-      const count = await importHistory(file, (processed, total) =>
-        setProgress({ processed, total })
-      )
-      setStatus({ key: count === 1 ? 'historyImportedOne' : 'historyImported', params: { count } })
-    } catch (error) {
-      // 带上具体原因（无法识别 / 版本过新 / 内容不完整），否则用户不知道是文件问题还是下载问题
-      setStatus(error instanceof SnapshotError ? { key: 'backupSnapshotFailed', error: true } : errorStatus('historyImportFailed', error))
-    } finally {
-      importing.current = false
-      setBusy(false)
-      setProgress(null)
-    }
-  }
-
-  return { file, busy, status, progress, select: setFile, cancel: () => setFile(null), confirm }
-}
-
 /** 导入 = 覆盖：用选中文件替换本地全部会话与附件。 */
 const ImportHistory = ({
   historyImport,
@@ -2257,7 +2140,7 @@ const ImportHistory = ({
       <SettingCell
         label={t('historyImport')}
         description={t('historyImportDescription')}
-        status={historyImport.status}
+        status={null}
         action={
         <>
           <Button
@@ -2286,7 +2169,7 @@ const ImportHistory = ({
         </>
         }
       />
-      <ProgressBar progress={historyImport.progress} label={t('historyImporting')} />
+      <HistoryImportFeedback feedback={historyImport.feedback} />
     </>
   )
 }

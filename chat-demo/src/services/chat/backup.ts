@@ -1,18 +1,20 @@
 import { formatDate } from '../../utils/format.js'
 import { createId } from '../../utils/id.js'
 import { saveBlob } from '../../shell/saveFile.js'
+import { isNative } from '../../shell/native.js'
 import { useBackupState } from '../backup/state.js'
 import {
   backupMetadata,
   readBackup,
   readBackupPreferences,
-  readSafetySnapshot,
+  readSnapshotParts,
+  readSnapshotRecord,
   writeBackup,
   writeBackupPreferences,
   writeSafetySnapshot,
   type BackupArtifact,
   type BackupMetadata,
-  type SafetySnapshot,
+  type SnapshotPart,
 } from '../backup/storage.js'
 import * as db from './db.js'
 import { replaceHistory, useChatStore } from './store.js'
@@ -56,7 +58,7 @@ export const loadBackupState = (): Promise<void> =>
   (loadingState ??= (async () => {
     const [latest, safety, preferences] = await Promise.all([
       readBackup(),
-      readSafetySnapshot(),
+      readSnapshotRecord(),
       readBackupPreferences(),
     ])
     useBackupState.setState({
@@ -145,8 +147,34 @@ export const confirmBackupSaved = (id: string) =>
     })
   })
 
+async function* currentSnapshotParts(): AsyncGenerator<SnapshotPart> {
+  for (const draft of captureDrafts()) {
+    yield { draft }
+  }
+  const ids = new Set<string>()
+  for await (const session of readCurrentSessions()) {
+    const files: db.StoredFile[] = []
+    for (const message of session.messages) {
+      if (message.role !== 'user') {
+        continue
+      }
+      for (const file of message.files) {
+        if (ids.has(file.id)) {
+          continue
+        }
+        ids.add(file.id)
+        const blob = await db.loadFile(file.id)
+        if (blob) {
+          files.push({ id: file.id, blob })
+        }
+      }
+    }
+    yield { session, files }
+  }
+}
+
 /** 在 replaceHistory 的锁和持久写入屏障内调用，完整保留所有分支、元数据及可用附件原件。 */
-const preserveCurrentHistory = async (reason: SafetySnapshot['reason']) => {
+const preserveCurrentHistory = async (reason: BackupMetadata['reason']) => {
   useBackupState.setState({ operation: 'snapshot' })
   try {
     const state = useChatStore.getState()
@@ -157,35 +185,9 @@ const preserveCurrentHistory = async (reason: SafetySnapshot['reason']) => {
     ) {
       throw new Error('Current history has unsaved changes')
     }
-    const sessions: Session[] = []
-    const files: db.StoredFile[] = []
-    const ids = new Set<string>()
-    for await (const session of readCurrentSessions()) {
-      sessions.push(session)
-      for (const message of session.messages) {
-        if (message.role !== 'user') {
-          continue
-        }
-        for (const file of message.files) {
-          if (ids.has(file.id)) {
-            continue
-          }
-          ids.add(file.id)
-          const blob = await db.loadFile(file.id)
-          if (blob) {
-            files.push({ id: file.id, blob })
-          }
-        }
-      }
-    }
-    const snapshot: SafetySnapshot = {
-      ...metadata(reason, sessions.length),
-      sessions,
-      files,
-      drafts: captureDrafts(),
-    }
-    await writeSafetySnapshot(snapshot)
-    useBackupState.setState({ safety: backupMetadata(snapshot) })
+    const info = metadata(reason, state.sessions.length)
+    await writeSafetySnapshot(info, currentSnapshotParts())
+    useBackupState.setState({ safety: info })
   } catch (error) {
     throw new SnapshotError(error)
   } finally {
@@ -200,17 +202,50 @@ const replaceHistoryAndIndex = async (write: () => Promise<void>) => {
   return count
 }
 
-/** 完整校验和暂存成功后才创建快照；坏包不覆盖旧快照，快照失败不提交历史替换。 */
+export type HistoryImportStage = 'reading' | 'validating' | 'snapshot' | 'commit'
+
+/** 字节进度只描述当前阶段；完整校验和暂存成功后才创建快照并提交。 */
 export const importHistory = (
   file: File,
-  onProgress?: (processed: number, total: number) => void
+  onProgress?: (processed: number, total: number) => void,
+  onStage?: (stage: HistoryImportStage) => void
 ): Promise<number> =>
   enqueueBackup(async () => {
+    onStage?.('reading')
     const { checkArchiveFormat, importArchive } = await import('./history/importArchive.js')
-    await checkArchiveFormat(file)
+    // Android 文件选择器的每次分段读取都可能重新打开 content URI。对大文件顺序读取
+    // 一次到浏览器管理的 Blob，再进行 ZIP 所需的随机访问，不在 JS 堆中分配整个文件。
+    let source = file
+    if (isNative && file.size >= 8 * 1024 * 1024 && file.stream) {
+      let stream = file.stream()
+      if (onProgress && onStage && typeof TransformStream !== 'undefined') {
+        let bytes = 0
+        let previous = 0
+        stream = stream.pipeThrough(new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
+          transform(chunk, controller) {
+            bytes += chunk.byteLength
+            const now = Date.now()
+            if (now - previous >= 120 || bytes === file.size) {
+              onProgress(bytes, file.size)
+              previous = now
+            }
+            controller.enqueue(chunk)
+          },
+        }))
+      }
+      const copy = await new Response(stream).blob()
+      if (copy.size !== file.size) {
+        throw new Error('Incomplete local file read')
+      }
+      source = new File([copy], file.name, { type: file.type })
+    }
+    const directory = await checkArchiveFormat(source)
+    onStage?.('validating')
     return replaceHistoryAndIndex(async () => {
-      await importArchive(file, onProgress)
+      await importArchive(source, directory, onProgress)
+      onStage?.('snapshot')
       await preserveCurrentHistory('before-import')
+      onStage?.('commit')
     })
   })
 
@@ -223,22 +258,28 @@ export const clearHistory = (): Promise<void> =>
 /** 恢复前另存当前历史；恢复后安全快照指向恢复前的状态，可以撤回这次恢复。 */
 export const restoreSafetySnapshot = (): Promise<number> =>
   enqueueBackup(async () => {
-    const target = await readSafetySnapshot()
+    const target = await readSnapshotRecord()
     if (!target) {
       throw new Error('No safety snapshot is available')
     }
     try {
+      const drafts: ReturnType<typeof captureDrafts> = []
       const count = await replaceHistoryAndIndex(async () => {
-        await preserveCurrentHistory('before-restore')
         useBackupState.setState({ operation: 'restoring' })
-        for (let index = 0; index < target.sessions.length; index += 20) {
-          await db.addStagingSessions(target.sessions.slice(index, index + 20))
+        for await (const part of readSnapshotParts(target)) {
+          if (part.session) {
+            await db.addStagingSession(part.session)
+          }
+          if (part.draft) {
+            drafts.push(part.draft)
+          }
+          if (part.files?.length) {
+            await db.saveStagingFiles(part.files)
+          }
         }
-        for (let index = 0; index < target.files.length; index += 8) {
-          await db.saveStagingFiles(target.files.slice(index, index + 8))
-        }
+        await preserveCurrentHistory('before-restore')
       })
-      await restoreDrafts(target.drafts ?? [])
+      await restoreDrafts(drafts)
       return count
     } finally {
       useBackupState.setState({ operation: null })
@@ -247,15 +288,26 @@ export const restoreSafetySnapshot = (): Promise<number> =>
 
 export const saveSafetySnapshot = () =>
   enqueueBackup(async () => {
-    const target = await readSafetySnapshot()
+    const target = await readSnapshotRecord()
     if (!target) {
       throw new Error('No safety snapshot is available')
     }
     useBackupState.setState({ operation: 'saving' })
     try {
       const { exportArchive } = await import('./history/exportArchive.js')
-      const originals = new Map(target.files.map((file) => [file.id, file.blob]))
-      const blob = await exportArchive(target.sessions, async (id) => originals.get(id))
+      const originals = new Map<string, Blob>()
+      const parts = readSnapshotParts(target)
+      const sessions = (async function* () {
+        for await (const { session, files } of parts) {
+          for (const file of files ?? []) {
+            originals.set(file.id, file.blob)
+          }
+          if (session) {
+            yield session
+          }
+        }
+      })()
+      const blob = await exportArchive(sessions, async (id) => originals.get(id))
       return await saveBlob(target.name, blob)
     } finally {
       useBackupState.setState({ operation: null })

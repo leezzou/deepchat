@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 import { isNative } from '../../../shell/native.js'
+import { createId } from '../../../utils/id.js'
 
 /**
  * 下载历史导出的 ZIP。
@@ -22,21 +23,25 @@ export const downloadArchive = async (
           }
         })
       : null
+    const cachePath = `history-import-${createId()}.zip`
     try {
       await Filesystem.downloadFile({
         url,
-        path: name,
+        path: cachePath,
         directory: Directory.Cache,
         progress: Boolean(onProgress),
       })
-      const { uri } = await Filesystem.getUri({ path: name, directory: Directory.Cache })
+      const { uri } = await Filesystem.getUri({ path: cachePath, directory: Directory.Cache })
       const response = await fetch(Capacitor.convertFileSrc(uri))
       if (!response.ok) {
         throw new Error(`本地文件读取失败：HTTP ${response.status}`)
       }
       return new File([await response.blob()], name, { type: 'application/zip' })
     } finally {
-      await listener?.remove()
+      await Promise.all([
+        listener?.remove().catch(() => {}),
+        Filesystem.deleteFile({ path: cachePath, directory: Directory.Cache }).catch(() => {}),
+      ])
     }
   }
 
@@ -44,6 +49,30 @@ export const downloadArchive = async (
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
   }
-  const blob = await response.blob()
-  return new File([blob], name, { type: 'application/zip' })
+  // 由浏览器将流存入 Blob。只统计经过的字节，不在 JS 堆里积累整个下载。
+  let body = response
+  if (onProgress && response.body && typeof TransformStream !== 'undefined') {
+    const total = response.headers.get('Content-Encoding')
+      ? 0
+      : Number(response.headers.get('Content-Length')) || 0
+    let received = 0
+    let lastReport = 0
+    const measured = response.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, controller) {
+          received += chunk.byteLength
+          if (Date.now() - lastReport >= 120) {
+            lastReport = Date.now()
+            onProgress(received, total)
+          }
+          controller.enqueue(chunk)
+        },
+        flush() {
+          onProgress(received, total)
+        },
+      })
+    )
+    body = new Response(measured)
+  }
+  return new File([await body.blob()], name, { type: 'application/zip' })
 }

@@ -1,8 +1,8 @@
 {
-  "version": "1.0.28",
-  "publishedAt": "2026-11-17",
-  "notes": "历史消息搜索、逐轮上下文选择与自动摘要、自动备份与操作前安全快照、草稿持久化、更新前保存检查、消息删除三次确认与单条删除、流式 Markdown 渲染优化",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.28",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.28/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.28/deepchat.apk"
+  "version": "1.0.29",
+  "publishedAt": "2026-11-18",
+  "notes": "历史导入增加分阶段进度与可操作失败提示；大文件 ZIP 读取与导入稳定性优化；备份/恢复点存储升级并清理旧数据",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.29",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.29/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.29/deepchat.apk"
 }

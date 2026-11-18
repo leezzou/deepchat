@@ -33,10 +33,14 @@ await new Promise((resolve, reject) => compiler.run((error, stats) => {
   if (error || stats?.hasErrors()) {reject(error ?? new Error(stats.toString({ all: false, errors: true })))}
   else {resolve()}
 }))
-const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' })
+const snapshotScale = process.argv.includes('--snapshot-scale')
+const browser = await chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  args: snapshotScale ? ['--js-flags=--max-old-space-size=96'] : [],
+})
 try {
   const page = await browser.newPage()
   const pageErrors = []
+  if (snapshotScale) {page.on('console', (message) => process.stderr.write(`${message.text()}\n`))}
   page.on('pageerror', (error) => pageErrors.push(error.message))
   await page.route('https://backup.test/**', async (route) => {
     const pathname = new URL(route.request().url()).pathname
@@ -45,7 +49,10 @@ try {
   })
   await page.goto('https://backup.test/')
   await page.waitForFunction(() => !!window.testModules)
-  const results = await page.evaluate(async () => {
+  const results = snapshotScale ? await Promise.race([
+    page.evaluate((await import('./snapshot/verify-scale.mjs')).verifySnapshotScale),
+    page.waitForEvent('crash', { timeout: 90000 }).then(() => { throw new Error('Renderer crashed during snapshot-scale check') }),
+  ]) : await page.evaluate(async () => {
     const { backup, db, store, drafts, storage, automatic, settings, toArchive, toLocal, schema, zip } = window.testModules
     const results = []
     const check = (condition, label) => { if (!condition) {throw new Error(label);} results.push(label) }

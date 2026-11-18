@@ -1,35 +1,38 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import {
+  openDB,
+  type DBSchema,
+  type IDBPDatabase,
+  type IDBPTransaction,
+  type StoreNames,
+} from 'idb'
+import { createId } from '../../utils/id.js'
 import { toSessionSummary, type Session, type SessionSummary } from './types.js'
 
-/** IndexedDB 存储结构版本；新增或调整存储、索引时递增。 */
-const DB_VERSION = 11
+const DB_VERSION = 12
 
-/** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份；用于缩略图、打开查看，以及没有 serverId 时补传。 */
-export type StoredFile = {
-  id: string
-  blob: Blob
-}
+/** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份。 */
+export type StoredFile = { id: string; blob: Blob }
 
-/** 文件引用留在摘要中，删除会话时通过索引判断原件是否仍被引用。 */
 type StoredSessionSummary = SessionSummary & { fileIds: string[] }
+type SummaryStore = { key: string; value: StoredSessionSummary; indexes: { fileIds: string } }
+type Generation = 0 | 1
 
 interface ChatDB extends DBSchema {
-  /** 当前使用的会话，界面读写都在这里 */
   sessions: { key: string; value: Session }
-  sessionSummaries: {
-    key: string
-    value: StoredSessionSummary
-    indexes: { fileIds: string }
-  }
-  /** 当前使用的文件原件 */
-  files: { key: string; value: StoredFile }
-  /**
-   * 历史导入的暂存：导入过程中会话与原件只写入这两个存储，`sessions` / `files` 保持不变；
-   * 全部校验通过后在一个事务中替换正式数据并清空暂存，失败时只清空暂存。
-   */
   sessionsStaging: { key: string; value: Session }
+  sessionSummaries: SummaryStore
+  sessionSummariesStaging: SummaryStore
+  files: { key: string; value: StoredFile }
   filesStaging: { key: string; value: StoredFile }
+  historyMeta: { key: 'active' | 'writer'; value: Generation | string }
 }
+
+// v11 的正式存储原地作为第 0 代。一次导入始终只写另一代，最后仅提交 active 指针。
+const sessions = ['sessions', 'sessionsStaging'] as const
+const summaries = ['sessionSummaries', 'sessionSummariesStaging'] as const
+const files = ['files', 'filesStaging'] as const
+const allData = [...sessions, ...summaries, ...files]
+const other = (generation: Generation): Generation => (generation === 0 ? 1 : 0)
 
 let dbPromise: Promise<IDBPDatabase<ChatDB>> | null = null
 
@@ -44,224 +47,275 @@ const storedSummary = (session: Session): StoredSessionSummary => ({
   ],
 })
 
-const abortTransaction = (tx: { abort(): void }) => {
-  try {
-    tx.abort()
-  } catch {
-    // 事务已因请求失败中止。
-  }
-}
-
-// 每个操作拿到连接后立即创建事务；IndexedDB 按创建顺序执行范围重叠的事务，读取总能看到之前发起的写入。
 const getDB = () =>
   (dbPromise ??= openDB<ChatDB>('chat-demo', DB_VERSION, {
     upgrade(db, _oldVersion, _newVersion, tx) {
-      // 初始化当前格式需要的存储与索引，不迁移旧消息。
-      for (const name of ['sessions', 'files', 'sessionsStaging', 'filesStaging'] as const) {
+      for (const name of [...sessions, ...files]) {
         if (!db.objectStoreNames.contains(name)) {
           db.createObjectStore(name, { keyPath: 'id' })
         }
       }
-      const summaries = db.objectStoreNames.contains('sessionSummaries')
-        ? tx.objectStore('sessionSummaries')
-        : db.createObjectStore('sessionSummaries', { keyPath: 'id' })
-      if (!summaries.indexNames.contains('fileIds')) {
-        summaries.createIndex('fileIds', 'fileIds', { multiEntry: true })
+      for (const name of summaries) {
+        const store = db.objectStoreNames.contains(name)
+          ? tx.objectStore(name)
+          : db.createObjectStore(name, { keyPath: 'id' })
+        if (!store.indexNames.contains('fileIds')) {
+          store.createIndex('fileIds', 'fileIds', { multiEntry: true })
+        }
+      }
+      if (!db.objectStoreNames.contains('historyMeta')) {
+        db.createObjectStore('historyMeta')
       }
     },
   }).catch((error: unknown) => {
-    // 打开失败后允许界面重试，避免一直复用已拒绝的 Promise。
     dbPromise = null
     throw error
   }))
 
-export const loadSessionSummaries = async (): Promise<SessionSummary[]> =>
-  (await (await getDB()).getAll('sessionSummaries')).map(toSessionSummary)
+type Store = StoreNames<ChatDB>
+type Mode = 'readonly' | 'readwrite'
+type Tx<M extends Mode> = IDBPTransaction<ChatDB, Store[], M>
 
-export const loadSession = async (id: string): Promise<Session | undefined> =>
-  (await getDB()).get('sessions', id)
-
-export const saveSession = async (
-  session: Session,
-  files: StoredFile[] = [],
-  removeFileIds: string[] = []
-): Promise<void> => {
-  const summary = storedSummary(session)
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        for (const file of files) {
-          await tx.objectStore('files').put(file)
-        }
-        await tx.objectStore('sessions').put(session)
-        const summaries = tx.objectStore('sessionSummaries')
-        await summaries.put(summary)
-        // 删除消息后清理不再被任何会话引用的本地原件（远端文件不处理）。
-        for (const id of removeFileIds) {
-          if ((await summaries.index('fileIds').count(id)) === 0) {
-            await tx.objectStore('files').delete(id)
-          }
-        }
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-/** 未打开的会话也可重命名，只读取该会话，原子更新详情和列表。 */
-export const renameSession = async (id: string, title: string): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        const sessions = tx.objectStore('sessions')
-        const session = await sessions.get(id)
-        if (session) {
-          session.title = title
-          await sessions.put(session)
-          await tx.objectStore('sessionSummaries').put(storedSummary(session))
-        }
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-/** 删除会话，仅清理已无会话引用的本地原件；远端文件不删。 */
-export const deleteSession = async (sessionId: string): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        const summaries = tx.objectStore('sessionSummaries')
-        const summary = await summaries.get(sessionId)
-        await tx.objectStore('sessions').delete(sessionId)
-        await summaries.delete(sessionId)
-        for (const id of summary?.fileIds ?? []) {
-          if ((await summaries.index('fileIds').count(id)) === 0) {
-            await tx.objectStore('files').delete(id)
-          }
-        }
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-const putFiles = async (store: 'files' | 'filesStaging', files: StoredFile[]) => {
-  const tx = (await getDB()).transaction(store, 'readwrite')
-  await Promise.all([...files.map((file) => tx.store.put(file)), tx.done])
-}
-
-export const saveFiles = (files: StoredFile[]): Promise<void> => putFiles('files', files)
-
-export const loadFile = async (id: string): Promise<Blob | undefined> =>
-  (await (await getDB()).get('files', id))?.blob
-
-/** 清空导入暂存：开始导入前清除上次中断（如关闭页面）遗留的数据，导入失败后清除本次写入。 */
-export const clearStaging = async (): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessionsStaging', 'filesStaging'], 'readwrite')
-  await Promise.all([
-    tx.objectStore('sessionsStaging').clear(),
-    tx.objectStore('filesStaging').clear(),
-    tx.done,
-  ])
-}
-
-export const addStagingSession = async (session: Session): Promise<void> => {
-  await addStagingSessions([session])
-}
-
-/** 批量写入暂存会话，减少大量会话逐个开事务的开销。 */
-export const addStagingSessions = async (sessions: Session[]): Promise<void> => {
-  if (sessions.length === 0) {
-    return
-  }
-  const tx = (await getDB()).transaction('sessionsStaging', 'readwrite')
-  await Promise.all([...sessions.map((session) => tx.store.add(session)), tx.done])
-}
-
-export const saveStagingFiles = (files: StoredFile[]): Promise<void> =>
-  putFiles('filesStaging', files)
-
-/** 图片位于会话 JSON 之后；全部读完后回填具体 MIME，保留归档给出的 isImage 标识。 */
-export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>): Promise<void> => {
-  const tx = (await getDB()).transaction('sessionsStaging', 'readwrite')
-  await Promise.all([
-    (async () => {
-      for (let cursor = await tx.store.openCursor(); cursor; cursor = await cursor.continue()) {
-        const session = cursor.value
-        let changed = false
-        for (const message of session.messages) {
-          if (message.role !== 'user') {
-            continue
-          }
-          for (const file of message.files) {
-            const type = types.get(file.id) ?? ''
-            if (file.mimeType !== type) {
-              file.mimeType = type
-              changed = true
-            }
-          }
-        }
-        if (changed) {
-          await cursor.update(session)
-        }
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-/**
- * 导入完成后用暂存替换正式数据：同一事务中替换会话、摘要和原件，并清空暂存。
- * 逐条游标复制，同一时间只读取一条记录；事务失败时整体回滚，正式数据不变。
- */
-export const commitStaging = async (): Promise<SessionSummary[]> => {
-  const summaries: SessionSummary[] = []
-  const tx = (await getDB()).transaction(
-    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging'],
-    'readwrite'
-  )
-  const move = async (from: 'sessionsStaging' | 'filesStaging', to: 'sessions' | 'files') => {
+// 选择代和访问实体必须在同一事务中，包括其他页面正在切换 active 的情况。
+const transact = async <M extends Mode, T>(
+  stores: readonly Store[],
+  mode: M,
+  run: (tx: Tx<M>, active: Generation) => Promise<T>
+): Promise<T> => {
+  const scope: Store[] = ['historyMeta', ...stores]
+  const tx = (await getDB()).transaction(scope, mode)
+  const work = async () => {
     try {
-      const target = tx.objectStore(to)
-      await target.clear()
-      if (to === 'sessions') {
-        await tx.objectStore('sessionSummaries').clear()
+      const active = (await tx.objectStore('historyMeta').get('active')) ?? 0
+      if (active !== 0 && active !== 1) {
+        throw new Error('Invalid history generation')
       }
-      for (
-        let cursor = await tx.objectStore(from).openCursor();
-        cursor;
-        cursor = await cursor.continue()
-      ) {
-        await target.put(cursor.value)
-        if (to === 'sessions') {
-          const summary = storedSummary(cursor.value as Session)
-          await tx.objectStore('sessionSummaries').put(summary)
-          summaries.push(toSessionSummary(summary))
-        }
-      }
-      await tx.objectStore(from).clear()
+      return await run(tx, active)
     } catch (error) {
-      // 同步抛出的错误不会让事务自动回滚，需显式中止，避免只提交清空和部分移入。
-      abortTransaction(tx)
+      // 同步抛出的错误不会自动回滚已排入的写入。
+      try {
+        tx.abort()
+      } catch {
+        // 请求失败已经中止事务。
+      }
       throw error
     }
   }
-  await Promise.all([move('sessionsStaging', 'sessions'), move('filesStaging', 'files'), tx.done])
-  // 直接返回本次提交的列表，调用方无需在替换成功后再发起可能失败的读取。
-  return summaries
+  const [result] = await Promise.all([work(), tx.done])
+  return result
+}
+
+export const loadSessionSummaries = (): Promise<SessionSummary[]> =>
+  transact(summaries, 'readonly', async (tx, g) =>
+    (await tx.objectStore(summaries[g]).getAll()).map(toSessionSummary)
+  )
+
+export const loadSession = (id: string): Promise<Session | undefined> =>
+  transact(sessions, 'readonly', (tx, g) => tx.objectStore(sessions[g]).get(id))
+
+const deleteUnreferenced = async (tx: Tx<'readwrite'>, g: Generation, ids: string[]) => {
+  const references = tx.objectStore(summaries[g]).index('fileIds')
+  for (const id of ids) {
+    if ((await references.count(id)) === 0) {
+      await tx.objectStore(files[g]).delete(id)
+    }
+  }
+}
+
+export const saveSession = (
+  session: Session,
+  originals: StoredFile[] = [],
+  removeFileIds: string[] = []
+): Promise<void> =>
+  transact(allData, 'readwrite', async (tx, g) => {
+    for (const file of originals) {
+      await tx.objectStore(files[g]).put(file)
+    }
+    await tx.objectStore(sessions[g]).put(session)
+    await tx.objectStore(summaries[g]).put(storedSummary(session))
+    await deleteUnreferenced(tx, g, removeFileIds)
+  })
+
+export const renameSession = (id: string, title: string): Promise<void> =>
+  transact([...sessions, ...summaries], 'readwrite', async (tx, g) => {
+    const store = tx.objectStore(sessions[g])
+    const session = await store.get(id)
+    if (session) {
+      session.title = title
+      await store.put(session)
+      await tx.objectStore(summaries[g]).put(storedSummary(session))
+    }
+  })
+
+export const deleteSession = (sessionId: string): Promise<void> =>
+  transact(allData, 'readwrite', async (tx, g) => {
+    const index = tx.objectStore(summaries[g])
+    const summary = await index.get(sessionId)
+    await tx.objectStore(sessions[g]).delete(sessionId)
+    await index.delete(sessionId)
+    await deleteUnreferenced(tx, g, summary?.fileIds ?? [])
+  })
+
+export const saveFiles = (originals: StoredFile[]): Promise<void> =>
+  transact(files, 'readwrite', async (tx, g) => {
+    for (const file of originals) {
+      await tx.objectStore(files[g]).put(file)
+    }
+  })
+
+export const loadFile = (id: string): Promise<Blob | undefined> =>
+  transact(files, 'readonly', async (tx, g) => (await tx.objectStore(files[g]).get(id))?.blob)
+
+type Staging = { writer: string; list: SessionSummary[]; withFiles: string[] }
+let staging: Staging | undefined
+const currentStaging = () => {
+  if (!staging) {
+    throw new Error('History replacement has not started')
+  }
+  return staging
+}
+
+// 新页面可以接管已关闭页面遗留的暂存。旧页面的下一次写入、提交、清理均受 writer 校验。
+const stage = <T>(
+  importState: Staging,
+  stores: readonly Store[],
+  run: (tx: Tx<'readwrite'>, next: Generation) => Promise<T>
+) =>
+  transact(stores, 'readwrite', async (tx, active) => {
+    if ((await tx.objectStore('historyMeta').get('writer')) !== importState.writer) {
+      throw new Error('Another page started a history replacement')
+    }
+    return run(tx, other(active))
+  })
+
+const KEY_BATCH = 128
+/** 仅按主键分页清理非活动代；每页重新校验所有者，绝不读取原件。 */
+const clearInactive = async (writer: string, release: boolean) => {
+  let more: boolean
+  do {
+    more = await transact(allData, 'readwrite', async (tx, active) => {
+      const meta = tx.objectStore('historyMeta')
+      if ((await meta.get('writer')) !== writer) {
+        return false
+      }
+      const g = other(active)
+      let fullPage = false
+      for (const name of [sessions[g], summaries[g], files[g]]) {
+        const store = tx.objectStore(name)
+        const keys = await store.getAllKeys(undefined, KEY_BATCH)
+        if (keys.length) {
+          await store.delete(IDBKeyRange.bound(keys[0], keys[keys.length - 1]))
+        }
+        fullPage ||= keys.length === KEY_BATCH
+      }
+      if (!fullPage && release) {
+        await meta.delete('writer')
+      }
+      return fullPage
+    })
+  } while (more)
+}
+
+/** replaceHistory 的第一个调用准备暂存；同一替换失败后的第二个调用只回收本次写入。 */
+export const clearStaging = async (): Promise<void> => {
+  if (staging) {
+    const { writer } = staging
+    staging = undefined
+    await clearInactive(writer, true)
+    return
+  }
+  const writer = createId()
+  await transact([], 'readwrite', (tx) => tx.objectStore('historyMeta').put(writer, 'writer'))
+  await clearInactive(writer, false)
+  staging = { writer, list: [], withFiles: [] }
+}
+
+export const addStagingSession = (session: Session): Promise<void> => addStagingSessions([session])
+
+/** 导入方已经按会话字节数分组，详情和含文件引用索引的摘要在同一批写入。 */
+export const addStagingSessions = async (batch: Session[]): Promise<void> => {
+  const state = currentStaging()
+  for (let start = 0; start < batch.length; start += 20) {
+    const end = Math.min(start + 20, batch.length)
+    const saved = await stage(state, [...sessions, ...summaries], async (tx, g) => {
+      const rows: StoredSessionSummary[] = []
+      for (let i = start; i < end; i++) {
+        const session = batch[i]
+        const summary = storedSummary(session)
+        await tx.objectStore(sessions[g]).add(session)
+        await tx.objectStore(summaries[g]).add(summary)
+        rows.push(summary)
+      }
+      return rows
+    })
+    for (const summary of saved) {
+      state.list.push(toSessionSummary(summary))
+      if (summary.fileIds.length) {
+        state.withFiles.push(summary.id)
+      }
+    }
+  }
+}
+
+export const saveStagingFiles = async (originals: StoredFile[]): Promise<void> => {
+  const state = currentStaging()
+  for (let start = 0; start < originals.length; ) {
+    let end = start + 1
+    let bytes = originals[start].blob.size
+    while (
+      end < originals.length &&
+      end - start < 8 &&
+      bytes + originals[end].blob.size <= 16 * 1024 * 1024
+    ) {
+      bytes += originals[end++].blob.size
+    }
+    await stage(state, files, async (tx, g) => {
+      for (let i = start; i < end; i++) {
+        await tx.objectStore(files[g]).put(originals[i])
+      }
+    })
+    start = end
+  }
+}
+
+/** 每个含文件引用的会话单独回填 MIME，避免大文本被重新写进一个跨会话事务。 */
+export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>): Promise<void> => {
+  const state = currentStaging()
+  for (const id of state.withFiles) {
+    await stage(state, sessions, async (tx, g) => {
+      const store = tx.objectStore(sessions[g])
+      const session = await store.get(id)
+      if (!session) {
+        throw new Error('Staged session is missing')
+      }
+      let changed = false
+      for (const message of session.messages) {
+        if (message.role !== 'user') {
+          continue
+        }
+        for (const file of message.files) {
+          const type = types.get(file.id) ?? ''
+          if (file.mimeType !== type) {
+            file.mimeType = type
+            changed = true
+          }
+        }
+      }
+      if (changed) {
+        await store.put(session)
+      }
+    })
+  }
+}
+
+/** 提交事务只写一个指针；全部详情、引用索引和原件已经持久化。 */
+export const commitStaging = async (): Promise<SessionSummary[]> => {
+  const state = currentStaging()
+  await stage(state, [], (tx, next) => tx.objectStore('historyMeta').put(next, 'active'))
+  staging = undefined
+  // 切换已经成功。回收失败只能留给下次准备暂存时重试，不能误报导入失败或触发草稿回滚。
+  await clearInactive(state.writer, true).catch(reportStorageError('reclaim previous history'))
+  return state.list
 }
 
 /** 本地存储失败不打断对话，只在控制台留痕 */

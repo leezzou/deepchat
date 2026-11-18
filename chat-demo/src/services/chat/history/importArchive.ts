@@ -8,8 +8,10 @@ import {
   ArchiveError,
   isZipFile,
   readArchive,
+  readDirectory,
   readEntry,
   skipEntry,
+  type ArchiveDirectory,
   type ArchiveEntry,
 } from './zipReader.js'
 
@@ -42,7 +44,14 @@ const imageType = (bytes: Uint8Array): string => {
 }
 
 const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
-  const text = await (await readEntry(entry)).text()
+  const decoder = new TextDecoder()
+  const parts: string[] = []
+  for await (const chunk of entry.stream) {
+    parts.push(decoder.decode(chunk, { stream: true }))
+  }
+  parts.push(decoder.decode())
+  const text = parts.join('')
+  parts.length = 0
   try {
     return JSON.parse(text)
   } catch {
@@ -54,22 +63,23 @@ const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
  * 检查 ZIP 格式、首个 manifest 条目及格式版本。
  * 校验失败时保留正在生成的回答和现有暂存数据。
  */
-export const checkArchiveFormat = async (file: File): Promise<void> => {
+export const checkArchiveFormat = async (file: File): Promise<ArchiveDirectory> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }
   try {
-    for await (const entry of readArchive(file)) {
+    const directory = await readDirectory(file)
+    for await (const entry of readArchive(file, directory)) {
       if (entry.path !== MANIFEST_PATH) {
         fail('backupUnrecognized')
       }
       checkManifest(await readJson(entry))
-      return
+      return directory
     }
   } catch (error) {
     throw error instanceof ArchiveError ? new BackupError('backupIncomplete') : error
   }
-  fail('backupUnrecognized')
+  return fail('backupUnrecognized')
 }
 
 /**
@@ -80,11 +90,9 @@ export const checkArchiveFormat = async (file: File): Promise<void> => {
  */
 export const importArchive = async (
   file: File,
+  directory: ArchiveDirectory,
   onProgress?: (processed: number, total: number) => void
 ): Promise<void> => {
-  if (!(await isZipFile(file))) {
-    fail('backupUnrecognized')
-  }
   const imported = new Set<string>()
   const images = new Map<string, string>()
   /** 已保存的原件：文件 ID → MIME。同一图片出现在多个会话目录时只保存一次。 */
@@ -93,6 +101,7 @@ export const importArchive = async (
   const pendingFiles: db.StoredFile[] = []
   const pendingSessions: import('../types.js').Session[] = []
   let pendingBytes = 0
+  let sessionBytes = 0
   const flushFiles = async () => {
     if (pendingFiles.length === 0) {
       return
@@ -105,6 +114,7 @@ export const importArchive = async (
     if (pendingSessions.length === 0) {
       return
     }
+    sessionBytes = 0
     await db.addStagingSessions(pendingSessions.splice(0))
   }
   let manifest = false
@@ -127,7 +137,7 @@ export const importArchive = async (
   }
 
   try {
-    for await (const entry of readArchive(file, onProgress)) {
+    for await (const entry of readArchive(file, directory, onProgress)) {
       const { path } = entry
       const sessionId = parseSessionPath(path)
       if (!manifest) {
@@ -140,6 +150,9 @@ export const importArchive = async (
         // 账号信息（已脱敏）不导入；文件可能缺失。
         await skipEntry(entry)
       } else if (sessionId !== null && !index) {
+        if (sessionBytes + entry.size > 4 * 1024 * 1024) {
+          await flushSessions()
+        }
         const local = toLocalSession(readSessionFile(await readJson(entry)))
         if (local.session.id !== sessionId || imported.has(sessionId)) {
           fail('backupIncomplete')
@@ -150,7 +163,8 @@ export const importArchive = async (
           images.set(imagePath, id)
         }
         pendingSessions.push(local.session)
-        if (pendingSessions.length >= 20) {
+        sessionBytes += entry.size
+        if (pendingSessions.length >= 20 || sessionBytes >= 4 * 1024 * 1024) {
           await flushSessions()
         }
       } else if (path === INDEX_PATH && !index) {
@@ -185,5 +199,7 @@ export const importArchive = async (
   ) {
     fail('backupIncomplete')
   }
-  await db.updateStagingFileTypes(stored)
+  if (stored.size) {
+    await db.updateStagingFileTypes(stored)
+  }
 }

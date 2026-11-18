@@ -1309,37 +1309,77 @@
   }
 }
 
-/* 下载 / 导入进度：百分比文本 + 细进度条 */
-.importProgress {
+.importFeedback {
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 0 14px;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.card .importFeedback {
+  padding-inline: 16px;
+}
+
+.importFeedback strong {
+  font-weight: 600;
+}
+
+.importFeedback p {
+  margin: 4px 0 0;
+  max-width: 70ch;
+  color: var(--dsw-alias-label-secondary);
+}
+
+.importFeedback[role='alert'] strong {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.importStatusLine {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 8px 16px 0;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 2px 12px;
+}
+
+.importMetric {
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .importProgressTrack {
-  flex: 1;
-  height: 5px;
+  height: 6px;
+  margin-top: 6px;
   overflow: hidden;
-  border-radius: 999px;
-  background-color: var(--dsw-alias-bg-skeleton);
+  border-radius: 99px;
+  background-color: var(--dsw-alias-border-l2);
 }
 
 .importProgressBar {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: inherit;
   background-color: var(--dsw-alias-brand-primary);
-  transition: width 160ms ease-out;
 }
 
-.importProgressPercent {
-  flex-shrink: 0;
-  min-width: 34px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-  text-align: right;
+.importProgressTrack:not([aria-valuenow]) .importProgressBar {
+  width: 36%;
+  animation: importActivity 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes importActivity {
+  to { transform: translateX(178%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .importProgressTrack:not([aria-valuenow]) .importProgressBar {
+    width: 100%;
+    animation: none;
+    background: repeating-linear-gradient(115deg, var(--dsw-alias-brand-primary) 0 4px, transparent 4px 8px);
+  }
 }
 
 .backupSection {

@@ -43,19 +43,38 @@ const readBytes = async (file: File, start: number, length: number) => {
   return bytes
 }
 
-/** ZIP64、分卷与加密文件不属于导出格式，一律拒绝。 */
-const checkExtra = (bytes: Uint8Array) => {
+/** 流式写包器可在局部头为大小预留 64 位，即使最终目录和实际大小均为 ZIP32。 */
+const checkExtra = (bytes: Uint8Array, required?: number): number[] => {
   const view = viewOf(bytes)
+  const sizes: number[] = []
   let offset = 0
   while (offset < bytes.length) {
-    if (offset + 4 > bytes.length || view.getUint16(offset, true) === 1) {
+    if (offset + 4 > bytes.length) {
       invalid()
     }
-    offset += 4 + view.getUint16(offset + 2, true)
-    if (offset > bytes.length) {
+    const tag = view.getUint16(offset, true)
+    const length = view.getUint16(offset + 2, true)
+    offset += 4
+    if (offset + length > bytes.length) {
       invalid()
     }
+    if (tag === 1) {
+      if (required === undefined || sizes.length || length !== (required || 2) * 8) {
+        invalid()
+      }
+      for (let i = 0; i < length; i += 8) {
+        if (view.getUint32(offset + i + 4, true) !== 0) {
+          invalid()
+        }
+        sizes.push(view.getUint32(offset + i, true))
+      }
+    }
+    offset += length
   }
+  if (required && sizes.length !== required) {
+    invalid()
+  }
+  return sizes
 }
 
 const decodePath = (bytes: Uint8Array, flags: number) => {
@@ -85,7 +104,9 @@ type Entry = {
   offset: number
 }
 
-const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: number }> => {
+export type ArchiveDirectory = { entries: Entry[]; offset: number }
+
+export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
   if (file.size < 22) {
     invalid()
   }
@@ -119,12 +140,26 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
   }
   const entries: Entry[] = []
   const paths = new Set<string>()
+  // SAF 文件每次 slice/read 都可能跨进程。顺序预读目录，避免每个条目三次小读取。
+  let windowStart = -1
+  let windowBytes = new Uint8Array(0)
+  const directoryBytes = async (start: number, length: number) => {
+    if (start < windowStart || start + length > windowStart + windowBytes.length) {
+      windowStart = start
+      windowBytes = await readBytes(
+        file,
+        offset + start,
+        Math.min(size - start, Math.max(length, 64 * 1024))
+      )
+    }
+    return windowBytes.subarray(start - windowStart, start - windowStart + length)
+  }
   let cursor = 0
   for (let index = 0; index < count; index++) {
     if (cursor + 46 > size) {
       invalid()
     }
-    const view = viewOf(await readBytes(file, offset + cursor, 46))
+    const view = viewOf(await directoryBytes(cursor, 46))
     if (view.getUint32(0, true) !== 0x02014b50) {
       invalid()
     }
@@ -150,7 +185,7 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
     ) {
       invalid()
     }
-    const name = await readBytes(file, offset + cursor + 46, nameLength)
+    const name = (await directoryBytes(cursor + 46, nameLength)).slice()
     const path = decodePath(name, flags)
     // 目录和同名文件也不能互相覆盖。
     const identity = path.endsWith('/') ? path.slice(0, -1) : path
@@ -158,7 +193,7 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
       invalid()
     }
     paths.add(identity)
-    checkExtra(await readBytes(file, offset + cursor + 46 + nameLength, extraLength))
+    checkExtra(await directoryBytes(cursor + 46 + nameLength, extraLength))
     entries.push({
       path,
       name,
@@ -195,33 +230,45 @@ const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
   ) {
     invalid()
   }
-  for (const [position, expected] of [
-    [14, entry.crc],
-    [18, entry.compressedSize],
-    [22, entry.size],
-  ]) {
-    const actual = view.getUint32(position, true)
-    if (actual !== expected && (!(entry.flags & 8) || actual !== 0)) {
-      invalid()
-    }
-  }
   const metadata = await readBytes(file, entry.offset + 30, nameLength + extraLength)
   if (entry.name.some((byte, index) => byte !== metadata[index])) {
     invalid()
   }
-  checkExtra(metadata.subarray(nameLength))
-  if (entry.flags & 8) {
-    if (end + 12 > boundary) {
+  const size = view.getUint32(22, true)
+  const compressed = view.getUint32(18, true)
+  const wideCount = Number(size === 0xffffffff) + Number(compressed === 0xffffffff)
+  const wide = checkExtra(metadata.subarray(nameLength), wideCount)
+  // 某些写包器会同时回填普通大小和完整的 64 位大小，两份都要核对。
+  if (wide.length && !wideCount && (wide[0] !== size || wide[1] !== compressed)) {
+    invalid()
+  }
+  let index = 0
+  // 局部扩展字段依次是原始大小、压缩大小。带描述符时零表示写局部头时未知。
+  for (const [actual, expected] of [
+    [view.getUint32(14, true), entry.crc],
+    [size === 0xffffffff ? wide[index++] : size, entry.size],
+    [compressed === 0xffffffff ? wide[index] : compressed, entry.compressedSize],
+  ]) {
+    if (actual !== expected && (!(entry.flags & 8) || actual !== 0)) {
       invalid()
     }
-    const descriptor = viewOf(await readBytes(file, end, Math.min(16, boundary - end)))
-    const shift = descriptor.getUint32(0, true) === 0x08074b50 ? 4 : 0
-    if (
-      shift + 12 > descriptor.byteLength ||
-      descriptor.getUint32(shift, true) !== entry.crc ||
-      descriptor.getUint32(shift + 4, true) !== entry.compressedSize ||
-      descriptor.getUint32(shift + 8, true) !== entry.size
-    ) {
+  }
+  if (entry.flags & 8) {
+    const wideDescriptor = wide.length > 0
+    const bytes = wideDescriptor ? 20 : 12
+    if (end + bytes > boundary) {
+      invalid()
+    }
+    const descriptor = viewOf(await readBytes(file, end, Math.min(bytes + 4, boundary - end)))
+    const matches = (shift: number) =>
+      shift + bytes <= descriptor.byteLength &&
+      descriptor.getUint32(shift, true) === entry.crc &&
+      descriptor.getUint32(shift + 4, true) === entry.compressedSize &&
+      descriptor.getUint32(shift + (wideDescriptor ? 12 : 8), true) === entry.size &&
+      (!wideDescriptor ||
+        (descriptor.getUint32(shift + 8, true) === 0 &&
+          descriptor.getUint32(shift + 16, true) === 0))
+    if (!matches(0) && !(descriptor.getUint32(0, true) === 0x08074b50 && matches(4))) {
       invalid()
     }
   }
@@ -240,9 +287,9 @@ export type ArchiveEntry = {
  */
 export async function* readArchive(
   file: File,
+  directory: ArchiveDirectory,
   onProgress?: (processed: number, total: number) => void
 ): AsyncGenerator<ArchiveEntry> {
-  const directory = await readDirectory(file)
   const total = directory.entries.reduce(
     (sum, entry) => sum + (entry.path.endsWith('/') ? 0 : entry.size),
     0
@@ -329,22 +376,24 @@ export async function* readArchive(
   onProgress?.(total, total)
 }
 
-/** 读出整个条目：会话 JSON 需要完整解析，图片需要识别类型后整张保存。 */
+/** 将已校验的图片分段交给 Blob 存储，避免为整张图片申请同样大的连续缓冲区。 */
 export const readEntry = async (entry: ArchiveEntry): Promise<Blob> => {
-  // 一次分配完整条目再填充，避免为每张图片创建大量小 Blob 分片。
-  const buffer = new Uint8Array(entry.size)
-  let offset = 0
+  const parts: Blob[] = []
+  let batch: BlobPart[] = []
+  let bytes = 0
   for await (const chunk of entry.stream) {
-    if (offset + chunk.length > buffer.length) {
-      invalid()
+    batch.push(chunk as Uint8Array<ArrayBuffer>)
+    bytes += chunk.length
+    if (bytes >= 1024 * 1024) {
+      parts.push(new Blob(batch))
+      batch = []
+      bytes = 0
     }
-    buffer.set(chunk, offset)
-    offset += chunk.length
   }
-  if (offset !== buffer.length) {
-    invalid()
+  if (batch.length) {
+    parts.push(new Blob(batch))
   }
-  return new Blob([buffer])
+  return new Blob(parts)
 }
 
 /** 不需要的条目也要读完，以校验大小与 CRC。 */
