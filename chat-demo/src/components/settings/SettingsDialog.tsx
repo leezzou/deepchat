@@ -1493,7 +1493,6 @@ const MobileDataContent = ({
           }
         }}
       />
-      <MobileGroup wide><BackupControls disabled={disabled} mobile /></MobileGroup>
       <MobileGroup title={t('deepseekImportTitle')}>
         <div className={styles.field}>
           <label className={styles.fieldLabel} htmlFor="deepseek-export-link">
@@ -1527,6 +1526,7 @@ const MobileDataContent = ({
         {feedback?.source === 'link' && <HistoryImportFeedback feedback={feedback} />}
       </MobileGroup>
       <div className={styles.profileHint}>{t('deepseekImportHint')}</div>
+      <MobileGroup wide><BackupControls disabled={disabled} mobile /></MobileGroup>
     </>
   )
 }
