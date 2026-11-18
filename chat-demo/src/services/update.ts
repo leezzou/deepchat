@@ -8,9 +8,10 @@ export const GITHUB_REPO = 'leezzou/deepchat'
 
 /**
  * 版本清单：仓库根目录的 update.json。
- * 走 raw.githubusercontent（CDN，没有 API 的 60 次/小时限制），API 只在清单缺失时兜底。
+ * 国内优先走 ghfast 加速 GitHub raw，失败再直连 GitHub；API 只在清单缺失时兜底。
  */
-const MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/update.json`
+const GITHUB_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/update.json`
+const MANIFEST_URLS = [`https://ghfast.top/${GITHUB_MANIFEST_URL}`, GITHUB_MANIFEST_URL]
 
 /** 去掉 v 前缀与预发布后缀，只留 x.y.z */
 const normalizeVersion = (value: string): string =>
@@ -46,7 +47,7 @@ export type ReleaseInfo = {
   pageUrl: string
   /** release 里上传的 APK 直链，没有则为 null */
   apkUrl: string | null
-  /** APK 下载兜底地址（GitHub 原始地址） */
+  /** APK 下载兜底地址 */
   apkUrlFallback: string | null
 }
 
@@ -87,17 +88,19 @@ const parseManifest = (data: Manifest): ReleaseInfo | null => {
 
 /** 优先读 update.json；没有清单（老仓库/发版脚本没跑）时回退到 Releases API */
 export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
-  try {
-    // 加时间戳绕过 CDN 缓存，否则刚发版可能还拿到旧版本号
-    const response = await fetch(`${MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' })
-    if (response.ok) {
-      const parsed = parseManifest((await response.json()) as Manifest)
-      if (parsed) {
-        return parsed
+  for (const manifestUrl of MANIFEST_URLS) {
+    try {
+      // 加时间戳绕过 CDN 缓存，否则刚发版可能还拿到旧版本号
+      const response = await fetch(`${manifestUrl}?t=${Date.now()}`, { cache: 'no-store' })
+      if (response.ok) {
+        const parsed = parseManifest((await response.json()) as Manifest)
+        if (parsed) {
+          return parsed
+        }
       }
+    } catch {
+      // 当前清单源不可用，继续尝试下一个
     }
-  } catch {
-    // 清单读不到就走下面的 API
   }
   return fetchLatestFromApi()
 }

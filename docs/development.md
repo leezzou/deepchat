@@ -71,7 +71,9 @@ pnpm --dir chat-demo exec cap sync android
 
 使用正式签名配置时，输出通常为 `chat-demo/android/app/build/outputs/apk/release/app-release.apk`。正式更新应保持相同应用 ID、相同签名，并递增版本。
 
-维护者可使用 [发布脚本](../scripts/release.sh)，但该脚本会修改版本和更新清单、提交并推送仓库、创建 GitHub Release；请在需要正式发布时使用。应用读取仓库根目录的 [更新清单](../update.json)，失败时回退到 GitHub Releases API。
+维护者可使用 [发布脚本](../scripts/release.sh)，但该脚本会修改版本和更新清单、提交并推送 GitHub 主仓库与 Gitee 镜像、创建两边 Release 并上传 APK；请在需要正式发布时使用。Gitee 私人令牌建议通过 `scripts/setup-gitee-token.sh` 存入 macOS 钥匙串，脚本不会把令牌写入仓库。
+
+应用优先通过 `ghfast.top` 加速读取 GitHub 上的 [更新清单](../update.json)，失败时直连 GitHub raw，再回退到 GitHub Releases API。APK 下载以 Gitee 发行版为主，失败时回退到 ghfast 加速的 GitHub 地址；GitHub 仍是主仓库和备用下载入口。
 
 ## 代码入口
 

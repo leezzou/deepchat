@@ -43,3 +43,15 @@ chat-demo/android/app/src/main/res/xml/config.xml
 # ---------- 本地工具与临时文件 ----------
 tools/node_modules/
 tmp/
+
+# ---------- 本地审查与测试产物 ----------
+.white-review/
+artifacts/
+white-review-main.js
+deliverables/
+screenshots/
+
+# ---------- 内部交接材料 ----------
+HANDOFF.md
+UI-AUDIT.md
+handoff/

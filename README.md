@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://github.com/leezzou/deepchat/releases/latest"><img src="https://img.shields.io/github/v/release/leezzou/deepchat?style=flat-square&color=426efe&labelColor=26344d&label=Release" alt="最新版本"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases"><img src="https://img.shields.io/badge/Gitee-%E5%9B%BD%E5%86%85%E9%95%9C%E5%83%8F-c71d23?style=flat-square&labelColor=26344d" alt="Gitee 国内镜像"></a>
   <img src="https://img.shields.io/badge/Platform-Android-426efe?style=flat-square&labelColor=26344d&logo=android&logoColor=white" alt="Android">
   <a href="chat-demo/LICENSE"><img src="https://img.shields.io/badge/License-MIT-426efe?style=flat-square&labelColor=26344d" alt="MIT License"></a>
   <a href="https://github.com/leezzou/deepchat/issues"><img src="https://img.shields.io/badge/Feedback-GitHub%20Issues-426efe?style=flat-square&labelColor=26344d&logo=github&logoColor=white" alt="在 GitHub 提问题"></a>
@@ -27,9 +28,19 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.35/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
-  <a href="https://github.com/leezzou/deepchat/releases">版本与更新说明 →</a>
+  <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
+</p>
+
+<p align="center">
+  主仓库在 GitHub，Gitee 为国内镜像；应用内更新优先从 Gitee 下载，失败时回退到 GitHub。
+</p>
+
+<p align="center">
+  <a href="https://gitee.com/yllzz/deepchat/releases">Gitee 版本与更新说明 →</a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/leezzou/deepchat/releases">GitHub Releases</a>
 </p>
 
 安装时按 Android 提示允许当前下载来源安装应用。已安装的用户可以在 **设置 → 检查更新** 中下载新版本，并交给系统安装器完成升级。
