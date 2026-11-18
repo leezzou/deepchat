@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { hasAccountBridge, initializeAccount } from '../shell/account.js'
 import { useSettings } from '../services/settings.js'
-import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
+import { useIsMobile, useMobileViewport } from './viewport.js'
 import {
   bindChatPersistence,
   initChat,
@@ -34,11 +34,7 @@ import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import {
-  closeMobileSider,
-  openMobileSider,
-  useMobileSider,
-} from '../components/sider/mobileSiderState.js'
+import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { isNative, useNativeShell } from '../shell/native.js'
 import { useEdgeSwipe } from './edgeSwipe.js'
 import { useUpdateWatcher } from '../services/updateWatcher.js'
@@ -76,17 +72,10 @@ export const App = () => {
   )
   const activeId = useChatStore((state) => state.activeId)
 
-  usePreventPageScroll(isMobile)
   useNativeShell()
   // App 启动、回前台及运行期间每 60 秒检查新版本，用红点提示
   useUpdateWatcher()
-  // 左缘右滑打开对话抽屉，抽屉打开时左滑关闭
-  useEdgeSwipe(
-    isMobile,
-    useMobileSider((state) => state.open),
-    openMobileSider,
-    closeMobileSider
-  )
+  useEdgeSwipe(frameRef, isMobile)
 
   useEffect(() => {
     document.documentElement.lang = resolveLocale(locale)

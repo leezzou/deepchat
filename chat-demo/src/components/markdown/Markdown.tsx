@@ -1,7 +1,6 @@
 import { memo, useMemo } from 'react'
 import type { Source } from '../../services/chat/view.js'
 import { IncrementalMarkdownParser } from '../../services/markdown/incremental.js'
-import { useScrollToBottom } from '../messages/scrollContext.js'
 import { MarkdownAstRenderer } from './MarkdownAstRenderer.js'
 import { useThrottleMarkdownRender } from './useThrottleMarkdownRender.js'
 import './markdown.css'
@@ -26,7 +25,6 @@ export const Markdown = memo(function Markdown({
   disableLink: boolean
   sources?: Source[]
 }) {
-  const scrollToBottom = useScrollToBottom()
   const parser = useMemo(() => new IncrementalMarkdownParser(), [])
   const throttledMarkdown = useThrottleMarkdownRender(
     content,
@@ -45,7 +43,6 @@ export const Markdown = memo(function Markdown({
       ast={ast}
       stableCount={stableCount}
       loading={loading}
-      onUpdate={scrollToBottom}
     />
   ) : null
 })

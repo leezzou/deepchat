@@ -1,55 +1,135 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
+import { useIsSettingsMobile } from '../../app/viewport.js'
 import { resolveLocale, useTranslate } from '../../i18n/index.js'
 import { loadRecordedUsage } from '../../services/chat/db.js'
 import { sumUsageDays, totalTokens } from '../../services/chat/recordedUsage.js'
 import { useSettings } from '../../services/settings.js'
-import { openExternal } from '../../shell/native.js'
-import { Button } from '../base/Button.js'
+import { hasAccountBridge, openAccount } from '../../shell/account.js'
+import { openExternal, popLayer, pushLayer } from '../../shell/native.js'
 import { Modal } from '../base/Modal.js'
-import { IconRefreshOutline16 } from '../base/icons.js'
+import { IconChevronRightOutline14, IconRefreshOutline16 } from '../base/icons.js'
+import { MobileSettingsHeader } from './MobileSettingsHeader.js'
+import settings from './Settings.module.css'
 import styles from './ApiUsage.module.css'
 
 const usageEvent = 'deepchat:open-api-usage'
 export const openApiUsage = () => window.dispatchEvent(new Event(usageEvent))
 
-/** Mounted with Settings so both the API Key entry and the native account entry use this page. */
 export const ApiUsageDialog = () => {
-  const [open, setOpen] = useState(false)
+  const [source, setSource] = useState<'settings' | 'account' | null>(null)
+  const mobile = useIsSettingsMobile()
+  const t = useTranslate()
   useEffect(() => {
-    const show = () => setOpen(true)
+    const show = (event: Event) => {
+      setSource(
+        event instanceof CustomEvent && event.detail?.fromAccount === true ? 'account' : 'settings'
+      )
+    }
     window.addEventListener(usageEvent, show)
     return () => window.removeEventListener(usageEvent, show)
   }, [])
-  return open ? <ApiUsagePage onClose={() => setOpen(false)} /> : null
+  const close = () => {
+    setSource(null)
+    if (source === 'account' && hasAccountBridge) openAccount()
+  }
+  if (!source) return null
+  const title = t('usageTitle')
+  return mobile ? (
+    <MobileUsagePage title={title} onClose={close}>
+      <UsageReport />
+    </MobileUsagePage>
+  ) : (
+    <Modal
+      title={title}
+      closable
+      onClose={close}
+      className={styles.dialog}
+      mainClassName={styles.desktopBody}
+    >
+      <UsageReport />
+    </Modal>
+  )
+}
+
+/** A full-page dialog keeps the underlying Settings scroll position and traps keyboard focus. */
+const MobileUsagePage = ({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: ReactNode
+}) => {
+  const ref = useRef<HTMLDialogElement>(null)
+  const closeRef = useRef(onClose)
+  closeRef.current = onClose
+  useLayoutEffect(() => {
+    const page = ref.current!
+    const previous = document.activeElement
+    page.showModal()
+    page.focus({ preventScroll: true })
+    const layer = pushLayer(() => closeRef.current())
+    return () => {
+      popLayer(layer)
+      page.close()
+      if (previous instanceof HTMLElement && previous.isConnected)
+        previous.focus({ preventScroll: true })
+    }
+  }, [])
+  return createPortal(
+    <dialog
+      ref={ref}
+      tabIndex={-1}
+      aria-label={title}
+      className={`${settings.page} ${styles.mobileDialog}`}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <MobileSettingsHeader title={title} onBack={onClose} />
+      <div className={`${settings.body} ${styles.mobileBody}`}>{children}</div>
+    </dialog>,
+    document.body
+  )
 }
 
 type Report = Awaited<ReturnType<typeof loadRecordedUsage>>
 const periods = [7, 30] as const
+const categories = [
+  ['usageInput', 'input'],
+  ['usageCacheWrite', 'cacheWrite'],
+  ['usageCacheRead', 'cacheRead'],
+  ['usageOutput', 'output'],
+] as const
 
-const ApiUsagePage = ({ onClose }: { onClose: () => void }) => {
+const UsageReport = () => {
   const t = useTranslate()
   const [period, setPeriod] = useState<7 | 30>(7)
   const [report, setReport] = useState<Report | 'error' | null>(null)
   const [revision, setRevision] = useState(0)
+  const [loading, setLoading] = useState(true)
   const [linkError, setLinkError] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
-    void loadRecordedUsage(controller.signal).then(
-      (data) => {
-        if (!controller.signal.aborted) {
-          setReport(data)
+    void loadRecordedUsage(controller.signal)
+      .then(
+        (data) => {
+          if (!controller.signal.aborted) setReport(data)
+        },
+        () => {
+          if (!controller.signal.aborted) setReport('error')
         }
-      },
-      () => {
-        if (!controller.signal.aborted) {
-          setReport('error')
-        }
-      }
-    )
+      )
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false)
+      })
     return () => controller.abort()
   }, [revision])
   const refresh = () => {
-    setReport(null)
+    setLoading(true)
     setRevision((value) => value + 1)
   }
   const openPlatform = async () => {
@@ -61,73 +141,104 @@ const ApiUsagePage = ({ onClose }: { onClose: () => void }) => {
     }
   }
   return (
-    <Modal
-      title={t('usageTitle')}
-      closable
-      onClose={onClose}
-      className={styles.dialog}
-      mainClassName={styles.content}
-    >
-      <div data-api-usage className={styles.report}>
-        <div className={styles.official}>
-          <Button data-api-usage-official variant="outlined" size="m" onClick={openPlatform}>
-            {t('usageOfficial')} <span aria-hidden="true">↗</span>
-          </Button>
-          <p>{t('usageOfficialHint')}</p>
-          {linkError && <p role="alert">{t('usageOfficialError')}</p>}
-        </div>
-        <h2>{t('usageLocal')}</h2>
-        <p>{t('usageScope')}</p>
-        <div className={styles.controls}>
-          <div role="group" aria-label={t('usagePeriod')} className={styles.periods}>
-            {periods.map((days) => (
-              <button
-                key={days}
-                type="button"
-                data-usage-days={days}
-                aria-pressed={days === period}
-                onClick={() => setPeriod(days)}
-              >
-                {t('usageDays', { days })}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            className={styles.refresh}
-            onClick={refresh}
-            disabled={!report}
-            aria-label={t('usageRefresh')}
-            title={t('usageRefresh')}
-          >
-            <IconRefreshOutline16 />
-          </button>
-        </div>
-        {!report ? (
-          <p role="status">{t('usageLoading')}</p>
-        ) : report === 'error' ? (
-          <p role="alert">{t('usageError')}</p>
-        ) : (
-          <UsageResults report={report} period={period} />
+    <div data-api-usage className={styles.report}>
+      <div className={styles.group}>
+        <button
+          type="button"
+          data-api-usage-official
+          className={styles.official}
+          onClick={openPlatform}
+        >
+          <span>
+            <strong>{t('usageOfficial')}</strong>
+            <small>{t('usageOfficialHint')}</small>
+          </span>
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path
+              d="M5 15 15 5m-8 0h8v8"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        {linkError && (
+          <p className={styles.status} role="alert">
+            {t('usageOfficialError')}
+          </p>
         )}
       </div>
-    </Modal>
+      <section>
+        <h2>{t('usageLocal')}</h2>
+        <div className={styles.group}>
+          <div className={styles.controls}>
+            <div role="group" aria-label={t('usagePeriod')} className={styles.periods}>
+              {periods.map((days) => (
+                <button
+                  key={days}
+                  type="button"
+                  data-usage-days={days}
+                  aria-pressed={days === period}
+                  onClick={() => setPeriod(days)}
+                >
+                  <span>{t('usageDays', { days })}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              className={styles.refresh}
+              onClick={refresh}
+              disabled={loading}
+              aria-label={t('usageRefresh')}
+              title={t('usageRefresh')}
+            >
+              <IconRefreshOutline16 />
+            </button>
+          </div>
+          {report === null ? (
+            <p className={styles.status} role="status">
+              {t('usageLoading')}
+            </p>
+          ) : report === 'error' ? (
+            <p className={styles.status} role="alert">
+              {t('usageError')}
+            </p>
+          ) : (
+            <UsageResults report={report} period={period} />
+          )}
+        </div>
+      </section>
+      <div className={styles.group}>
+        <details className={styles.details}>
+          <summary tabIndex={0}>
+            {t('usageAbout')}
+            <IconChevronRightOutline14 />
+          </summary>
+          <div className={styles.note}>
+            <p>{t('usageScope')}</p>
+            <p>{t('usageNote')}</p>
+          </div>
+        </details>
+      </div>
+      {report && report !== 'error' && <Updated time={report.asOf} />}
+    </div>
   )
 }
 
-const categories = [
-  ['usageInput', 'input'],
-  ['usageCacheWrite', 'cacheWrite'],
-  ['usageCacheRead', 'cacheRead'],
-  ['usageOutput', 'output'],
-] as const
+const Updated = ({ time }: { time: number }) => {
+  const t = useTranslate()
+  const locale = useSettings((state) => resolveLocale(state.locale))
+  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  return <p className={styles.updated}>{t('usageUpdated', { time: dateTime.format(time) })}</p>
+}
 
 const UsageResults = ({ report, period }: { report: Report; period: 7 | 30 }) => {
   const t = useTranslate()
   const locale = useSettings((state) => resolveLocale(state.locale))
-  const date = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' })
-  const shortDate = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' })
-  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
+  const date = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' })
+  const shortDate = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' })
   const number = new Intl.NumberFormat(locale)
   const days = report.days.slice(-period)
   const sum = sumUsageDays(days)
@@ -135,27 +246,28 @@ const UsageResults = ({ report, period }: { report: Report; period: 7 | 30 }) =>
   return (
     <>
       <p data-usage-loaded="" className={styles.range}>
-        {t('usageDateRange', { start: date.format(days[0][0]), end: date.format(report.asOf) })}
+        {date.formatRange(days[0][0], report.asOf)}
       </p>
       {sum.replies ? (
         <>
-          <div className={styles.total}>
-            <strong>{t('usageTotal')}</strong>
-            <strong data-usage-total={String(totalTokens(sum))}>
-              {number.format(totalTokens(sum))}
-            </strong>
-          </div>
-          <div className={styles.bars} aria-hidden="true">
-            {days.map(([day, counts]) => (
-              <span
-                key={day}
-                style={{ height: `${(Number(totalTokens(counts)) / peak) * 100}%` }}
-              />
-            ))}
-          </div>
-          <div className={styles.axis} aria-hidden="true">
-            <span>{shortDate.format(days[0][0])}</span>
-            <span>{shortDate.format(report.asOf)}</span>
+          <div className={styles.overview}>
+            <div className={styles.total}>
+              <span>{t('usageTotal')}</span>
+              <strong data-usage-total={String(totalTokens(sum))}>
+                {number.format(totalTokens(sum))}
+              </strong>
+            </div>
+            <div className={styles.chart} aria-hidden="true">
+              {days.map(([day, counts]) => (
+                <div key={day}>
+                  <span style={{ height: `${(Number(totalTokens(counts)) / peak) * 100}%` }} />
+                </div>
+              ))}
+            </div>
+            <div className={styles.axis} aria-hidden="true">
+              <span>{shortDate.format(days[0][0])}</span>
+              <span>{shortDate.format(days.at(-1)![0])}</span>
+            </div>
           </div>
           <dl className={styles.breakdown}>
             {categories.map(([label, field]) => (
@@ -165,9 +277,15 @@ const UsageResults = ({ report, period }: { report: Report; period: 7 | 30 }) =>
               </div>
             ))}
           </dl>
-          <p>{t('usageCoverage', { count: number.format(sum.replies) })}</p>
-          <details className={styles.daily}>
-            <summary tabIndex={0}>{t('usageDaily')}</summary>
+          <div className={styles.coverage}>
+            <span>{t('usageCoverage')}</span>
+            <span>{number.format(sum.replies)}</span>
+          </div>
+          <details className={styles.details}>
+            <summary tabIndex={0}>
+              {t('usageDaily')}
+              <IconChevronRightOutline14 />
+            </summary>
             <table aria-label={t('usageDaily')}>
               <thead>
                 <tr>
@@ -192,12 +310,11 @@ const UsageResults = ({ report, period }: { report: Report; period: 7 | 30 }) =>
           </details>
         </>
       ) : (
-        <p className={styles.empty} role="status">
-          {t('usageEmpty')}
-        </p>
+        <div className={styles.empty} role="status">
+          <strong>{t('usageEmpty')}</strong>
+          <p>{t('usageEmptyHint')}</p>
+        </div>
       )}
-      <p>{t('usageNote')}</p>
-      <p>{t('usageUpdated', { time: dateTime.format(report.asOf) })}</p>
     </>
   )
 }

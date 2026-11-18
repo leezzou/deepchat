@@ -152,6 +152,7 @@ public class DshAccountOfflineTest {
         assertFalse(status.getBoolean("pending"));
         assertEquals("", status.getString("error"));
         assertEquals(NAME, status.getString("name"));
+        assertEquals("https://offline.invalid/fixture.png", status.getString("avatar"));
         assertFalse(status.toString().contains(GRANT));
     }
 
@@ -162,7 +163,8 @@ public class DshAccountOfflineTest {
 
     private static String grantResponse() throws Exception {
         return success(new JSONObject().put("token", GRANT)
-            .put("user", new JSONObject().put("id_profile", new JSONObject().put("name", NAME))));
+            .put("user", new JSONObject().put("id_profile", new JSONObject()
+                .put("name", NAME).put("picture", "https://offline.invalid/fixture.png"))));
     }
 
     private JSONObject beginAuthorization() throws Exception {

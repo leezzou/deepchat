@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import {
   IconEllipsisOutline16,
@@ -37,7 +37,7 @@ const AvatarGlyph = () => (
 )
 
 /** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
-export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
+export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean }) {
   const t = useTranslate()
   const accountSignedIn = useSettings((state) => state.accountSignedIn)
   const accountName = useSettings((state) => state.accountName)
@@ -208,22 +208,51 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
       ) : null}
     </div>
   )
-}
+})
 
 /** 移动端抽屉：浮在页面上方，点空白区域或按 Esc 关闭。 */
 export const MobileSider = () => {
   const open = useMobileSider((state) => state.open)
+  const drawerRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (!open) {
+    const drawer = drawerRef.current
+    if (!open || !drawer) {
       return
     }
+    const previous = document.activeElement
+    drawer.querySelector('button')?.focus({ preventScroll: true })
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.defaultPrevented || !drawer.contains(event.target as Node)) {
+        return
+      }
+      if (event.key === 'Escape' && !(event.target instanceof HTMLInputElement)) {
         closeMobileSider()
+      } else if (event.key === 'Tab') {
+        const buttons = drawer.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input:not(:disabled)'
+        )
+        const first = buttons[0]
+        const last = buttons[buttons.length - 1]
+        if (
+          (event.shiftKey && document.activeElement === first) ||
+          (!event.shiftKey && document.activeElement === last)
+        ) {
+          event.preventDefault()
+          ;(event.shiftKey ? last : first)?.focus()
+        }
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      if (
+        previous instanceof HTMLButtonElement &&
+        previous.isConnected &&
+        (drawer.contains(document.activeElement) || document.activeElement === document.body)
+      ) {
+        previous.focus({ preventScroll: true })
+      }
+    }
   }, [open])
   return (
     <>
@@ -232,7 +261,12 @@ export const MobileSider = () => {
         onClick={closeMobileSider}
         aria-hidden
       />
-      <div className={clsx(styles.drawer, open && styles.drawerOpen)} aria-hidden={!open}>
+      <div
+        ref={drawerRef}
+        className={clsx(styles.drawer, open && styles.drawerOpen)}
+        aria-hidden={!open}
+        {...(open ? {} : { inert: '' })}
+      >
         <Sider mobile />
       </div>
     </>

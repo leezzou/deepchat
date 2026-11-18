@@ -97,8 +97,7 @@ export const sessionContext = (session: Session, history = getVisibleMessages(se
   )
 
 /** 与真实请求共用轮次、提醒快照、工具块、附件和摘要选择；只估算当前分支。 */
-export const sessionContextTokens = (session: Session): number => {
-  const path = getVisibleMessages(session)
+export const sessionContextTokens = (session: Session, path = getVisibleMessages(session)): number => {
   const context = sessionContext(session, path)
   const rounds = context.rounds
   const last = rounds.at(-1)

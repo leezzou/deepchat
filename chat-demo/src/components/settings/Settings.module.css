@@ -288,6 +288,22 @@
   }
 }
 
+body {
+  --settings-canvas: #f8f8f8;
+  --settings-surface: #fff;
+  --settings-ink: #0f0f0f;
+  --settings-muted: #67696d;
+  --settings-control: #ededed;
+}
+
+body[data-ds-dark-theme] {
+  --settings-canvas: #1e1e1e;
+  --settings-surface: #292929;
+  --settings-ink: #f8f8f8;
+  --settings-muted: #b0b1b4;
+  --settings-control: #3c3c3d;
+}
+
 /**
  * 移动端：设置是覆盖整个视口的整页（不是底部弹层），顶栏 56px + 分组卡片，
  * 二级页叠在根页之上，统一从右侧滑入。
@@ -300,16 +316,11 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background-color: #f8f8f8;
-    color: #0f0f0f;
+    background-color: var(--settings-canvas);
+    color: var(--settings-ink);
     font-size: 16px;
     line-height: 22px;
     animation: settingsPageIn 220ms cubic-bezier(0.2, 0, 0, 1);
-
-    [data-ds-dark-theme] & {
-      background-color: #1e1e1e;
-      color: #f8f8f8;
-    }
   }
 
   .subPage {
@@ -318,12 +329,8 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    background-color: #f8f8f8;
+    background-color: var(--settings-canvas);
     animation: settingsPageIn 220ms cubic-bezier(0.2, 0, 0, 1);
-
-    [data-ds-dark-theme] & {
-      background-color: #1e1e1e;
-    }
   }
 
   .topBar {
@@ -333,7 +340,7 @@
     align-items: center;
     box-sizing: border-box;
     height: calc(56px + env(safe-area-inset-top));
-    padding: env(safe-area-inset-top) 12px 0;
+    padding: env(safe-area-inset-top) max(8px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left));
   }
 
   .backButton {
@@ -341,13 +348,14 @@
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    width: 40px;
-    height: 40px;
+    box-sizing: border-box;
+    width: 44px;
+    height: 44px;
     padding: 0;
-    border: none;
+    border: 6px solid transparent;
     border-radius: 50%;
-    background-color: #ededed;
-    color: #0f0f0f;
+    background: var(--settings-control) padding-box;
+    color: var(--settings-ink);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
 
@@ -360,13 +368,14 @@
       height: 20px;
     }
 
-    [data-ds-dark-theme] & {
-      background-color: #3c3c3d;
-      color: #f8f8f8;
+    &:focus-visible {
+      outline: 2px solid var(--dsw-alias-brand-primary);
+      outline-offset: -3px;
     }
   }
 
   .pageTitle {
+    margin: 0;
     position: absolute;
     top: env(safe-area-inset-top);
     bottom: 0;
@@ -416,11 +425,7 @@
   .card {
     overflow: hidden;
     border-radius: 16px;
-    background-color: #ffffff;
-
-    [data-ds-dark-theme] & {
-      background-color: #292929;
-    }
+    background-color: var(--settings-surface);
   }
 
   .row {

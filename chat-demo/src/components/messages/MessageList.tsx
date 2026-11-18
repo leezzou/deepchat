@@ -18,7 +18,6 @@ import { closeSearchPanel } from '../search/searchPanelState.js'
 import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { AssistantMessage } from './AssistantMessage.js'
-import { ScrollToBottomContext } from './scrollContext.js'
 import { UserMessage } from './UserMessage.js'
 import { clearHistoryLocation, useHistorySearch } from '../historySearch/historySearchState.js'
 import { SearchHighlight } from '../historySearch/SearchHighlight.js'
@@ -428,7 +427,7 @@ export const MessageList = ({
   const lastIndex = messages.length - 1
   const uploadRetryId = getUploadRetryId(messages, streaming)
   return (
-    <ScrollToBottomContext.Provider value={scrollToBottom}>
+    <>
       <div ref={isMobile ? undefined : scrollRef} className={styles.container}>
         <div ref={isMobile ? scrollRef : undefined} className={styles.scroll}>
           <div ref={contentRef} className={styles.column}>
@@ -495,6 +494,6 @@ export const MessageList = ({
           onClose={() => setPendingDelete(null)}
         />
       ) : null}
-    </ScrollToBottomContext.Provider>
+    </>
   )
 }

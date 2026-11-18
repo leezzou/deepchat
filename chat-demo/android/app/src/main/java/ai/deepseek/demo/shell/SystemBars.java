@@ -25,6 +25,17 @@ public class SystemBars {
     private static final int DARK_BG = Color.parseColor("#0F0F0F");
 
     private final Activity activity;
+    private Boolean appDark;
+    private Runnable themeChanged;
+
+    void onThemeChanged(Runnable listener) { themeChanged = listener; }
+
+    boolean isAppDark() {
+        if (appDark != null) return appDark;
+        int mode = activity.getResources().getConfiguration().uiMode;
+        return (mode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES;
+    }
 
     public SystemBars(Activity activity) {
         this.activity = activity;
@@ -75,6 +86,9 @@ public class SystemBars {
     }
 
     private void apply(boolean dark) {
+        boolean changed = appDark == null || appDark != dark;
+        appDark = dark;
+        if (changed && themeChanged != null) themeChanged.run();
         Window window = activity.getWindow();
         int background = dark ? DARK_BG : LIGHT_BG;
         window.setStatusBarColor(background);

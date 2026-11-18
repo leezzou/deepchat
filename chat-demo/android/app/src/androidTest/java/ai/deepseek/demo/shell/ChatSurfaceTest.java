@@ -104,7 +104,7 @@ public class ChatSurfaceTest {
         assertTrue(js("(window.dispatchEvent(new Event('deepchat:open-api-usage')),true)"));
         dom("initial usage snapshot", "!!document.querySelector('[data-usage-loaded]')");
         assertTrue(js("(window.__beforeUsage=Number(document.querySelector('[data-usage-total]')?.dataset.usageTotal ?? 0), true)"));
-        assertTrue(js("(document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})),true)"));
+        InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
         dom("return to composer", "!document.querySelector('[data-api-usage]')");
         String id = UUID.randomUUID().toString();
         String prompt = "Offline question " + id;
@@ -153,6 +153,13 @@ public class ChatSurfaceTest {
         assertEquals(grant, wallet.await().getRequestProperty("x-dsh-auth-token"));
         for (String label : new String[]{"钱包余额", "USD", "12.34", "赠送余额", "CNY", "0.01"}) nativeLabel(label, false);
 
+        Field pageField = field(AccountScreen.class, "page");
+        boolean initiallyDark = onUi(() -> ((AccountPage) pageField.get(screen)).dark);
+        assertTrue(js("(window.AndroidSystemBars.setDark(" + !initiallyDark + "),true)"));
+        await("wallet follows the app-selected theme", () -> onUi(() -> ((AccountPage) pageField.get(screen)).dark != initiallyDark));
+        assertTrue(js("(window.AndroidSystemBars.setDark(" + initiallyDark + "),true)"));
+        await("restore initial wallet theme", () -> onUi(() -> ((AccountPage) pageField.get(screen)).dark == initiallyDark));
+
         BlockingQueue<Intent> launches = new LinkedBlockingQueue<>();
         IntentStubberRegistry.load(intent -> {
             // Let Capacitor's in-app browser controller launch the actual Custom Tab intent.
@@ -177,6 +184,13 @@ public class ChatSurfaceTest {
             dom("the in-app usage report opens from the native wallet", "!!document.querySelector('[data-api-usage]')");
             assertFalse("wallet yields to the usage report", onUi(screen::isShowing));
             assertTrue("opening usage stays in the app", launches.isEmpty());
+            OfflineHttps.Exchange reopened = net.json("GET", "https://platform.deepseek.com/api/v0/users/get_user_summary", 200,
+                "{\"code\":0,\"data\":{\"biz_code\":0,\"biz_data\":{\"normal_wallets\":[],\"bonus_wallets\":[]}}}");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            nativeLabel("API 使用情况", false);
+            assertEquals(grant, reopened.await().getRequestProperty("x-dsh-auth-token"));
+            dom("system back restores the account", "!document.querySelector('[data-api-usage]')");
+            nativeLabel("API 使用情况", true);
             clickDom("open the official platform report", "[data-api-usage-official]");
             Intent report = launches.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
             assertNotNull("DeepSeek usage dashboard intent", report);

@@ -4,7 +4,9 @@ import android.app.Activity;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.util.TypedValue;
@@ -29,6 +31,7 @@ final class AccountPage extends LinearLayout {
     private static final int WRAP = LayoutParams.WRAP_CONTENT;
     private final Window window;
     private final Runnable redraw;
+    private final SystemBars theme;
     private final ImageButton back;
     private final TextView barTitle;
     private final ScrollView scroll;
@@ -36,23 +39,29 @@ final class AccountPage extends LinearLayout {
     boolean dark;
     int paper, panel, ink, muted, blue, onBlue, tint, rule, error;
 
-    AccountPage(Activity activity, Window window, Runnable close, Runnable redraw) {
+    AccountPage(Activity activity, Window window, SystemBars theme, Runnable close, Runnable redraw) {
         super(activity);
         this.window = window;
+        this.theme = theme;
         this.redraw = redraw;
         setOrientation(VERTICAL);
-        LinearLayout bar = new LinearLayout(activity);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(dp(8), dp(4), dp(16), dp(4));
+        FrameLayout bar = new FrameLayout(activity);
+        bar.setMinimumHeight(dp(56));
+        bar.setPadding(dp(8), 0, dp(8), 0);
         addView(bar, MATCH, WRAP);
         back = new ImageButton(activity);
-        back.setImageResource(androidx.appcompat.R.drawable.abc_ic_ab_back_material);
+        back.setImageResource(R.drawable.account_chevron);
+        back.setScaleX(-1f);
         back.setScaleType(ImageView.ScaleType.CENTER);
-        back.setContentDescription("返回聊天");
+        back.setContentDescription("返回");
         back.setOnClickListener(v -> close.run());
-        bar.addView(back, dp(48), dp(48));
+        bar.addView(back, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.CENTER_VERTICAL));
         barTitle = text("DeepChat 账户", 18, 0, true);
-        bar.addView(barTitle, paddedTop(WRAP, WRAP, 0));
+        barTitle.setGravity(Gravity.CENTER);
+        FrameLayout.LayoutParams titleParams = new FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER);
+        titleParams.setMarginStart(dp(54));
+        titleParams.setMarginEnd(dp(54));
+        bar.addView(barTitle, titleParams);
 
         scroll = new ScrollView(activity);
         scroll.setFillViewport(true);
@@ -70,22 +79,21 @@ final class AccountPage extends LinearLayout {
         updateTheme();
     }
 
-    private void updateTheme() {
-        dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
-        paper = dark ? 0xff0f0f0f : 0xffffffff;
-        panel = dark ? 0xff1c1f27 : 0xfff3f5fa;
-        ink = dark ? 0xfff0f2f8 : 0xff182035;
-        muted = dark ? 0xffb6bdcd : 0xff535e72;
-        blue = dark ? 0xffacc0ff : 0xff355dda;
-        onBlue = dark ? 0xff102655 : 0xffffffff;
-        tint = dark ? 0xff263451 : 0xffebf0ff;
-        rule = dark ? 0xff353a46 : 0xffd9dfeb;
+    void updateTheme() {
+        dark = theme.isAppDark();
+        paper = dark ? 0xff1e1e1e : 0xfff8f8f8;
+        panel = dark ? 0xff292929 : 0xffffffff;
+        ink = dark ? 0xfff8f8f8 : 0xff0f0f0f;
+        muted = dark ? 0xffb6b6ba : 0xff626368;
+        blue = dark ? 0xff99b4ff : 0xff395ee2;
+        onBlue = dark ? 0xff10234d : 0xffffffff;
+        tint = dark ? 0xff363636 : 0xfff1f1f1;
+        rule = dark ? 0xff3d3d3d : 0xffe8e8e8;
         error = dark ? 0xffffb4aa : 0xffaa3029;
         setBackgroundColor(paper);
         barTitle.setTextColor(ink);
         back.setColorFilter(ink);
-        back.setBackground(ripple(0, 24));
+        back.setBackground(new InsetDrawable(ripple(dark ? 0xff3c3c3d : 0xffededed, 20), dp(8)));
         // This non-floating window fits system bars. Old releases only draw white system icons.
         window.setStatusBarColor(!dark && Build.VERSION.SDK_INT < 23 ? 0xff28344e : paper);
         window.setNavigationBarColor(!dark && Build.VERSION.SDK_INT < 26 ? 0xff28344e : paper);
@@ -105,7 +113,8 @@ final class AccountPage extends LinearLayout {
     void reset(boolean welcome) {
         body.removeAllViews();
         boolean tall = getResources().getConfiguration().screenHeightDp >= 560;
-        body.setPadding(dp(24), dp(welcome && tall ? 68 : 16), dp(24), dp(32));
+        int side = dp(welcome ? 24 : 16);
+        body.setPadding(side, dp(welcome && tall ? 68 : 16), side, dp(32));
     }
 
     void scrollToStart() { scroll.scrollTo(0, 0); }
@@ -176,13 +185,35 @@ final class AccountPage extends LinearLayout {
         int background = style == Style.PRIMARY ? blue : style == Style.TONAL ? tint : 0;
         int foreground = style == Style.PRIMARY ? onBlue : style == Style.DANGER ? error : blue;
         button.setTextColor(action == null ? muted : foreground);
-        button.setBackground(ripple(action == null ? panel : background, 12));
+        button.setBackground(ripple(action == null ? panel : background, 24));
         button.setEnabled(action != null);
         if (action != null) button.setOnClickListener(v -> action.run());
         boolean horizontal = parent.getOrientation() == HORIZONTAL;
         LayoutParams lp = horizontal ? new LayoutParams(0, WRAP, 1) : paddedTop(MATCH, WRAP, top);
         if (horizontal && parent.getChildCount() > 0) lp.setMarginStart(dp(8));
         parent.addView(button, lp);
+    }
+
+    void navigationRow(String label, int top, Runnable action) {
+        Button row = new Button(getContext());
+        row.setText(label);
+        row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        row.setTextColor(action == null ? muted : ink);
+        row.setAllCaps(false);
+        row.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
+        row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        row.setMinHeight(dp(48));
+        row.setMinimumHeight(dp(48));
+        row.setStateListAnimator(null);
+        row.setPaddingRelative(dp(16), dp(8), dp(16), dp(8));
+        row.setBackgroundTintList(null);
+        row.setBackground(ripple(panel, 16));
+        Drawable chevron = getContext().getDrawable(R.drawable.account_chevron).mutate();
+        chevron.setTint(muted);
+        row.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, chevron, null);
+        row.setEnabled(action != null);
+        if (action != null) row.setOnClickListener(v -> action.run());
+        body.addView(row, paddedTop(MATCH, WRAP, top));
     }
 
     LinearLayout actionRow(LinearLayout parent, int top) {

@@ -12,7 +12,6 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
-import android.content.res.Configuration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
@@ -53,6 +52,7 @@ public final class AccountScreen {
     private final DshAccountHost host;
     private final DshLocalProxy proxy;
     private final Runnable openUsage;
+    private final SystemBars theme;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService accountWorker = Executors.newSingleThreadExecutor();
     // A slow wallet request must not hold up a confirmed logout or keep the proxy enabled.
@@ -73,14 +73,22 @@ public final class AccountScreen {
     private Wallets wallets;
     private Date updated;
 
-    public AccountScreen(Activity activity, DshAccountHost host, DshLocalProxy proxy, Runnable openUsage) {
+    public AccountScreen(Activity activity, DshAccountHost host, DshLocalProxy proxy, SystemBars theme, Runnable openUsage) {
         this.activity = activity;
         this.host = host;
         this.proxy = proxy;
+        this.theme = theme;
         this.openUsage = openUsage;
     }
 
     public boolean isShowing() { return dialog != null && dialog.isShowing(); }
+
+    void updateTheme() {
+        if (page != null && page.dark != theme.isAppDark()) {
+            page.updateTheme();
+            render();
+        }
+    }
 
     public void show() {
         if (destroyed || activity.isFinishing() || activity.isDestroyed() || isShowing()) return;
@@ -92,8 +100,7 @@ public final class AccountScreen {
         proxyAddress = "";
         wallets = null;
         updated = null;
-        boolean dark = (activity.getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
-                == Configuration.UI_MODE_NIGHT_YES;
+        boolean dark = theme.isAppDark();
         Dialog opened = new Dialog(activity, dark ? android.R.style.Theme_Material_NoActionBar
                 : android.R.style.Theme_Material_Light_NoActionBar) {
             @Override public void onWindowFocusChanged(boolean focus) {
@@ -105,7 +112,7 @@ public final class AccountScreen {
         opened.requestWindowFeature(Window.FEATURE_NO_TITLE);
         Window window = opened.getWindow();
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        page = new AccountPage(activity, window, opened::dismiss, this::render);
+        page = new AccountPage(activity, window, theme, opened::dismiss, this::render);
         opened.setContentView(page);
         opened.setTitle("DeepChat 账户");
         opened.setOnDismissListener(ignored -> {
@@ -538,13 +545,13 @@ public final class AccountScreen {
         boolean available = action == Action.NONE;
         page.button(row, "前往充值", TONAL, 0, available ? this::openPayment : null);
         page.button(row, refreshing ? "正在刷新…" : "刷新余额", PLAIN, 8, available && !refreshing ? this::refreshWallets : null);
-        page.button(page.body, "API 使用情况", TONAL, 16, available ? () -> {
+        page.navigationRow("API 使用情况", 16, available ? () -> {
             dialog.dismiss();
             openUsage.run();
         } : null);
         page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
         page.divider(page.body, 28);
-        page.button(page.body, proxyExpanded ? "收起本机 API 设置" : "本机 API 设置", PLAIN, 8,
+        page.navigationRow(proxyExpanded ? "收起本机 API 设置" : "本机 API 设置", 8,
                 available ? this::toggleProxyDetails : null);
         if (proxyExpanded) renderProxy();
         page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 8, available ? this::confirmLogout : null);

@@ -1,81 +1,72 @@
-import { useEffect } from 'react'
+import { useEffect, type RefObject } from 'react'
+import {
+  closeMobileSider,
+  openMobileSider,
+  useMobileSider,
+} from '../components/sider/mobileSiderState.js'
 
-// 左三分之一屏内向右滑都能打开（Android 系统边缘返回手势会抢走真正的贴边滑动）
+const DISTANCE = 36
 const EDGE_RATIO = 0.5
-// 阈值调低，快滑也能触发（用户反馈原来不灵敏）
-const OPEN_DISTANCE = 36
-const CLOSE_DISTANCE = 36
+const NATIVE_GESTURES =
+  'input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], pre, table, .katex-display, .md-mermaid-diagram, [data-horizontal-scroll]'
 
-/**
- * 移动端手势：从屏幕左缘向右滑打开对话抽屉，抽屉打开时向左滑关闭。
- * 只处理单指、水平位移明显大于垂直位移的情况，避免和纵向滚动打架。
- */
-export const useEdgeSwipe = (enabled: boolean, open: boolean, onOpen: () => void, onClose: () => void) => {
+/** Observe horizontal swipes on the app surface. Leave scrolling, zoom and controls to the browser. */
+export const useEdgeSwipe = (frameRef: RefObject<HTMLElement>, enabled: boolean) => {
   useEffect(() => {
-    if (!enabled) {
+    const frame = frameRef.current
+    if (!enabled || !frame) {
       return
     }
-    let tracking = false
-    let startX = 0
-    let startY = 0
-    let mode: 'open' | 'close' | null = null
-
+    let start: { x: number; y: number; open: boolean; direction: number } | null = null
+    const reset = () => {
+      start = null
+    }
     const onStart = (event: TouchEvent) => {
-      if (event.touches.length !== 1) {
-        tracking = false
+      reset()
+      if (
+        event.touches.length !== 1 ||
+        !(event.target instanceof Element) ||
+        event.target.closest(NATIVE_GESTURES)
+      ) {
         return
       }
-      const touch = event.touches[0]
-      startX = touch.clientX
-      startY = touch.clientY
-      if (open) {
-        // 抽屉打开时，从左半屏任意位置向左滑都能关闭
-        mode = touch.clientX <= 380 ? 'close' : null
-      } else {
-        mode = touch.clientX <= window.innerWidth * EDGE_RATIO ? 'open' : null
+      const { clientX: x, clientY: y } = event.touches[0]
+      const direction = document.documentElement.dir === 'rtl' ? -1 : 1
+      const distanceFromEdge = direction === 1 ? x : window.innerWidth - x
+      const open = useMobileSider.getState().open
+      if (distanceFromEdge <= (open ? 380 : window.innerWidth * EDGE_RATIO)) {
+        start = { x, y, open, direction }
       }
-      tracking = mode !== null
     }
-
     const onMove = (event: TouchEvent) => {
-      if (!tracking || !mode || event.touches.length !== 1) {
+      if (!start) {
         return
       }
-      const touch = event.touches[0]
-      const dx = touch.clientX - startX
-      const dy = touch.clientY - startY
-      // 明确横向时才接管，接管后阻止滚动，避免 WebView 抢走手势
-      if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy) * 1.2) {
-        if (event.cancelable) {
-          event.preventDefault()
-        }
-      } else if (Math.abs(dy) > Math.abs(dx)) {
-        tracking = false
+      if (event.touches.length !== 1 || start.open !== useMobileSider.getState().open) {
+        reset()
         return
       }
-      if (mode === 'open' && dx >= OPEN_DISTANCE) {
-        tracking = false
-        onOpen()
-      } else if (mode === 'close' && dx <= -CLOSE_DISTANCE) {
-        tracking = false
-        onClose()
+      const { clientX, clientY } = event.touches[0]
+      const dx = (clientX - start.x) * start.direction * (start.open ? -1 : 1)
+      const dy = Math.abs(clientY - start.y)
+      if (dy > 8 && dy > Math.abs(dx)) {
+        reset()
+      } else if (dx >= DISTANCE && dx > dy * 1.2) {
+        const toggle = start.open ? closeMobileSider : openMobileSider
+        reset()
+        toggle()
       }
     }
-
-    const onEnd = () => {
-      tracking = false
-      mode = null
-    }
-
-    document.addEventListener('touchstart', onStart, { passive: true, capture: true })
-    document.addEventListener('touchmove', onMove, { passive: false, capture: true })
-    document.addEventListener('touchend', onEnd, { passive: true, capture: true })
-    document.addEventListener('touchcancel', onEnd, { passive: true, capture: true })
+    const options = { passive: true, capture: true }
+    frame.addEventListener('touchstart', onStart, options)
+    frame.addEventListener('touchmove', onMove, options)
+    frame.addEventListener('touchend', reset, options)
+    frame.addEventListener('touchcancel', reset, options)
     return () => {
-      document.removeEventListener('touchstart', onStart, true)
-      document.removeEventListener('touchmove', onMove, true)
-      document.removeEventListener('touchend', onEnd, true)
-      document.removeEventListener('touchcancel', onEnd, true)
+      frame.removeEventListener('touchstart', onStart, true)
+      frame.removeEventListener('touchmove', onMove, true)
+      frame.removeEventListener('touchend', reset, true)
+      frame.removeEventListener('touchcancel', reset, true)
     }
-  }, [enabled, open, onOpen, onClose])
+  }, [enabled, frameRef])
 }

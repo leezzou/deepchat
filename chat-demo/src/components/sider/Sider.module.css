@@ -235,7 +235,15 @@
   transition:
     transform 250ms ease,
     visibility 0s linear 250ms;
-  will-change: transform;
+}
+
+:global([dir='rtl']) .drawer {
+  right: 0;
+  left: auto;
+}
+
+:global([dir='rtl']) .drawer:not(.drawerOpen) {
+  transform: translateX(100%);
 }
 
 .drawerOpen {
@@ -264,6 +272,12 @@
   visibility: visible;
   opacity: 1;
   transition: opacity 250ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawerOpen, .drawerMask, .drawerMaskOpen {
+    transition: none;
+  }
 }
 
 /* 移动端抽屉：310px 面板 + 搜索胶囊 + 46px 行高的会话列表 + 底部账号条 */

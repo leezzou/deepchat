@@ -74,6 +74,7 @@ import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { openApiUsage } from './ApiUsage.js'
+import { MobileSettingsHeader as MobileHeader } from './MobileSettingsHeader.js'
 import { popLayer, pushLayer } from '../../shell/native.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
@@ -357,22 +358,11 @@ const MobileSettings = ({ historyImport }: ImportProps) => {
   )
 }
 
-/** 顶栏：左侧 40px 圆形返回键、居中标题，没有右侧元素和分隔线 */
-const MobileHeader = ({ title, onBack }: { title: string; onBack: () => void }) => (
-  <div className={styles.topBar}>
-    <button type="button" className={styles.backButton} aria-label="返回" onClick={onBack}>
-      <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path
-          d="M14.5 5.5 8 12l6.5 6.5"
-          stroke="currentColor"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
-    </button>
-    <div className={styles.pageTitle}>{title}</div>
-  </div>
+const IconUsage = () => (
+  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="1.6" />
+    <path d="M7.5 16v-4m4.5 4V7.5m4.5 8.5v-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>
 )
 
 /** 字体大小图标：Aa */
@@ -480,14 +470,16 @@ const MobileRow = ({
   value,
   onClick,
   disabled = false,
+  ...attributes
 }: {
   icon?: ReactNode
   label: string
   value?: string
   onClick: () => void
   disabled?: boolean
+  'data-api-usage-entry'?: boolean
 }) => (
-  <button type="button" className={styles.row} disabled={disabled} onClick={onClick}>
+  <button {...attributes} type="button" className={styles.row} disabled={disabled} onClick={onClick}>
     {icon ? <span className={styles.rowIcon}>{icon}</span> : null}
     <span className={styles.rowLabel}>{label}</span>
     {value ? <span className={styles.rowValue}>{value}</span> : null}
@@ -1080,6 +1072,7 @@ const MobileApiKeyContent = ({
             <IconChevronRightOutline14 />
           </span>
         </button>
+        <MobileRow data-api-usage-entry icon={<IconUsage />} label={t('usageTitle')} onClick={openApiUsage} />
       </MobileGroup>
       <MobileGroup>
         {apiProfiles.map((profile) => (
@@ -1113,12 +1106,6 @@ const MobileApiKeyContent = ({
         </button>
       </MobileGroup>
       <div className={styles.profileHint}>{t('apiProfileHint')}</div>
-      <MobileGroup wide>
-        <button type="button" data-api-usage-entry className={styles.row} onClick={openApiUsage}>
-          <span className={styles.rowLabel}>{t('usageTitle')}</span>
-          <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
-        </button>
-      </MobileGroup>
     </>
   )
 }

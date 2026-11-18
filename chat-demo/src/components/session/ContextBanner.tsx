@@ -85,18 +85,19 @@ export const ContextBanner = ({ session }: { session: Session }) => {
       checkpoint: latest.checkpoint,
       through: latest.compactedThrough,
       excluded: latest.excludedContextRoundIds,
-      tokens: sessionContextTokens(latest),
+      tokens: sessionContextTokens(latest, path),
     }
   }
   const tokens = budgetCache.current?.tokens ?? 0
   const pressure = tokens / contextWindowTokens()
   const percent = Math.min(100, Math.round(pressure * 100))
   const warn = pressure >= MIN_COMPACT_RATIO
-  const rounds = getContextRounds(path)
-  const excluded = new Set(latest.excludedContextRoundIds ?? [])
-  const context = sessionContext(latest, path)
+  // While a reply streams, the ring needs its budget but not the management panel's rounds.
+  const rounds = panelOpen ? getContextRounds(path) : []
+  const excluded = new Set(panelOpen ? latest.excludedContextRoundIds : [])
+  const context = panelOpen ? sessionContext(latest, path) : undefined
   const covered = new Set(
-    context.checkpoint
+    context?.checkpoint
       ? (latest.checkpoint?.coveredMessageIds ??
           path.slice(0, context.boundary + 1).map((message) => message.id))
       : []
@@ -401,7 +402,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
                 {t('contextAutoFailed', { message: contextError })}
               </p>
             ) : null}
-            {latest.checkpoint && !context.checkpoint ? (
+            {latest.checkpoint && !context?.checkpoint ? (
               <p className={styles.panelHint}>{t('contextSummaryInactive')}</p>
             ) : null}
             {latest.checkpoint ? (

@@ -33,26 +33,13 @@
 }
 
 .shimmer {
-  color: transparent;
-  background: linear-gradient(
-      90deg,
-      var(--dsw-alias-label-secondary) 0%,
-      var(--dsw-alias-label-secondary) 40%,
-      var(--dsw-alias-label-caption) 50%,
-      var(--dsw-alias-label-secondary) 60%,
-      var(--dsw-alias-label-secondary) 100%
-    )
-    0 0 / 300% 100%;
-  background-clip: text;
-  animation: shimmer 2s ease-out infinite;
+  color: var(--dsw-alias-label-secondary);
+  animation: thinkingPulse 1.6s ease-in-out infinite alternate;
 }
 
-@keyframes shimmer {
-  from {
-    background-position: 100% 0;
-  }
+@keyframes thinkingPulse {
   to {
-    background-position: 0 0;
+    opacity: 0.74;
   }
 }
 
@@ -196,6 +183,10 @@
   white-space: nowrap;
   text-overflow: ellipsis;
   animation: fadeIn 0.3s ease-in;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer, .dotInner, .query { animation: none; }
 }
 
 @keyframes fadeIn {

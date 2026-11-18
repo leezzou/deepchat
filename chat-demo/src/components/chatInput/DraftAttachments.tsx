@@ -24,7 +24,7 @@ export const DraftAttachments = memo(function DraftAttachments({
     return null
   }
   return (
-    <div className={styles.attachments}>
+    <div className={styles.attachments} data-horizontal-scroll>
       {items.map((item) => (
         <AttachmentItem
           key={item.id}

@@ -18,6 +18,7 @@ const contentTypes = {
 
 for (const [locale, width, dark] of [
   ['en-US', 320, true],
+  ['zh-CN', 390, false],
   ['zh-CN', 1024, false],
 ]) {
   test(`Settings usage report at ${width}px in ${locale}`, async () => {
@@ -59,8 +60,42 @@ for (const [locale, width, dark] of [
       const entry = page.locator('[data-api-usage-entry]')
       await entry.click()
       await page.locator('[data-usage-loaded]').waitFor()
+      const reportDialog = page.getByRole('dialog', {
+        name: locale === 'en-US' ? 'API usage' : 'API 使用情况',
+        exact: true,
+      })
       assert.equal(await page.locator('[data-usage-total]').count(), 0)
-      await page.keyboard.press('Escape')
+      if (process.env.API_USAGE_SHOTS)
+        await page.screenshot({
+          path: path.join(process.env.API_USAGE_SHOTS, `usage-${width}-empty.png`),
+        })
+      if (width < 500) {
+        assert.equal(
+          await reportDialog.evaluate(
+            (el) => el.matches(':modal') && el === document.activeElement
+          ),
+          true
+        )
+        await page.keyboard.press('Tab')
+        assert.ok(
+          await reportDialog.locator('header button').evaluate((el) => el.matches(':focus-visible'))
+        )
+        const header = reportDialog.locator('header')
+        const box = await header.boundingBox()
+        assert.equal(box.y, 0)
+        assert.equal(box.height, 56)
+        for (const control of await reportDialog.locator('button,summary').all()) {
+          const target = await control.boundingBox()
+          assert.ok(
+            target.width >= 44 && target.height >= 44,
+            `Small target: ${await control.innerText()}`
+          )
+        }
+        await header.getByRole('button', { name: locale === 'en-US' ? 'Back' : '返回' }).click()
+      } else {
+        await page.keyboard.press('Escape')
+      }
+      await reportDialog.waitFor({ state: 'detached' })
       assert.ok(await entry.evaluate((el) => el === document.activeElement))
       await page.evaluate(async () => {
         const raw = await new Promise((resolve, reject) => {
@@ -134,6 +169,10 @@ for (const [locale, width, dark] of [
         'true'
       )
       assert.deepEqual(await report.locator('dl dd').allTextContents(), ['108', '2', '4', '6'])
+      if (process.env.API_USAGE_SHOTS)
+        await page.screenshot({
+          path: path.join(process.env.API_USAGE_SHOTS, `usage-${width}-recorded.png`),
+        })
       const refresh = report.getByRole('button', {
         name: locale === 'zh-CN' ? '刷新统计' : 'Refresh usage',
       })
@@ -155,9 +194,36 @@ for (const [locale, width, dark] of [
         'noopener',
       ])
       await refresh.click()
+      await page.waitForFunction(() => window.detailReads.length === 2)
       await report.locator('[data-usage-total="120"]').waitFor()
       await page.keyboard.press('Escape')
       await report.waitFor({ state: 'detached' })
+      if (width === 390) {
+        // The account panel sends a source marker. A normal Settings entry must not reopen it.
+        await page.addInitScript(() => {
+          window.bridgeOps = []
+          window.DshNative = { postMessage: (frame) => window.bridgeOps.push(JSON.parse(frame).op) }
+        })
+        await page.reload()
+        await page.waitForFunction(() => window.bridgeOps.includes('status'))
+        for (const fromAccount of [false, true]) {
+          await page.evaluate(
+            (account) =>
+              window.dispatchEvent(
+                account
+                  ? new CustomEvent('deepchat:open-api-usage', { detail: { fromAccount: true } })
+                  : new Event('deepchat:open-api-usage')
+              ),
+            fromAccount
+          )
+          await reportDialog.getByRole('button', { name: '返回' }).click()
+          await reportDialog.waitFor({ state: 'detached' })
+          assert.equal(
+            await page.evaluate(() => window.bridgeOps.filter((op) => op === 'account').length),
+            Number(fromAccount)
+          )
+        }
+      }
       assert.deepEqual(external, [])
     } finally {
       await browser.close()
