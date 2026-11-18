@@ -1,4 +1,5 @@
 import { Inflate } from 'fflate'
+import { spoolBlob, type OwnedBlob } from './spool.js'
 
 const READ_CHUNK_BYTES = 256 * 1024
 // 控制每轮同步解压的工作量；输出交给调用方保存后才继续读取。
@@ -44,7 +45,12 @@ const readBytes = async (file: File, start: number, length: number) => {
 }
 
 /** 流式写包器可在局部头为大小预留 64 位，即使最终目录和实际大小均为 ZIP32。 */
-const checkExtra = (bytes: Uint8Array, required?: number): number[] => {
+const safeWide = (view: DataView, at: number) => {
+  const value = view.getUint32(at, true) + view.getUint32(at + 4, true) * 2 ** 32
+  return Number.isSafeInteger(value) ? value : invalid()
+}
+
+const checkExtra = (bytes: Uint8Array, required: number, disk = false, allowLocalPair = false): number[] => {
   const view = viewOf(bytes)
   const sizes: number[] = []
   let offset = 0
@@ -59,19 +65,14 @@ const checkExtra = (bytes: Uint8Array, required?: number): number[] => {
       invalid()
     }
     if (tag === 1) {
-      if (required === undefined || sizes.length || length !== (required || 2) * 8) {
-        invalid()
-      }
-      for (let i = 0; i < length; i += 8) {
-        if (view.getUint32(offset + i + 4, true) !== 0) {
-          invalid()
-        }
-        sizes.push(view.getUint32(offset + i, true))
-      }
+      const words = required || (allowLocalPair ? 2 : 0)
+      if (sizes.length || length === 0 || length !== words * 8 + (disk ? 4 : 0)) invalid()
+      for (let i = 0; i < words; i++) sizes.push(safeWide(view, offset + i * 8))
+      if (disk) sizes.push(view.getUint32(offset + words * 8, true))
     }
     offset += length
   }
-  if (required && sizes.length !== required) {
+  if ((required || disk) && sizes.length !== required + Number(disk)) {
     invalid()
   }
   return sizes
@@ -124,20 +125,34 @@ export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
   if (end < 0) {
     invalid()
   }
-  const count = tailView.getUint16(end + 10, true)
-  const size = tailView.getUint32(end + 12, true)
-  const offset = tailView.getUint32(end + 16, true)
-  if (
-    tailView.getUint16(end + 4, true) !== 0 ||
-    tailView.getUint16(end + 6, true) !== 0 ||
-    tailView.getUint16(end + 8, true) !== count ||
-    count === 0xffff ||
-    size === 0xffffffff ||
-    offset === 0xffffffff ||
-    offset + size !== tailStart + end
-  ) {
+  let count = tailView.getUint16(end + 10, true)
+  let size = tailView.getUint32(end + 12, true)
+  let offset = tailView.getUint32(end + 16, true)
+  let directoryEnd = tailStart + end
+  const classicDisk = tailView.getUint16(end + 4, true)
+  const classicDirectoryDisk = tailView.getUint16(end + 6, true)
+  const classicDiskCount = tailView.getUint16(end + 8, true)
+  if (offset + size !== directoryEnd || offset === 0xffffffff || size === 0xffffffff) {
+    // Single-disk ZIP64, including count-only archives of 65,536+ small files.
+    const locator = viewOf(await readBytes(file, directoryEnd - 20, 20))
+    if (locator.getUint32(0, true) !== 0x07064b50 || locator.getUint32(4, true) !== 0 || locator.getUint32(16, true) !== 1) invalid()
+    const at = safeWide(locator, 8)
+    const wide = viewOf(await readBytes(file, at, 56))
+    const recordSize = safeWide(wide, 4)
+    if (wide.getUint32(0, true) !== 0x06064b50 || recordSize < 44 || at + 12 + recordSize !== directoryEnd - 20 || wide.getUint32(16, true) !== 0 || wide.getUint32(20, true) !== 0) invalid()
+    const value = (classic: number, sentinel: number, actual: number) => classic === sentinel || classic === actual ? actual : invalid()
+    value(classicDisk, 0xffff, 0)
+    value(classicDirectoryDisk, 0xffff, 0)
+    count = value(count, 0xffff, safeWide(wide, 32))
+    if (safeWide(wide, 24) !== count) invalid()
+    value(classicDiskCount, 0xffff, count)
+    size = value(size, 0xffffffff, safeWide(wide, 40))
+    offset = value(offset, 0xffffffff, safeWide(wide, 48))
+    directoryEnd = at
+  } else if (classicDisk !== 0 || classicDirectoryDisk !== 0 || classicDiskCount !== count) {
     invalid()
   }
+  if (offset + size !== directoryEnd || count > Math.floor(size / 46)) invalid()
   const entries: Entry[] = []
   const paths = new Set<string>()
   // SAF 文件每次 slice/read 都可能跨进程。顺序预读目录，避免每个条目三次小读取。
@@ -165,23 +180,29 @@ export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
     }
     const flags = view.getUint16(8, true)
     const method = view.getUint16(10, true)
-    const compressedSize = view.getUint32(20, true)
-    const entrySize = view.getUint32(24, true)
+    let compressedSize = view.getUint32(20, true)
+    let entrySize = view.getUint32(24, true)
     const nameLength = view.getUint16(28, true)
     const extraLength = view.getUint16(30, true)
     const next = cursor + 46 + nameLength + extraLength + view.getUint16(32, true)
-    const entryOffset = view.getUint32(42, true)
+    let entryOffset = view.getUint32(42, true)
+    let disk = view.getUint16(34, true)
+    if (next > size) invalid()
+    const required = [entrySize, compressedSize, entryOffset].filter(size => size === 0xffffffff).length
+    const wide = checkExtra(await directoryBytes(cursor + 46 + nameLength, extraLength), required, disk === 0xffff)
+    let field = 0
+    if (entrySize === 0xffffffff) entrySize = wide[field++]
+    if (compressedSize === 0xffffffff) compressedSize = wide[field++]
+    if (entryOffset === 0xffffffff) entryOffset = wide[field++]
+    if (disk === 0xffff) disk = wide[field]
     // 只允许 deflate 选项、data descriptor 与 UTF-8 标志。
     if (
       flags & ~0x80e ||
       (method !== 0 && method !== 8) ||
-      compressedSize === 0xffffffff ||
-      entrySize === 0xffffffff ||
       (method === 0 && compressedSize !== entrySize) ||
       entryOffset >= offset ||
-      view.getUint16(34, true) !== 0 ||
-      ((view.getUint32(38, true) >>> 16) & 0xf000) === 0xa000 ||
-      next > size
+      disk !== 0 ||
+      ((view.getUint32(38, true) >>> 16) & 0xf000) === 0xa000
     ) {
       invalid()
     }
@@ -193,7 +214,6 @@ export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
       invalid()
     }
     paths.add(identity)
-    checkExtra(await directoryBytes(cursor + 46 + nameLength, extraLength))
     entries.push({
       path,
       name,
@@ -237,7 +257,7 @@ const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
   const size = view.getUint32(22, true)
   const compressed = view.getUint32(18, true)
   const wideCount = Number(size === 0xffffffff) + Number(compressed === 0xffffffff)
-  const wide = checkExtra(metadata.subarray(nameLength), wideCount)
+  const wide = checkExtra(metadata.subarray(nameLength), wideCount, false, true)
   // 某些写包器会同时回填普通大小和完整的 64 位大小，两份都要核对。
   if (wide.length && !wideCount && (wide[0] !== size || wide[1] !== compressed)) {
     invalid()
@@ -254,7 +274,7 @@ const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
     }
   }
   if (entry.flags & 8) {
-    const wideDescriptor = wide.length > 0
+    const wideDescriptor = wide.length > 0 || entry.size >= 0xffffffff || entry.compressedSize >= 0xffffffff
     const bytes = wideDescriptor ? 20 : 12
     if (end + bytes > boundary) {
       invalid()
@@ -263,11 +283,10 @@ const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
     const matches = (shift: number) =>
       shift + bytes <= descriptor.byteLength &&
       descriptor.getUint32(shift, true) === entry.crc &&
-      descriptor.getUint32(shift + 4, true) === entry.compressedSize &&
-      descriptor.getUint32(shift + (wideDescriptor ? 12 : 8), true) === entry.size &&
-      (!wideDescriptor ||
-        (descriptor.getUint32(shift + 8, true) === 0 &&
-          descriptor.getUint32(shift + 16, true) === 0))
+      (wideDescriptor
+        ? descriptor.getUint32(shift + 4, true) + descriptor.getUint32(shift + 8, true) * 2 ** 32 === entry.compressedSize &&
+          descriptor.getUint32(shift + 12, true) + descriptor.getUint32(shift + 16, true) * 2 ** 32 === entry.size
+        : descriptor.getUint32(shift + 4, true) === entry.compressedSize && descriptor.getUint32(shift + 8, true) === entry.size)
     if (!matches(0) && !(descriptor.getUint32(0, true) === 0x08074b50 && matches(4))) {
       invalid()
     }
@@ -278,6 +297,8 @@ const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
 export type ArchiveEntry = {
   path: string
   size: number
+  /** Immutable source slice, available for STORE only. Consume stream to verify first. */
+  stored?: Blob
   stream: AsyncIterable<Uint8Array>
 }
 
@@ -322,8 +343,8 @@ export async function* readArchive(
         if (written > entry.size) {
           invalid()
         }
-        for (const byte of chunk) {
-          crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 0xff]
+        for (let i = 0; i < chunk.length; i++) {
+          crc = (crc >>> 8) ^ crcTable[(crc ^ chunk[i]) & 0xff]
         }
         if (chunk.length) {
           pending.push(chunk)
@@ -368,7 +389,7 @@ export async function* readArchive(
       }
       completed = true
     }
-    yield { path: entry.path, size: entry.size, stream: stream() }
+    yield { path: entry.path, size: entry.size, stored: entry.method === 0 ? file.slice(start, start + entry.size) : undefined, stream: stream() }
     if (!completed) {
       invalid()
     }
@@ -376,24 +397,20 @@ export async function* readArchive(
   onProgress?.(total, total)
 }
 
-/** 将已校验的图片分段交给 Blob 存储，避免为整张图片申请同样大的连续缓冲区。 */
-export const readEntry = async (entry: ArchiveEntry): Promise<Blob> => {
-  const parts: Blob[] = []
-  let batch: BlobPart[] = []
-  let bytes = 0
-  for await (const chunk of entry.stream) {
-    batch.push(chunk as Uint8Array<ArrayBuffer>)
-    bytes += chunk.length
-    if (bytes >= 1024 * 1024) {
-      parts.push(new Blob(batch))
-      batch = []
-      bytes = 0
-    }
+// Small deflated entries may share an IDB batch. Larger entries use a dedicated disk spool.
+export const SMALL_ENTRY_BYTES = 1024 * 1024
+export const readEntry = async (entry: ArchiveEntry, copyPickerBytes = false): Promise<OwnedBlob> => {
+  // Android document-provider slices are readable but cannot be serialized to IndexedDB
+  // on some WebViews (UnknownError: Failed to write blobs). Persist app-owned bytes there.
+  if (entry.stored && !copyPickerBytes) {
+    await skipEntry(entry)
+    return { blob: entry.stored, dispose: async () => {} }
   }
-  if (batch.length) {
-    parts.push(new Blob(batch))
-  }
-  return new Blob(parts)
+  const memoryBudget = copyPickerBytes && entry.stored ? 8 * 1024 * 1024 : SMALL_ENTRY_BYTES
+  if (entry.size > memoryBudget) return spoolBlob(entry.stream)
+  const parts: BlobPart[] = []
+  for await (const chunk of entry.stream) parts.push(chunk as Uint8Array<ArrayBuffer>)
+  return { blob: new Blob(parts), dispose: async () => {} }
 }
 
 /** 不需要的条目也要读完，以校验大小与 CRC。 */

@@ -1,78 +1,77 @@
 import { Capacitor } from '@capacitor/core'
 import { isNative } from '../../../shell/native.js'
 import { createId } from '../../../utils/id.js'
+import { MAX_ARCHIVE_BYTES } from './limits.js'
+import { spoolBlob } from './spool.js'
 
-/**
- * 下载历史导出的 ZIP。
- * WebView 里 fetch 会被 CORS 拦（官方导出链接是对象存储的签名地址，通常不带 CORS 头），
- * 所以在原生壳里改用 Filesystem.downloadFile —— 它走原生 HTTP，不受同源策略限制。
- */
-export const downloadArchive = async (
-  url: string,
-  name = 'deepseek-export.zip',
-  onProgress?: (bytes: number, total: number) => void
-): Promise<File> => {
-  if (isNative) {
-    const { Filesystem, Directory } = await import('@capacitor/filesystem')
-    // downloadFile 返回的是绝对路径；先落盘再通过 Capacitor 的本地文件 URL 读取，
-    // 避免 readFile 生成 base64 字符串后在 WebView 中再复制一份大文件导致内存峰值。
-    const listener = onProgress
-      ? await Filesystem.addListener('progress', (progress) => {
-          if (progress.url === url) {
-            onProgress(progress.bytes, progress.contentLength)
-          }
-        })
-      : null
-    const cachePath = `history-import-${createId()}.zip`
-    try {
-      await Filesystem.downloadFile({
-        url,
-        path: cachePath,
-        directory: Directory.Cache,
-        progress: Boolean(onProgress),
-      })
-      const { uri } = await Filesystem.getUri({ path: cachePath, directory: Directory.Cache })
-      const response = await fetch(Capacitor.convertFileSrc(uri))
-      if (!response.ok) {
-        throw new Error(`本地文件读取失败：HTTP ${response.status}`)
+type Progress = (received: number, total: number) => void
+export type DownloadedArchive = { file: File; dispose: () => Promise<void> }
+
+const checkSize = (size: number) => {
+  if (size > MAX_ARCHIVE_BYTES) {
+    const error = new Error('ZIP exceeds import size limit')
+    error.name = 'ArchiveSizeError'
+    throw error
+  }
+}
+
+/** Keep a seekable file until the user confirms/cancels and IndexedDB has finished copying it. */
+async function receive(response: Response, name: string, knownSize: number, progress?: Progress): Promise<DownloadedArchive> {
+  const reader = response.body?.getReader()
+  if (!reader) throw new Error('Missing download body')
+  let received = 0
+  let last = 0
+  async function* chunks() {
+    for (;;) {
+      const { value, done } = await reader!.read()
+      if (done) break
+      received += value.byteLength
+      checkSize(received)
+      if (Date.now() - last >= 120) {
+        progress?.(received, knownSize)
+        last = Date.now()
       }
-      return new File([await response.blob()], name, { type: 'application/zip' })
-    } finally {
-      await Promise.all([
-        listener?.remove().catch(() => {}),
-        Filesystem.deleteFile({ path: cachePath, directory: Directory.Cache }).catch(() => {}),
-      ])
+      yield value
     }
+    if (knownSize && knownSize !== received) throw new Error('Incomplete download')
+    progress?.(received, knownSize)
+  }
+  try {
+    checkSize(knownSize)
+    const owned = await spoolBlob(chunks())
+    return { file: new File([owned.blob], name, { type: 'application/zip' }), dispose: owned.dispose }
+  } finally {
+    await reader.cancel().catch(() => {})
+    reader.releaseLock()
+  }
+}
+
+export async function downloadArchive(url: string, name = 'deepseek-export.zip', onProgress?: Progress): Promise<DownloadedArchive> {
+  if (!isNative) {
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const total = response.headers.get('Content-Encoding') ? 0 : Number(response.headers.get('Content-Length')) || 0
+    return receive(response, name, total, onProgress)
   }
 
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`)
+  // Signed export links may have no CORS headers. The native downloader writes directly to disk.
+  const { Filesystem, Directory } = await import('@capacitor/filesystem')
+  const path = `history-import-${createId()}.zip`
+  const directory = Directory.Cache
+  const listener = onProgress ? await Filesystem.addListener('progress', (p) => {
+    if (p.url === url) onProgress(p.bytes, p.contentLength)
+  }) : null
+  try {
+    await Filesystem.downloadFile({ url, path, directory, progress: Boolean(onProgress) })
+    const { uri, size } = await Filesystem.stat({ path, directory })
+    checkSize(size)
+    const response = await fetch(Capacitor.convertFileSrc(uri))
+    if (!response.ok) throw new Error(`Local cache read: HTTP ${response.status}`)
+    return await receive(response, name, size)
+  } finally {
+    await Promise.all([
+      listener?.remove().catch(() => {}),
+      Filesystem.deleteFile({ path, directory }).catch(() => {}),
+    ])
   }
-  // 由浏览器将流存入 Blob。只统计经过的字节，不在 JS 堆里积累整个下载。
-  let body = response
-  if (onProgress && response.body && typeof TransformStream !== 'undefined') {
-    const total = response.headers.get('Content-Encoding')
-      ? 0
-      : Number(response.headers.get('Content-Length')) || 0
-    let received = 0
-    let lastReport = 0
-    const measured = response.body.pipeThrough(
-      new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          received += chunk.byteLength
-          if (Date.now() - lastReport >= 120) {
-            lastReport = Date.now()
-            onProgress(received, total)
-          }
-          controller.enqueue(chunk)
-        },
-        flush() {
-          onProgress(received, total)
-        },
-      })
-    )
-    body = new Response(measured)
-  }
-  return new File([await body.blob()], name, { type: 'application/zip' })
 }

@@ -1,8 +1,8 @@
 {
-  "version": "1.0.32",
+  "version": "1.0.33",
   "publishedAt": "2026-11-18",
-  "notes": "设置顶部新增 DSH 账号登录，可使用账户余额聊天、查看余额和前往充值。API Key 管理保留独立入口。",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.32",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.32/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.32/deepchat.apk"
+  "notes": "修复 Android 导入大型聊天记录时可能中途停止的问题，支持最大 2 GiB（含上限）的历史 ZIP 备份。",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.33",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.33/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.33/deepchat.apk"
 }

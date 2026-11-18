@@ -1,4 +1,7 @@
+import { Capacitor } from '@capacitor/core'
 import * as db from '../db.js'
+import type { Session } from '../types.js'
+import { parseJsonStream } from './streamJson.js'
 import { BackupError, fail } from './errors.js'
 import type { SessionIndexEntry } from './format.js'
 import { INDEX_PATH, MANIFEST_PATH, USER_PATH, parseSessionPath, sessionFilesDir } from './paths.js'
@@ -6,6 +9,7 @@ import { checkManifest, readSessionFile, readSessionIndex } from './schema.js'
 import { toLocalSession } from './toLocal.js'
 import {
   ArchiveError,
+  SMALL_ENTRY_BYTES,
   isZipFile,
   readArchive,
   readDirectory,
@@ -44,6 +48,14 @@ const imageType = (bytes: Uint8Array): string => {
 }
 
 const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
+  if (entry.size > SMALL_ENTRY_BYTES) {
+    try {
+      return await parseJsonStream(entry.stream)
+    } catch (error) {
+      if (error instanceof SyntaxError) return fail('backupInvalidJson')
+      throw error
+    }
+  }
   const decoder = new TextDecoder()
   const parts: string[] = []
   for await (const chunk of entry.stream) {
@@ -91,7 +103,8 @@ export const checkArchiveFormat = async (file: File): Promise<ArchiveDirectory> 
 export const importArchive = async (
   file: File,
   directory: ArchiveDirectory,
-  onProgress?: (processed: number, total: number) => void
+  onProgress?: (processed: number, total: number) => void,
+  onSession?: (session: Session) => void
 ): Promise<void> => {
   const imported = new Set<string>()
   const images = new Map<string, string>()
@@ -99,7 +112,7 @@ export const importArchive = async (
   const stored = new Map<string, string>()
   /** 图片分批写入暂存区，避免几百张图片各自开一个 IndexedDB 事务。 */
   const pendingFiles: db.StoredFile[] = []
-  const pendingSessions: import('../types.js').Session[] = []
+  const pendingSessions: Session[] = []
   let pendingBytes = 0
   let sessionBytes = 0
   const flushFiles = async () => {
@@ -126,13 +139,22 @@ export const importArchive = async (
       await skipEntry(entry)
       return
     }
-    const data = await readEntry(entry)
-    const type = imageType(new Uint8Array(await data.slice(0, 16).arrayBuffer()))
-    pendingFiles.push({ id, blob: new Blob([data], { type }) })
-    pendingBytes += data.size
-    stored.set(id, type)
-    if (pendingFiles.length >= 8 || pendingBytes >= 16 * 1024 * 1024) {
-      await flushFiles()
+    const owned = await readEntry(entry, Capacitor.getPlatform() === 'android')
+    try {
+      const type = imageType(new Uint8Array(await owned.blob.slice(0, 16).arrayBuffer()))
+      const file = { id, blob: owned.blob.slice(0, owned.blob.size, type) }
+      if (entry.size > SMALL_ENTRY_BYTES) {
+        // Await IDB commit before releasing a temporary OPFS File, also on staging failure.
+        await flushFiles()
+        await db.saveStagingFiles([file])
+      } else {
+        pendingFiles.push(file)
+        pendingBytes += file.blob.size
+        if (pendingFiles.length >= 8 || pendingBytes >= 16 * 1024 * 1024) await flushFiles()
+      }
+      stored.set(id, type)
+    } finally {
+      await owned.dispose()
     }
   }
 
@@ -157,6 +179,7 @@ export const importArchive = async (
         if (local.session.id !== sessionId || imported.has(sessionId)) {
           fail('backupIncomplete')
         }
+        onSession?.(local.session)
         imported.add(sessionId)
         currentSessionId = sessionId
         for (const [imagePath, id] of local.images) {

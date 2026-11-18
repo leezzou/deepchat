@@ -1,7 +1,8 @@
 import { formatDate } from '../../utils/format.js'
 import { createId } from '../../utils/id.js'
 import { saveBlob } from '../../shell/saveFile.js'
-import { isNative } from '../../shell/native.js'
+import { MAX_ARCHIVE_BYTES } from './history/limits.js'
+import { fail } from './history/errors.js'
 import { useBackupState } from '../backup/state.js'
 import {
   backupMetadata,
@@ -20,7 +21,7 @@ import * as db from './db.js'
 import { replaceHistory, useChatStore } from './store.js'
 import type { Session } from './types.js'
 import { captureDrafts, restoreDrafts, useDrafts } from './drafts.js'
-import { rebuildCompactionIndex } from './compactionIndex.js'
+import { compactionRecord, rebuildCompactionIndex, replaceCompactionIndex, type CompactionRecord } from './compactionIndex.js'
 
 export { BackupError } from './history/errors.js'
 export { useBackupState } from '../backup/state.js'
@@ -213,40 +214,23 @@ export const importHistory = (
   enqueueBackup(async () => {
     onStage?.('reading')
     const { checkArchiveFormat, importArchive } = await import('./history/importArchive.js')
-    // Android 文件选择器的每次分段读取都可能重新打开 content URI。对大文件顺序读取
-    // 一次到浏览器管理的 Blob，再进行 ZIP 所需的随机访问，不在 JS 堆中分配整个文件。
-    let source = file
-    if (isNative && file.size >= 8 * 1024 * 1024 && file.stream) {
-      let stream = file.stream()
-      if (onProgress && onStage && typeof TransformStream !== 'undefined') {
-        let bytes = 0
-        let previous = 0
-        stream = stream.pipeThrough(new TransformStream<Uint8Array<ArrayBuffer>, Uint8Array<ArrayBuffer>>({
-          transform(chunk, controller) {
-            bytes += chunk.byteLength
-            const now = Date.now()
-            if (now - previous >= 120 || bytes === file.size) {
-              onProgress(bytes, file.size)
-              previous = now
-            }
-            controller.enqueue(chunk)
-          },
-        }))
-      }
-      const copy = await new Response(stream).blob()
-      if (copy.size !== file.size) {
-        throw new Error('Incomplete local file read')
-      }
-      source = new File([copy], file.name, { type: file.type })
-    }
-    const directory = await checkArchiveFormat(source)
+    if (file.size > MAX_ARCHIVE_BYTES) fail('importTooLarge')
+    // The picker already supplies a seekable File. Keeping the original avoids a second
+    // archive-sized Chromium Blob allocation before the first conversation can be staged.
+    const directory = await checkArchiveFormat(file)
     onStage?.('validating')
-    return replaceHistoryAndIndex(async () => {
-      await importArchive(source, directory, onProgress)
+    const compactions: CompactionRecord[] = []
+    const count = await replaceHistory(async () => {
+      await importArchive(file, directory, onProgress, (session) => {
+        const record = compactionRecord(session)
+        if (record) compactions.push(record)
+      })
       onStage?.('snapshot')
       await preserveCurrentHistory('before-import')
       onStage?.('commit')
     })
+    replaceCompactionIndex(compactions)
+    return count
   })
 
 /** 清空前必须成功保留快照；API Key 和其他设置不在备份或替换范围内。 */

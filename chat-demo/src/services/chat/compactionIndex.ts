@@ -47,20 +47,25 @@ export const forgetCompaction = (sessionId: string) => {
   write(read().filter((item) => item.sessionId !== sessionId))
 }
 
-/** Rebuild after history replacement so imported summaries appear and stale entries disappear. */
+/** Imports already have each parsed session in hand before committing the new generation. */
+export const replaceCompactionIndex = write
+
+export const compactionRecord = (session: import('./types.js').Session): CompactionRecord | undefined =>
+  session.checkpoint && session.compactedThrough ? {
+    sessionId: session.id,
+    title: session.title,
+    createdAt: session.checkpoint.createdAt,
+    coveredMessages: session.checkpoint.coveredMessages,
+  } : undefined
+
+/** Rebuild after restoring a snapshot. */
 export const rebuildCompactionIndex = async () => {
   const { loadSessionSummaries, loadSession } = await import('./db.js')
   const records: CompactionRecord[] = []
   for (const summary of await loadSessionSummaries()) {
     const session = await loadSession(summary.id)
-    if (session?.checkpoint && session.compactedThrough) {
-      records.push({
-        sessionId: session.id,
-        title: session.title,
-        createdAt: session.checkpoint.createdAt,
-        coveredMessages: session.checkpoint.coveredMessages,
-      })
-    }
+    const record = session && compactionRecord(session)
+    if (record) records.push(record)
   }
   write(records)
 }

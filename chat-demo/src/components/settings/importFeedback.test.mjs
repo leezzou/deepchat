@@ -32,6 +32,8 @@ test('download failures report HTTP status and a local action without revealing 
 
 test('failed stages retain storage, snapshot, file access and archive recovery advice', () => {
   for (const [stage, error, key, expectedStage, reason, action] of [
+    ['reading', new Error(), 'importTooLarge', 'reading', 'importTooLarge', 'importChooseSmaller'],
+    ['downloading', Object.assign(new Error(), { name: 'ArchiveSizeError' }), undefined, 'downloading', 'importTooLarge', 'importChooseSmaller'],
     ['reading', new DOMException('File unavailable', 'NotReadableError'), undefined, 'reading', 'importReadError', 'importReadAction'],
     ['reading', new Error(), 'backupNewerVersion', 'validating', 'importVersionError', 'importUpdateAction'],
     ['reading', new Error(), 'backupUnrecognized', 'validating', 'importFormatError', 'importArchiveAction'],

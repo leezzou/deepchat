@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { resolveLocale, useTranslate, type TranslationKey } from '../../i18n/index.js'
 import { useSettings } from '../../services/settings.js'
 import { BackupError, importHistory, type HistoryImportStage } from '../../services/chat/backup.js'
@@ -11,9 +11,21 @@ export const useHistoryImport = () => {
   const [selection, setSelection] = useState<{ file: File; source: ImportSource } | null>(null)
   const [feedback, setFeedback] = useState<ImportFeedback | null>(null)
   const inFlight = useRef(false)
+  const downloadCleanup = useRef<(() => Promise<void>) | null>(null)
+  const mounted = useRef(true)
+  const releaseDownload = () => {
+    const dispose = downloadCleanup.current
+    downloadCleanup.current = null
+    void dispose?.().catch(() => {})
+  }
+  useEffect(() => {
+    mounted.current = true
+    return () => { mounted.current = false; releaseDownload() }
+  }, [])
 
   const select = (file: File) => {
     if (inFlight.current) { return }
+    releaseDownload()
     setFeedback(null)
     setSelection({ file, source: 'file' })
   }
@@ -32,10 +44,15 @@ export const useHistoryImport = () => {
     const downloading = { source: 'link', state: 'running', stage: 'downloading' } as const
     setFeedback(downloading)
     try {
-      const file = await downloadArchive(url, 'deepseek-export.zip', (processed, total) => {
+      const downloaded = await downloadArchive(url, 'deepseek-export.zip', (processed, total) => {
         setFeedback({ ...downloading, bytes: { processed, total } })
       })
-      setSelection({ file, source: 'link' })
+      if (!mounted.current) {
+        await downloaded.dispose()
+        return false
+      }
+      downloadCleanup.current = downloaded.dispose
+      setSelection({ file: downloaded.file, source: 'link' })
       setFeedback(null)
       return true
     } catch (error) {
@@ -49,6 +66,8 @@ export const useHistoryImport = () => {
   const confirm = async () => {
     if (!selection || inFlight.current) { return }
     const { file, source } = selection
+    const dispose = downloadCleanup.current
+    downloadCleanup.current = null
     let stage: HistoryImportStage = 'reading'
     inFlight.current = true
     setSelection(null)
@@ -65,11 +84,12 @@ export const useHistoryImport = () => {
       const archiveKey = error instanceof BackupError ? error.key : undefined
       setFeedback({ source, state: 'failed', ...importFailure(stage, error, archiveKey) })
     } finally {
+      await dispose?.().catch(() => {})
       inFlight.current = false
     }
   }
   return { file: selection?.file, busy: feedback?.state === 'running', feedback, select, download,
-    cancel: () => setSelection(null), confirm }
+    cancel: () => { releaseDownload(); setSelection(null) }, confirm }
 }
 
 const stages: Record<ImportStage, [TranslationKey, TranslationKey]> = {

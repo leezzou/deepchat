@@ -38,6 +38,9 @@ export const importFailure = (
 ): { stage: ImportStage; failure: ImportFailure } => {
   const failed = (reason: TranslationKey, action: TranslationKey, params?: TranslationParams) =>
     ({ stage, failure: { reason, action, params } })
+  if (archiveKey === 'importTooLarge' || (error instanceof Error && error.name === 'ArchiveSizeError')) {
+    return failed('importTooLarge', 'importChooseSmaller')
+  }
   if (archiveKey && archiveFailures[archiveKey]) {
     return { stage: 'validating', failure: archiveFailures[archiveKey] }
   }

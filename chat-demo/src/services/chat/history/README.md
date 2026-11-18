@@ -64,4 +64,4 @@ chat_sessions/{session_id}_files/{file_id}_{file_name}  全部图片原件
 | [zipReader.ts](./zipReader.ts)、[zipWriter.ts](./zipWriter.ts)                 | ZIP 读写及路径、大小、CRC 校验 |
 | [../backup.ts](../backup.ts)                                                   | 导入导出入口与串行队列         |
 
-支持中央目录使用 ZIP32 的单卷 STORE / DEFLATE 归档，包括流式写包器在局部文件头预留 64 位大小的写法。读取时核对目录、局部大小、数据描述符和实际内容的 CRC。需要 ZIP64 中央目录的超大归档、加密、分卷及非 UTF-8 的非 ASCII 文件名仍不支持。可导入的实际体积取决于设备空间和单个会话解析时可用的内存。导出使用 STORE。
+导入支持最大 2 GiB（2,147,483,648 字节，含上限）的单卷 STORE / DEFLATE 历史 ZIP，以及在此范围内使用 ZIP64 目录、局部大小或数据描述符的归档。读取时核对目录、大小、数据描述符和 CRC。Android 分块读取所选文件并将附件写入应用存储。大文件的导入需要足够空间保存解压后的记录与安全快照，单个会话也受设备内存和 IndexedDB 单条记录限制。加密、分卷及非 UTF-8 的非 ASCII 文件名仍不支持。导出使用 STORE。
