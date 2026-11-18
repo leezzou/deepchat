@@ -1,0 +1,37 @@
+.popover[data-state='closing'] {
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .popover {
+    transition:
+      opacity 155ms var(--nav-ease, ease-out),
+      transform 155ms var(--nav-ease, ease-out);
+  }
+
+  @starting-style {
+    .popover {
+      opacity: 0;
+      transform: scale(0.955);
+    }
+  }
+
+  .popover[data-state='closing'] {
+    opacity: 0;
+    transform: scale(0.955);
+    transition-duration: 120ms;
+  }
+
+  @supports not (transition-behavior: allow-discrete) {
+    .popover[data-state='open'] {
+      animation: popover-in 155ms var(--nav-ease, ease-out);
+    }
+  }
+}
+
+@keyframes popover-in {
+  from {
+    opacity: 0;
+    transform: scale(0.955);
+  }
+}

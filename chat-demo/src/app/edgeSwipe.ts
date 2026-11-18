@@ -5,6 +5,8 @@ import {
   useMobileSider,
 } from '../components/sider/mobileSiderState.js'
 
+import { hasPageAboveDrawer } from '../shell/backLayers.js'
+
 const DISTANCE = 36
 const EDGE_RATIO = 0.5
 const NATIVE_GESTURES =
@@ -24,6 +26,7 @@ export const useEdgeSwipe = (frameRef: RefObject<HTMLElement>, enabled: boolean)
     const onStart = (event: TouchEvent) => {
       reset()
       if (
+        hasPageAboveDrawer() ||
         event.touches.length !== 1 ||
         !(event.target instanceof Element) ||
         event.target.closest(NATIVE_GESTURES)

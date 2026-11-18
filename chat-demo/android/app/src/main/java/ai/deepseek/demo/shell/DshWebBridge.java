@@ -13,7 +13,8 @@ final class DshWebBridge {
     private final DshAccountHost host;
     private final DshMessagesTransport transport;
     private JavaScriptReplyProxy page;
-    DshWebBridge(WebView web, DshAccountHost host, Runnable openAccount) {
+    interface AccountOpener { void show(boolean fromUsage); }
+    DshWebBridge(WebView web, DshAccountHost host, AccountOpener openAccount) {
         this.web = web;
         this.host = host;
         transport = new DshMessagesTransport(host);
@@ -30,7 +31,7 @@ final class DshWebBridge {
                         page = reply;
                         switch (request.getString("op")) {
                             case "status": changed(); return;
-                            case "account": openAccount.run(); return;
+                            case "account": openAccount.show(Boolean.TRUE.equals(request.opt("fromUsage"))); return;
                         }
                         id = request.getString("id");
                         if (!id.matches("[a-zA-Z0-9-]{1,64}")) return;

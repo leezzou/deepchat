@@ -5,11 +5,11 @@ import {
   IconSpeakerWavesOff24,
 } from '../base/icons.js'
 import { useTranslate } from '../../i18n/index.js'
-import { newChat } from '../../services/chat/store.js'
+import { newChat, useChatStore } from '../../services/chat/store.js'
 import { setAutoRead, useSettings } from '../../services/settings.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
-import { openMobileSider } from '../sider/mobileSiderState.js'
+import { openMobileSider, rememberChat } from '../sider/mobileSiderState.js'
 import styles from './MobileHeader.module.css'
 
 /**
@@ -47,7 +47,11 @@ export const MobileHeader = ({ title }: { title?: string }) => {
           tone="primary"
           icon={<IconNewChatOutline20 />}
           aria-label={t('newChat')}
-          onClick={newChat}
+          onClick={() => {
+            const { activeId, importingHistory } = useChatStore.getState()
+            if (activeId && !importingHistory) rememberChat(activeId)
+            newChat()
+          }}
         />
       </div>
     </div>

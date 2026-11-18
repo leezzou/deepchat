@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { hasAccountBridge, initializeAccount } from '../shell/account.js'
 import { useSettings } from '../services/settings.js'
@@ -34,12 +34,29 @@ import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider } from '../components/sider/mobileSiderState.js'
+import { closeMobileSider, openMobileSider, useMobileSider, takePreviousChat } from '../components/sider/mobileSiderState.js'
+import { restoreHistorySearch } from '../components/historySearch/historySearchState.js'
+import { useBackLayer } from '../shell/navigationMotion.js'
 import { isNative, useNativeShell } from '../shell/native.js'
 import { useEdgeSwipe } from './edgeSwipe.js'
 import { useUpdateWatcher } from '../services/updateWatcher.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import styles from './App.module.css'
+
+// Only explicit visits from the drawer create a parent for a conversation.
+const ConversationBack = ({ id }: { id: string | null }) => {
+  const origin = useMobileSider((state) => state.chatOrigin)
+  const previous = useMobileSider((state) => state.previousChats.at(-1))
+  useBackLayer(Boolean(previous), () => {
+    const target = takePreviousChat()
+    if (target) selectSession(target)
+  }, -21)
+  useBackLayer(Boolean(id && origin?.sessionId === id), () => {
+    openMobileSider()
+    if (origin?.search !== undefined) restoreHistorySearch(origin.search)
+  }, -20)
+  return null
+}
 
 export const App = () => {
   const t = useTranslate()
@@ -98,8 +115,19 @@ export const App = () => {
   useEffect(closeSearchPanel, [activeId])
   // 切换会话时停止朗读
   useEffect(stopReadAloud, [activeId])
-  // 移动端选中会话、切换布局后收起抽屉
-  useEffect(closeMobileSider, [activeId, isMobile])
+  // Explicit navigation closes the drawer; background loads do not dismiss its children.
+  useEffect(closeMobileSider, [isMobile])
+  const contentRef = useRef<HTMLDivElement>(null)
+  const lastConversation = useRef(activeId)
+  useLayoutEffect(() => {
+    if (lastConversation.current === activeId) return
+    lastConversation.current = activeId
+    if (!isMobile || matchMedia('(prefers-reduced-motion: reduce)').matches) return
+    const animation = contentRef.current?.animate([
+      { opacity: 0.72, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' },
+    ], { duration: 180, easing: 'cubic-bezier(.22,1,.36,1)' })
+    return () => animation?.cancel()
+  }, [activeId, isMobile])
 
   useEffect(() => {
     void initChat()
@@ -120,7 +148,7 @@ export const App = () => {
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
+        {isMobile ? <><MobileSider /><ConversationBack id={activeId} /></> : siderCollapsed ? null : <Sider />}
         <main className={styles.main}>
           {saveError ? (
             <div className={styles.saveError} role="alert">
@@ -162,7 +190,7 @@ export const App = () => {
             </div>
           ) : null}
           <UpdateSafetyNotice />
-          <div className={styles.content}>
+          <div className={styles.content} ref={contentRef}>
             {siderCollapsed ? <CollapsedSider /> : null}
             {!ready || !draftsReady || (activeId !== null && !session) ? (
               <div className={styles.loadingView}>

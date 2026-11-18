@@ -1,3 +1,4 @@
+import { useBackLayer, useSurfacePresence } from '../../shell/navigationMotion.js'
 import { useTranslate } from '../../i18n/index.js'
 import { IconCloseOutline16 } from '../base/icons.js'
 import { IconButton } from '../base/IconButton.js'
@@ -10,11 +11,13 @@ export const SearchPanel = () => {
   const t = useTranslate()
   const entry = useSearchPanel((state) => state.entry)
   const sources = useSearchPanel((state) => state.sources)
-  if (!entry) {
+  const present = useSurfacePresence(entry !== null)
+  useBackLayer(present, closeSearchPanel)
+  if (!present) {
     return null
   }
   return (
-    <aside className={styles.panel}>
+    <aside className={styles.panel} data-leaving={!entry || undefined}>
       <div className={styles.header}>
         <div role="heading" className={styles.title}>
           {t('searchResult')}

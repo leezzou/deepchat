@@ -34,6 +34,7 @@ public class MainActivity extends BridgeActivity {
             account.setSessionListener(() -> web.post(() -> {
                 if (accountBridge == null || isDestroyed()) return;
                 if (!account.signedIn()) proxy.stop();
+                screen.accountChanged();
                 accountBridge.changed();
             }));
         }

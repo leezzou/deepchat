@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { getChatAccess } from '../../services/api/access.js'
 import { hasAccountBridge } from '../../shell/account.js'
-import { closeMobileSider } from '../sider/mobileSiderState.js'
 
 /** 设置弹窗的分组：通用设置 / 数据管理 */
 export type SettingsSection = 'general' | 'data'
@@ -13,8 +12,7 @@ export const useSettingsDialog = create(() => ({
 }))
 
 export const openSettings = (section: SettingsSection) => {
-  // 设置页是整页的，打开时收起移动端抽屉，否则关掉设置后会回到抽屉
-  closeMobileSider()
+  // Keep the caller mounted: Back reveals the same drawer or conversation.
   useSettingsDialog.setState({ open: true, section })
 }
 

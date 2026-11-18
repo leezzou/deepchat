@@ -1,3 +1,4 @@
+import { useBackLayer, useSurfacePresence } from '../../shell/navigationMotion.js'
 import clsx from 'clsx'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
@@ -14,7 +15,7 @@ import { newChat, removeSession, useChatStore } from '../../services/chat/store.
 import type { SessionSummary } from '../../services/chat/types.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
-import { Modal } from '../base/Modal.js'
+import { Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
 import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
@@ -169,7 +170,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
           </button>
         </div>
       )}
-      {deleting ? (
+      <ModalPresence>{deleting ? (
         <Modal
           title={t('deleteSessionModalContentTitle')}
           onClose={() => {
@@ -205,7 +206,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
         >
           {t('deleteSessionWithFilesDescription')}
         </Modal>
-      ) : null}
+      ) : null}</ModalPresence>
     </div>
   )
 })
@@ -214,6 +215,8 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
 export const MobileSider = () => {
   const open = useMobileSider((state) => state.open)
   const drawerRef = useRef<HTMLDivElement>(null)
+  const present = useSurfacePresence(open)
+  useBackLayer(present, closeMobileSider, -10)
   useEffect(() => {
     const drawer = drawerRef.current
     if (!open || !drawer) {
@@ -225,9 +228,7 @@ export const MobileSider = () => {
       if (event.defaultPrevented || !drawer.contains(event.target as Node)) {
         return
       }
-      if (event.key === 'Escape' && !(event.target instanceof HTMLInputElement)) {
-        closeMobileSider()
-      } else if (event.key === 'Tab') {
+      if (event.key === 'Tab') {
         const buttons = drawer.querySelectorAll<HTMLElement>(
           'button:not(:disabled), input:not(:disabled)'
         )

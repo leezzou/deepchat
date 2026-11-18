@@ -1,21 +1,50 @@
 import clsx from 'clsx'
-import { useEffect, useId, useRef, type ReactNode } from 'react'
+import {
+  createContext,
+  useContext,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslate } from '../../i18n/index.js'
-import { popLayer, pushLayer } from '../../shell/native.js'
+import { isTopLayer, popLayer, pushLayer } from '../../shell/backLayers.js'
 import { IconCloseOutline16 } from './icons.js'
 import { IconButton } from './IconButton.js'
+import { afterMotionExit, MODAL_EXIT_MS, useMotionPresence } from './motionPresence.js'
 import styles from './Modal.module.css'
 
-/** 当前打开的弹窗，后打开的在末尾；叠放时 Esc 只关闭最上层 */
-const openModals: object[] = []
+const Presence = createContext<boolean | null>(null)
 
-/** 遮罩 + 居中卡片，Esc / 点遮罩关闭 */
+/** Wrap the conditional that owns a dialog, including a component that renders a Modal.
+ * Keeping the last live element preserves its content even when a confirm clears the source data. */
+export const ModalPresence = ({ children }: { children: ReactNode }) => {
+  const open = Boolean(children)
+  const { present, closing } = useMotionPresence(open, MODAL_EXIT_MS)
+  const last = useRef<ReactNode>(null)
+  useLayoutEffect(() => {
+    if (open || !present) {
+      last.current = children
+    }
+  }, [children, open, present])
+  return present ? (
+    <Presence.Provider value={closing}>{open ? children : last.current}</Presence.Provider>
+  ) : null
+}
+
+// A dialog can replace another while its opener is still mounted in the outgoing dialog.
+const focusOrigins = new WeakMap<Element, () => HTMLElement | null>()
+const controls =
+  'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary, [tabindex="0"]'
+
 export const Modal = ({
   title,
   children,
   footer,
   closable = false,
+  placement = 'center',
   className,
   mainClassName,
   onClose,
@@ -23,10 +52,9 @@ export const Modal = ({
   title: ReactNode
   children?: ReactNode
   footer?: ReactNode
-  /** 标题栏右侧显示关闭按钮 */
   closable?: boolean
+  placement?: 'center' | 'bottom'
   className?: string
-  /** 内容区的 class */
   mainClassName?: string
   onClose: () => void
 }) => {
@@ -34,47 +62,73 @@ export const Modal = ({
   const titleId = useId()
   const overlayRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const layerRef = useRef<(() => void) | null>(null)
+  const managedExit = useContext(Presence)
+  const [localExit, setLocalExit] = useState(false)
+  const closing = managedExit ?? localExit
+  const requestClose = () => {
+    if (closing) {
+      return
+    }
+    if (managedExit === null) {
+      setLocalExit(true)
+    } else {
+      onClose()
+    }
+  }
+  const closeRef = useRef(requestClose)
+  closeRef.current = requestClose
   const onCloseRef = useRef(onClose)
   onCloseRef.current = onClose
-  useEffect(() => {
-    const token = {}
-    const previousFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null
-    openModals.push(token)
-    const layer = pushLayer(() => onCloseRef.current())
-    dialogRef.current?.focus({ preventScroll: true })
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (openModals.at(-1) !== token) {
+  useLayoutEffect(() => {
+    if (!localExit) {
+      return
+    }
+    return afterMotionExit(MODAL_EXIT_MS, () => {
+      setLocalExit(false)
+      onCloseRef.current()
+    })
+  }, [localExit])
+
+  useLayoutEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) {
+      return
+    }
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const parent = previous?.closest('[data-modal-surface]')
+    const previousOrigin = parent ? focusOrigins.get(parent) : undefined
+    const returnTo = () =>
+      previous?.isConnected && !previous.closest('[inert], [data-modal-state="closing"]')
+        ? previous
+        : (previousOrigin?.() ?? null)
+    focusOrigins.set(dialog, returnTo)
+    const layer = pushLayer(() => closeRef.current())
+    layerRef.current = layer
+    dialog.focus({ preventScroll: true })
+    const onTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || event.defaultPrevented || !isTopLayer(layer)) {
         return
       }
-      if (event.key === 'Escape') {
+      const stops = [...dialog.querySelectorAll<HTMLElement>(controls)].filter(
+        (element) =>
+          element.tabIndex >= 0 &&
+          !element.closest('[inert]') &&
+          element.getClientRects().length > 0
+      )
+      const first = stops[0]
+      const last = stops.at(-1)
+      const active = document.activeElement
+      if (!first || dialog.dataset.modalState === 'closing') {
         event.preventDefault()
-        event.stopPropagation()
-        onCloseRef.current()
-      } else if (event.key === 'Tab') {
-        const controls = [
-          ...(dialogRef.current?.querySelectorAll<HTMLElement>(
-            'button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]'
-          ) ?? []),
-        ].filter((element) => element.getClientRects().length > 0)
-        const first = controls[0]
-        const last = controls.at(-1)
-        if (!first) {
-          event.preventDefault()
-          dialogRef.current?.focus()
-        } else if (
-          event.shiftKey &&
-          (document.activeElement === first || document.activeElement === dialogRef.current)
-        ) {
-          event.preventDefault()
-          last?.focus()
-        } else if (
-          !event.shiftKey &&
-          (document.activeElement === last || document.activeElement === dialogRef.current)
-        ) {
-          event.preventDefault()
-          first.focus()
-        }
+        dialog.focus({ preventScroll: true })
+      } else if (
+        !dialog.contains(active) ||
+        active === dialog ||
+        active === (event.shiftKey ? first : last)
+      ) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first)?.focus({ preventScroll: true })
       }
     }
     const viewport = window.visualViewport
@@ -88,51 +142,80 @@ export const Modal = ({
     fitViewport()
     viewport?.addEventListener('resize', fitViewport)
     viewport?.addEventListener('scroll', fitViewport)
-    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('keydown', onTab)
     return () => {
-      openModals.splice(openModals.indexOf(token), 1)
+      const restore =
+        isTopLayer(layer) &&
+        (dialog.contains(document.activeElement) || document.activeElement === document.body)
       popLayer(layer)
+      layerRef.current = null
       viewport?.removeEventListener('resize', fitViewport)
       viewport?.removeEventListener('scroll', fitViewport)
-      document.removeEventListener('keydown', onKeyDown)
-      if (previousFocus?.isConnected) {
-        previousFocus.focus({ preventScroll: true })
+      document.removeEventListener('keydown', onTab)
+      if (restore) {
+        returnTo()?.focus({ preventScroll: true })
       }
     }
   }, [])
 
   return createPortal(
-    <div
-      ref={overlayRef}
-      className={styles.overlay}
-      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
-    >
+    <Presence.Provider value={null}>
       <div
-        ref={dialogRef}
-        className={clsx(styles.content, className)}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
+        ref={overlayRef}
+        className={styles.overlay}
+        data-placement={placement}
+        data-modal-state={closing ? 'closing' : 'open'}
+        onMouseDown={(event) => {
+          if (
+            event.target === event.currentTarget &&
+            layerRef.current &&
+            isTopLayer(layerRef.current)
+          ) {
+            requestClose()
+          }
+        }}
+        onClickCapture={(event) => {
+          if (closing) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
+        onKeyDownCapture={(event) => {
+          if (closing) {
+            event.preventDefault()
+            event.stopPropagation()
+          }
+        }}
       >
-        <div className={styles.header}>
-          <div id={titleId} className={styles.title}>
-            {title}
+        <div
+          ref={dialogRef}
+          data-modal-surface=""
+          data-modal-state={closing ? 'closing' : 'open'}
+          className={clsx(styles.content, className)}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+        >
+          <div className={styles.header}>
+            <div id={titleId} className={styles.title}>
+              {title}
+            </div>
+            {closable ? (
+              <IconButton
+                className={styles.close}
+                tone="primary"
+                icon={<IconCloseOutline16 />}
+                aria-label={t('close')}
+                onClick={requestClose}
+              />
+            ) : null}
           </div>
-          {closable ? (
-            <IconButton
-              className={styles.close}
-              tone="primary"
-              icon={<IconCloseOutline16 />}
-              aria-label={t('close')}
-              onClick={onClose}
-            />
-          ) : null}
+          {children ? <div className={clsx(styles.main, mainClassName)}>{children}</div> : null}
+          {footer ? <div className={styles.footer}>{footer}</div> : null}
         </div>
-        {children ? <div className={clsx(styles.main, mainClassName)}>{children}</div> : null}
-        {footer ? <div className={styles.footer}>{footer}</div> : null}
       </div>
-    </div>,
+    </Presence.Provider>,
     document.body
   )
 }

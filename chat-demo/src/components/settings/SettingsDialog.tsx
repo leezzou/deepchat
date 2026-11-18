@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   IconCheckOutline16,
@@ -69,13 +69,13 @@ import {
 } from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
-import { Modal } from '../base/Modal.js'
+import { Modal, ModalPresence } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { openApiUsage } from './ApiUsage.js'
 import { MobileSettingsHeader as MobileHeader } from './MobileSettingsHeader.js'
-import { popLayer, pushLayer } from '../../shell/native.js'
+import { useRouteBack, useRouteMotion } from './routeMotion.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
@@ -92,10 +92,17 @@ export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   const isSettingsMobile = useIsSettingsMobile()
   const historyImport = useHistoryImport()
-  if (!open) {
-    return null
+  const [retained, setRetained] = useState(false)
+  useLayoutEffect(() => {
+    if (!isSettingsMobile) setRetained(false)
+    else if (open) setRetained(true)
+  }, [isSettingsMobile, open])
+  if (isSettingsMobile) {
+    return open || retained ? (
+      <MobileSettings open={open} onExited={() => setRetained(false)} historyImport={historyImport} />
+    ) : null
   }
-  return isSettingsMobile ? <MobileSettings historyImport={historyImport} /> : <SettingsContent historyImport={historyImport} />
+  return <ModalPresence>{open ? <SettingsContent historyImport={historyImport} /> : null}</ModalPresence>
 }
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
@@ -185,8 +192,8 @@ const SettingsContent = ({ historyImport }: ImportProps) => {
           )}
         </div>
       </Modal>
-      {historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}
-      {historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}
+      <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
+      <ModalPresence>{historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}</ModalPresence>
     </>
   )
 }
@@ -263,98 +270,124 @@ const helpText = [
 const readAppVersion = () =>
   document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
 
-/** 移动端设置整页：根页常驻，二级页叠在根页之上 */
-const MobileSettings = ({ historyImport }: ImportProps) => {
+type Route = {
+  page: MobilePage | 'apiEdit'
+  editor?: { profile: ApiProfile; isNew: boolean }
+  opener?: HTMLElement
+  animateEntry?: boolean
+}
+
+const initialRoutes = (): Route[] => {
+  const routes: Route[] = [{ page: 'root' }]
+  if (useSettingsDialog.getState().section === 'data') {
+    const hasData = useSettings.getState().apiKey || useBackupState.getState().latest
+    routes.push({ page: hasData ? 'data' : 'apiKey' })
+  }
+  return routes
+}
+
+/** Each route owns its scroll container and stays mounted until its pop has finished. */
+const RoutePage = ({ route, position, active, title, onBack, onExited, children }: {
+  route: Route; position: 'front' | 'covered' | 'leaving'; active: boolean; title: string
+  onBack: () => void; onExited: () => void; children: ReactNode
+}) => {
+  const ref = useRouteMotion<HTMLDivElement>(!!route.animateEntry, position === 'leaving', onExited)
+  return (
+    <div ref={ref} tabIndex={-1} className={styles.subPage} data-settings-route={route.page}
+      data-route-position={position} {...(active ? {} : { inert: '' })}>
+      <MobileHeader title={title} onBack={onBack} />
+      <div className={styles.body}>{children}</div>
+    </div>
+  )
+}
+
+const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open: boolean; onExited: () => void }) => {
   const t = useTranslate()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const backupBusy = useBackupState((state) => state.operation !== null)
   const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory || backupBusy
-  // 首次启动没有 API Key 时会以「数据管理」打开，直接停在 API Key 页
-  const [page, setPage] = useState<MobilePage>(() =>
-    useSettingsDialog.getState().section === 'data'
-      ? useSettings.getState().apiKey || useBackupState.getState().latest ? 'data' : 'apiKey'
-      : 'root'
-  )
-  // 从申请指引点「我已拿到 Key」后，直接展开新增表单
-  const [autoAddKey, setAutoAddKey] = useState(false)
-  // API Key 页里当前正在编辑的配置（null = 列表态）；放在这一层是为了让返回键先退表单
-  const [apiKeyEditing, setApiKeyEditing] = useState<ApiProfile | 'new' | null>(null)
-  const close = () => {
-    if (!historyDelete.busy) {
-      closeSettings()
+  const [routes, setRoutes] = useState(initialRoutes)
+  const [popping, setPopping] = useState(false)
+  const currentRoute = useRef(routes.at(-1))
+  currentRoute.current = routes.at(-1)
+  const closing = useRef(false)
+  const restoreFocus = useRef<HTMLElement | undefined>(undefined)
+  const shell = useRouteMotion<HTMLDivElement>(true, !open, onExited)
+  const caller = useRef(document.activeElement)
+  useLayoutEffect(() => {
+    const app = document.getElementById('root')
+    const wasInert = app?.inert ?? false
+    const previous = caller.current
+    if (app) app.inert = true
+    return () => {
+      if (app) app.inert = wasInert
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
+  }, [])
+  useLayoutEffect(() => {
+    const page = shell.current?.lastElementChild
+    const trigger = restoreFocus.current
+    restoreFocus.current = undefined
+    if (trigger?.isConnected && page?.contains(trigger)) trigger.focus({ preventScroll: true })
+    else if (page instanceof HTMLElement) page.focus({ preventScroll: true })
+  }, [routes, shell])
+
+  const push = (page: Route['page'], editor?: Route['editor']) => {
+    if (!open || closing.current || routes.at(-1)?.page === page) return
+    const focus = document.activeElement
+    setRoutes([...routes, { page, editor, animateEntry: true, opener: focus instanceof HTMLElement ? focus : undefined }])
+  }
+  const edit = (profile: ApiProfile | 'new') => push('apiEdit', {
+    isNew: profile === 'new', profile: profile === 'new' ? createApiProfile() : profile,
+  })
+  const goBack = () => {
+    if (closing.current || !useSettingsDialog.getState().open || historyDelete.busy) return
+    if (routes.length === 1) { closeSettings(); return }
+    closing.current = true
+    setPopping(true)
+  }
+  useRouteBack(goBack)
+  const finishPop = () => {
+    restoreFocus.current = routes.at(-1)?.opener
+    closing.current = false
+    setPopping(false)
+    setRoutes(routes.slice(0, -1))
   }
 
-  /** 返回一层：表单 → API Key 列表 → 设置根页 → 关闭设置 */
-  const goBack = () => {
-    if (page === 'apiKey' && apiKeyEditing) {
-      setApiKeyEditing(null)
-      return
-    }
-    if (page !== 'root') {
-      setPage('root')
-      return
-    }
-    close()
-  }
-  // Android 返回键：逐层回退，不再一按就退出整个设置
-  const backRef = useRef(goBack)
-  backRef.current = goBack
-  useEffect(() => {
-    const entry = pushLayer(() => backRef.current())
-    return () => popLayer(entry)
-  }, [])
   return createPortal(
-    <div className={styles.page} role="dialog" aria-modal="true" aria-label={t('settings')}>
-      <MobileHeader title={t('settings')} onBack={close} />
-      <div className={styles.body}>
-        <MobileRootContent onOpenPage={setPage} />
+    <div className={styles.routeViewport} role="dialog" aria-modal="true" aria-label={t('settings')}>
+      <div ref={shell} className={styles.page} data-settings-shell="" data-route-position={open ? 'front' : 'leaving'} data-popping={popping || undefined}>
+        {routes.map((route, index) => {
+          const { page, editor } = route
+          const top = index === routes.length - 1
+          const position = top && popping ? 'leaving' : index === routes.length - (popping ? 2 : 1) ? 'front' : 'covered'
+          const title = page === 'root' ? t('settings') : page === 'data' ? t('settingDialogAsideDataOptionLabel')
+            : page === 'apiEdit' ? t(editor?.isNew ? 'apiProfileAdd' : 'apiProfileEdit') : mobilePageTitles[page]
+          return (
+            <RoutePage key={page} route={route} position={position} active={top && open && !popping}
+              title={title} onBack={goBack} onExited={finishPop}>
+              {page === 'root' && <MobileRootContent onOpenPage={push} />}
+              {page === 'apiKey' && <MobileApiKeyContent onOpenGuide={() => push('guide')} onEdit={edit} />}
+              {page === 'apiEdit' && editor && <MobileApiProfileForm {...editor} onDone={() => {
+                if (currentRoute.current === route) goBack()
+              }} />}
+              {page === 'guide' && <MobileApiKeyGuide onFillKey={() => edit('new')} />}
+              {page === 'data' && <MobileDataContent historyImport={historyImport} disabled={historyBusy}
+                onOpenCompacted={() => push('compacted')} onDeleteAll={historyDelete.open} />}
+              {page === 'compacted' && <MobileCompactedContent />}
+              {page === 'appearance' && <MobileAppearanceContent />}
+              {page === 'fontSize' && <MobileFontSizeContent />}
+              {page === 'personalize' && <MobilePersonalizeContent />}
+              {page === 'profile' && <MobileProfileContent onOpenLocation={() => push('location')} />}
+              {page === 'location' && <MobileLocationContent />}
+            </RoutePage>
+          )
+        })}
       </div>
-      {page === 'root' ? null : (
-        <div className={styles.subPage}>
-          <MobileHeader title={page === 'data' ? t('settingDialogAsideDataOptionLabel') : mobilePageTitles[page]} onBack={goBack} />
-          <div className={styles.body}>
-            {page === 'apiKey' ? (
-              <MobileApiKeyContent
-                autoAdd={autoAddKey}
-                onAutoAddDone={() => setAutoAddKey(false)}
-                onOpenGuide={() => setPage('guide')}
-                editing={apiKeyEditing}
-                setEditing={setApiKeyEditing}
-              />
-            ) : null}
-            {page === 'guide' ? (
-              <MobileApiKeyGuide
-                onFillKey={() => {
-                  setAutoAddKey(true)
-                  setPage('apiKey')
-                }}
-              />
-            ) : null}
-            {page === 'data' ? (
-              <MobileDataContent
-                historyImport={historyImport}
-                disabled={historyBusy}
-                onOpenCompacted={() => setPage('compacted')}
-                onDeleteAll={historyDelete.open}
-              />
-            ) : null}
-            {page === 'compacted' ? <MobileCompactedContent /> : null}
-            {page === 'appearance' ? <MobileAppearanceContent /> : null}
-            {page === 'fontSize' ? <MobileFontSizeContent /> : null}
-            {page === 'personalize' ? <MobilePersonalizeContent /> : null}
-            {page === 'profile' ? (
-              <MobileProfileContent onOpenLocation={() => setPage('location')} />
-            ) : null}
-            {page === 'location' ? <MobileLocationContent /> : null}
-          </div>
-        </div>
-      )}
-      {historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}
-      {historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}
-    </div>,
-    document.body
+      <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
+      <ModalPresence>{historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}</ModalPresence>
+    </div>, document.body
   )
 }
 
@@ -698,7 +731,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           </button>
         </MobileGroup>
       ) : null}
-      {updateOpen ? (
+      <ModalPresence>{updateOpen ? (
         <Modal
           title={t('checkUpdate')}
           onClose={() => setUpdateOpen(false)}
@@ -747,7 +780,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
             ) : null}
           </div>
         </Modal>
-      ) : null}
+      ) : null}</ModalPresence>
       <MobileGroup wide>
         <button type="button" className={styles.row} onClick={() => setHelpOpen(true)}>
           <span className={styles.rowIcon}>
@@ -771,10 +804,11 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         </button>
       </MobileGroup>
       {version ? <div className={styles.meta}>版本 {version}</div> : null}
-      {voiceOpen ? (
+      <ModalPresence>{voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
           closable
+          placement="bottom"
           className={styles.voiceDialog}
           onClose={() => setVoiceOpen(false)}
           footer={
@@ -823,8 +857,8 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
             ))}
           </div>
         </Modal>
-      ) : null}
-      {signOutOpen ? (
+      ) : null}</ModalPresence>
+      <ModalPresence>{signOutOpen ? (
         <Modal
           title={t('settingsSignOut')}
           onClose={() => setSignOutOpen(false)}
@@ -850,8 +884,8 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         >
           <div className={styles.riskNote}>{t('settingsSignOutHint')}</div>
         </Modal>
-      ) : null}
-      {helpOpen ? (
+      ) : null}</ModalPresence>
+      <ModalPresence>{helpOpen ? (
         <Modal
           title="帮助与反馈"
           onClose={() => setHelpOpen(false)}
@@ -863,7 +897,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
         >
           <div className={styles.helpText}>{helpText}{'\n'}{t('backupHelpClear')}</div>
         </Modal>
-      ) : null}
+      ) : null}</ModalPresence>
     </>
   )
 }
@@ -1027,38 +1061,13 @@ const MobileApiKeyGuide = ({ onFillKey }: { onFillKey: () => void }) => {
  * API 配置列表：每条一个名称 + 接口地址 + Key，点一行切换当前使用的配置。
  * 支持多条是为了「官方 Key / 中转地址 / 别的兼容网关」来回切，和 harness 的用法一致。
  */
-const MobileApiKeyContent = ({
-  autoAdd = false,
-  onAutoAddDone,
-  onOpenGuide,
-  editing,
-  setEditing,
-}: {
-  autoAdd?: boolean
-  onAutoAddDone?: () => void
-  onOpenGuide?: () => void
-  editing: ApiProfile | 'new' | null
-  setEditing: (value: ApiProfile | 'new' | null) => void
+const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
+  onOpenGuide: () => void
+  onEdit: (profile: ApiProfile | 'new') => void
 }) => {
   const t = useTranslate()
   const apiProfiles = useSettings((state) => state.apiProfiles)
   const activeProfileId = useSettings((state) => state.chatSource === 'api' ? state.activeProfileId : null)
-  // 从申请指引过来时自动展开新增表单
-  if (autoAdd && editing === null) {
-    setEditing('new')
-    onAutoAddDone?.()
-  }
-
-  if (editing !== null) {
-    return (
-      <MobileApiProfileForm
-        key={editing === 'new' ? 'new' : editing.id}
-        profile={editing === 'new' ? createApiProfile() : editing}
-        isNew={editing === 'new'}
-        onDone={() => setEditing(null)}
-      />
-    )
-  }
 
   return (
     <>
@@ -1094,11 +1103,11 @@ const MobileApiKeyContent = ({
               tone="primary"
               icon={<IconEllipsisOutline16 />}
               aria-label={t('apiProfileEdit')}
-              onClick={() => setEditing(profile)}
+              onClick={() => onEdit(profile)}
             />
           </div>
         ))}
-        <button type="button" className={styles.row} onClick={() => setEditing('new')}>
+        <button type="button" className={styles.row} onClick={() => onEdit('new')}>
           <span className={styles.rowIcon}>
             <IconPlusCircle24 />
           </span>
@@ -1370,7 +1379,7 @@ const MobileApiProfileForm = ({
           </button>
         )}
       </div>
-      {confirmDelete ? (
+      <ModalPresence>{confirmDelete ? (
       <Modal
         title={t('apiProfileDeleteTitle')}
         onClose={() => setConfirmDelete(false)}
@@ -1395,7 +1404,7 @@ const MobileApiProfileForm = ({
       >
         <div className={styles.importConfirmText}>{t('apiProfileDeleteDescription')}</div>
       </Modal>
-      ) : null}
+      ) : null}</ModalPresence>
     </>
   )
 }
@@ -2340,7 +2349,7 @@ const BackupControls = ({ disabled, mobile = false }: { disabled: boolean; mobil
       {status ? <div role={status.error ? 'alert' : 'status'} className={clsx(styles.backupStatus, status.error && styles.backupError)}>
         {t(status.key, status.reason ? { message: t(status.reason) } : status.params)}
       </div> : null}
-      {restoreOpen && safety ? <Modal title={t('backupRestoreTitle')} onClose={() => { if (!running) {setRestoreOpen(false)} }} footer={<>
+      <ModalPresence>{restoreOpen && safety ? <Modal title={t('backupRestoreTitle')} onClose={() => { if (!running) {setRestoreOpen(false)} }} footer={<>
         <Button variant="outlined" size="m" autoFocus disabled={running} onClick={() => setRestoreOpen(false)}>{t('cancel')}</Button>
         <Button variant="dangerOutlined" size="m" disabled={busy} onClick={() => void run(async () => {
           await restoreSafetySnapshot()
@@ -2349,7 +2358,7 @@ const BackupControls = ({ disabled, mobile = false }: { disabled: boolean; mobil
       </>}>
         <p className={styles.backupText}>{t('backupRestoreDescription', { date: date(safety.createdAt), count: safety.sessionCount })}</p>
         {status?.error ? <p role="alert" className={styles.backupError}>{t(status.key, status.params)}</p> : null}
-      </Modal> : null}
+      </Modal> : null}</ModalPresence>
     </section>
   )
 }

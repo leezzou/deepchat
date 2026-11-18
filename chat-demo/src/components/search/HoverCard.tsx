@@ -1,6 +1,8 @@
 import { useEffect, type HTMLAttributes, type MutableRefObject, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useAnchoredPosition, useDelayedOpen } from '../base/anchored.js'
+import { useAnchoredPosition, useDelayedOpen, useDismiss } from '../base/anchored.js'
+import { POPOVER_EXIT_MS, useMotionPresence } from '../base/motionPresence.js'
+import motion from '../base/popoverMotion.module.css'
 import styles from './HoverCard.module.css'
 
 const ENTER_DELAY = 300
@@ -21,11 +23,13 @@ export const HoverCard = ({
   children: ReactNode
 }) => {
   const { open, schedule, cancel } = useDelayedOpen()
+  const { present, closing } = useMotionPresence(open, POPOVER_EXIT_MS)
   const { anchorRef, floatingRef, position } = useAnchoredPosition<HTMLSpanElement, HTMLDivElement>(
-    open,
+    present,
     { align: 'center', offset: GAP }
   )
 
+  useDismiss(present, [anchorRef, floatingRef], () => schedule(false, 0))
   useEffect(() => () => cancel(), [cancel])
 
   return (
@@ -37,11 +41,12 @@ export const HoverCard = ({
           onMouseLeave: () => schedule(false, LEAVE_DELAY),
         },
       })}
-      {open
+      {present
         ? createPortal(
             <div
               ref={floatingRef}
-              className={styles.card}
+              className={`${styles.card} ${motion.popover}`}
+              data-state={closing ? 'closing' : 'open'}
               style={position ?? { top: 0, left: 0, visibility: 'hidden' }}
               onMouseEnter={cancel}
               onMouseLeave={() => schedule(false, LEAVE_DELAY)}

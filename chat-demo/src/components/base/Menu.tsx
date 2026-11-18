@@ -1,8 +1,9 @@
 import clsx from 'clsx'
-import { useState, type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { useAnchoredPosition, useDismiss } from './anchored.js'
+import { useOptionPopover } from './anchored.js'
 import styles from './Menu.module.css'
+import motion from './popoverMotion.module.css'
 
 export type MenuOption = {
   key: string
@@ -12,7 +13,6 @@ export type MenuOption = {
   onSelect: () => void
 }
 
-/** 点击触发，向下展开；点外部或 Esc 关闭 */
 export const Menu = ({
   options,
   children,
@@ -20,41 +20,34 @@ export const Menu = ({
   options: MenuOption[]
   children: (props: { open: boolean; toggle: () => void }) => ReactNode
 }) => {
-  const [open, setOpen] = useState(false)
-  const close = () => setOpen(false)
-  // 左侧对齐并再左移 5px，让菜单文字与触发元素图标对齐
-  const { anchorRef, floatingRef, position } = useAnchoredPosition<HTMLSpanElement, HTMLDivElement>(
-    open,
-    { align: 'start', alignOffset: -5, offset: 4 }
-  )
-  useDismiss(open, [anchorRef, floatingRef], close)
-
+  const menu = useOptionPopover<HTMLSpanElement>({ align: 'start', alignOffset: -5, offset: 4 })
   return (
     <>
-      <span ref={anchorRef} className={styles.anchor}>
-        {children({ open, toggle: () => setOpen((value) => !value) })}
+      <span ref={menu.anchorRef} className={styles.anchor}>
+        {children({ open: menu.open, toggle: menu.toggle })}
       </span>
-      {open
+      {menu.present
         ? createPortal(
             <div
-              ref={floatingRef}
-              className={styles.menu}
-              style={position ?? undefined}
+              ref={menu.floatingRef}
+              className={clsx(styles.menu, motion.popover)}
+              data-state={menu.closing ? 'closing' : 'open'}
+              style={menu.position ?? { visibility: 'hidden' }}
               role="menu"
+              onKeyDown={menu.onKeyDown}
             >
               {options.map((option) => (
-                <div
+                <button
                   key={option.key}
+                  type="button"
                   role="menuitem"
+                  tabIndex={-1}
                   className={clsx(styles.option, option.danger && styles.danger)}
-                  onClick={() => {
-                    setOpen(false)
-                    option.onSelect()
-                  }}
+                  onClick={() => menu.choose(option.onSelect)}
                 >
                   <span className={styles.icon}>{option.icon}</span>
                   {option.label}
-                </div>
+                </button>
               ))}
             </div>,
             document.body

@@ -191,3 +191,14 @@
     padding-block: 16px;
   }
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .dialog[open] { animation: searchArrive var(--nav-enter) var(--nav-ease); }
+  .dialog[open][data-leaving] { animation: searchLeave var(--nav-exit) ease-in both; pointer-events: none; }
+  .dialog[open]::backdrop { animation: veilIn var(--nav-enter) ease-out; }
+  .dialog[open][data-leaving]::backdrop { animation: veilIn var(--nav-exit) ease-in reverse both; }
+}
+@keyframes searchArrive { from { opacity: 0; transform: translateX(var(--search-travel, 28px)); } }
+@keyframes searchLeave { to { opacity: 0; transform: translateX(var(--search-travel, 28px)); } }
+@keyframes veilIn { from { opacity: 0; } to { opacity: 1; } }
+:global([dir='rtl']) .dialog { --search-travel: -28px; }

@@ -1,14 +1,14 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslate } from '../../i18n/index.js'
 import { loadSession } from '../../services/chat/db.js'
 import { searchHistory, type HistorySearchResult } from '../../services/chat/search.js'
 import { revealMessage, selectSession, useChatStore } from '../../services/chat/store.js'
-import { isNative, popLayer, pushLayer } from '../../shell/native.js'
+import { useBackLayer, useSurfacePresence } from '../../shell/navigationMotion.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { IconCloseOutline16, IconSearchOutline16 } from '../base/icons.js'
-import { closeMobileSider } from '../sider/mobileSiderState.js'
+import { visitChatFromDrawer } from '../sider/mobileSiderState.js'
 import { SearchHighlight } from './SearchHighlight.js'
 import {
   clearHistoryLocation,
@@ -37,13 +37,13 @@ const emptyState = (): SearchState => ({
   error: false,
 })
 
-const SearchDialog = () => {
+const SearchDialog = ({ open }: { open: boolean }) => {
   const t = useTranslate()
   const sessions = useChatStore((state) => state.sessions)
   const importing = useChatStore((state) => state.importingHistory)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(() => useHistorySearch.getState().initialQuery)
   const [composing, setComposing] = useState(false)
   const [retry, setRetry] = useState(0)
   const [state, setState] = useState(emptyState)
@@ -57,20 +57,14 @@ const SearchDialog = () => {
   const mounted = useRef(true)
   const openingRef = useRef(false)
   const navigationRef = useRef<AbortController | null>(null)
+  const resultToFocus = useRef<string | null>(null)
 
-  useEffect(() => {
+  useBackLayer(true, () => { if (open) closeHistorySearch() })
+  useLayoutEffect(() => {
     mounted.current = true
-    closeMobileSider()
     const dialog = dialogRef.current
     dialog?.showModal()
     inputRef.current?.focus()
-    const layer = pushLayer(closeHistorySearch)
-    const marker = `history-search-${Date.now()}`
-    const onBack = () => closeHistorySearch()
-    if (!isNative) {
-      window.history.pushState({ ...window.history.state, historySearch: marker }, '')
-      window.addEventListener('popstate', onBack)
-    }
     const updateViewport = () => {
       const viewport = window.visualViewport
       dialog?.style.setProperty('--search-height', `${viewport?.height ?? window.innerHeight}px`)
@@ -82,13 +76,11 @@ const SearchDialog = () => {
     return () => {
       mounted.current = false
       navigationRef.current?.abort()
-      popLayer(layer)
-      window.removeEventListener('popstate', onBack)
       window.visualViewport?.removeEventListener('resize', updateViewport)
       window.visualViewport?.removeEventListener('scroll', updateViewport)
       dialog?.close()
-      if (!isNative && window.history.state?.historySearch === marker) {
-        window.history.back()
+      if (resultToFocus.current) {
+        document.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(resultToFocus.current)}"]`)?.focus({ preventScroll: true })
       }
     }
   }, [])
@@ -168,6 +160,10 @@ const SearchDialog = () => {
     }
   }, [query, sessions, composing, importing, retry])
 
+  useLayoutEffect(() => {
+    if (!open) navigationRef.current?.abort()
+  }, [open])
+
   const openResult = async (result: HistorySearchResult) => {
     if (openingRef.current || importing) {
       return
@@ -183,6 +179,7 @@ const SearchDialog = () => {
           return
         }
         clearHistoryLocation()
+        visitChatFromDrawer(result.sessionId, query)
         selectSession(result.sessionId)
         closeHistorySearch()
         return
@@ -205,7 +202,8 @@ const SearchDialog = () => {
         )
         return
       }
-      dialogRef.current?.close()
+      resultToFocus.current = result.messageId
+      visitChatFromDrawer(result.sessionId, query)
       locateHistoryMessage({
         sessionId: result.sessionId,
         messageId: result.messageId,
@@ -229,6 +227,7 @@ const SearchDialog = () => {
     <dialog
       ref={dialogRef}
       className={styles.dialog}
+      data-leaving={!open || undefined}
       aria-labelledby="history-search-title"
       onCancel={(event) => {
         event.preventDefault()
@@ -381,5 +380,5 @@ const SearchDialog = () => {
 /** Mount once at App level so opening search survives sidebar / viewport changes. */
 export const HistorySearch = () => {
   const open = useHistorySearch((state) => state.open)
-  return open ? <SearchDialog /> : null
+  return useSurfacePresence(open) ? <SearchDialog open={open} /> : null
 }

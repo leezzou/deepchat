@@ -4,9 +4,12 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MutableRefObject,
   type RefObject,
 } from 'react'
+import { isTopLayer, popLayer, pushLayer } from '../../shell/backLayers.js'
+import { POPOVER_EXIT_MS, useMotionPresence } from './motionPresence.js'
 
 /** 浮层与视口边缘的最小间距 */
 export const VIEWPORT_PADDING = 8
@@ -16,6 +19,7 @@ export type Align = 'start' | 'center' | 'end'
 
 export type AnchoredPosition = {
   top: number
+  transformOrigin: string
   left?: number
   right?: number
   maxHeight?: number
@@ -104,6 +108,7 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
     setPosition((previous) =>
       previous &&
       previous.top === next.top &&
+      previous.transformOrigin === next.transformOrigin &&
       previous.left === next.left &&
       previous.right === next.right &&
       previous.maxHeight === next.maxHeight
@@ -133,11 +138,15 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
     const spaceBelow = window.innerHeight - rect.bottom - offset - VIEWPORT_PADDING
 
     if (maxHeight === undefined) {
-      const { width, height } = floating.getBoundingClientRect()
+      // offset dimensions are stable while the surface itself scales into place.
+      const width = floating.offsetWidth
+      const height = floating.offsetHeight
       const resolved = resolveSide(spaceAbove, spaceBelow, side, height)
+      const left = alignLeft(rect, width, align, alignOffset)
       applyPosition({
         top: resolved === 'top' ? rect.top - offset - height : rect.bottom + offset,
-        left: alignLeft(rect, width, align, alignOffset),
+        left,
+        transformOrigin: `${Math.max(0, Math.min(width, rect.left + rect.width / 2 - left))}px ${resolved === 'top' ? 'bottom' : 'top'}`,
       })
       return
     }
@@ -153,6 +162,7 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
           : rect.bottom + offset,
       right: Math.max(VIEWPORT_PADDING, window.innerWidth - rect.right),
       maxHeight: height,
+      transformOrigin: `right ${resolved === 'top' ? 'bottom' : 'top'}`,
     })
   }, [align, alignOffset, applyPosition, floatingRef, getAnchor, maxHeight, minSpace, offset, side])
 
@@ -199,45 +209,124 @@ export const useAnchoredPosition = <T extends HTMLElement, F extends HTMLElement
   return { anchorRef, floatingRef, position }
 }
 
-/** 点击浮层与触发元素之外、或按 Esc 时关闭 */
+/** Keep the same entry for the lifetime of the portal, including its outgoing frames. */
 export const useDismiss = (
-  open: boolean,
+  present: boolean,
   refs: RefObject<HTMLElement | null>[],
-  onDismiss: () => void,
-  { captureEscape = false }: { captureEscape?: boolean } = {}
+  onDismiss: () => void
 ) => {
-  const onDismissRef = useRef(onDismiss)
-  onDismissRef.current = onDismiss
-  const refsRef = useRef(refs)
-  refsRef.current = refs
-
-  useEffect(() => {
-    if (!open) {
+  const latest = useRef({ refs, onDismiss })
+  latest.current = { refs, onDismiss }
+  useLayoutEffect(() => {
+    if (!present) {
       return
     }
+    const layer = pushLayer(() => latest.current.onDismiss())
     const onPointerDown = (event: PointerEvent) => {
-      const target = event.target as Node
-      const inside = refsRef.current.some((ref) => ref.current?.contains(target))
-      if (!inside) {
-        onDismissRef.current()
-      }
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') {
+      if (!isTopLayer(layer)) {
         return
       }
-      if (captureEscape) {
-        event.stopPropagation()
+      if (!latest.current.refs.some((ref) => ref.current?.contains(event.target as Node))) {
+        latest.current.onDismiss()
       }
-      onDismissRef.current()
     }
     document.addEventListener('pointerdown', onPointerDown)
-    document.addEventListener('keydown', onKeyDown, captureEscape)
     return () => {
+      popLayer(layer)
       document.removeEventListener('pointerdown', onPointerDown)
-      document.removeEventListener('keydown', onKeyDown, captureEscape)
     }
-  }, [open, captureEscape])
+  }, [present])
+}
+
+/** Shared keyboard, focus and selection handoff for click-opened menu/listbox portals. */
+export const useOptionPopover = <T extends HTMLElement>(
+  options: AnchoredOptions,
+  disabled = false
+) => {
+  const [requested, setRequested] = useState(false)
+  const open = requested && !disabled
+  const selection = useRef<(() => void) | undefined>(undefined)
+  const { present, closing } = useMotionPresence(open, POPOVER_EXIT_MS, () => {
+    const action = selection.current
+    selection.current = undefined
+    action?.()
+  })
+  const { anchorRef, floatingRef, position } = useAnchoredPosition<T, HTMLDivElement>(
+    present,
+    options
+  )
+  const close = () => setRequested(false)
+  useDismiss(present, [anchorRef, floatingRef], close)
+  const trigger = useCallback(() => {
+    const anchor = anchorRef.current
+    return anchor instanceof HTMLButtonElement
+      ? anchor
+      : anchor?.querySelector<HTMLElement>('button, [tabindex="0"]')
+  }, [anchorRef])
+  useLayoutEffect(() => {
+    if (disabled) {
+      setRequested(false)
+    }
+  }, [disabled])
+  const positioned = position !== null
+  useLayoutEffect(() => {
+    const surface = floatingRef.current
+    if (!surface || !positioned) {
+      return
+    }
+    if (open) {
+      surface.inert = false
+      const active =
+        surface.querySelector<HTMLElement>('[aria-selected="true"]') ??
+        surface.querySelector<HTMLElement>('button')
+      active?.focus({ preventScroll: true })
+    } else if (surface.contains(document.activeElement)) {
+      trigger()?.focus({ preventScroll: true })
+    }
+    surface.inert = !open
+  }, [open, positioned, trigger, floatingRef])
+  const choose = (action: () => void) => {
+    if (!open || selection.current) {
+      return
+    }
+    selection.current = action
+    close()
+  }
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key === 'Tab') {
+      trigger()?.focus({ preventScroll: true })
+      close()
+      return
+    }
+    const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('button')]
+    const index = items.indexOf(document.activeElement as HTMLButtonElement)
+    let next: number
+    switch (event.key) {
+      case 'ArrowDown':
+        next = (index + 1) % items.length
+        break
+      case 'ArrowUp':
+        next = (index - 1 + items.length) % items.length
+        break
+      case 'Home':
+        next = 0
+        break
+      case 'End':
+        next = items.length - 1
+        break
+      default:
+        return
+    }
+    event.preventDefault()
+    items[next]?.focus()
+  }
+  const toggle = () => {
+    if (selection.current) {
+      return
+    }
+    setRequested(!open)
+  }
+  return { open, present, closing, toggle, choose, onKeyDown, anchorRef, floatingRef, position }
 }
 
 /** 悬停类浮层的进出延迟：同一时间只有一个待执行的切换 */

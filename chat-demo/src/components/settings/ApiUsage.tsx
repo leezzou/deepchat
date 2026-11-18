@@ -5,94 +5,87 @@ import { resolveLocale, useTranslate } from '../../i18n/index.js'
 import { loadRecordedUsage } from '../../services/chat/db.js'
 import { sumUsageDays, totalTokens } from '../../services/chat/recordedUsage.js'
 import { useSettings } from '../../services/settings.js'
-import { hasAccountBridge, openAccount } from '../../shell/account.js'
-import { openExternal, popLayer, pushLayer } from '../../shell/native.js'
-import { Modal } from '../base/Modal.js'
+import { hasAccountBridge, returnToAccount } from '../../shell/account.js'
+import { openExternal } from '../../shell/native.js'
+import { Modal, ModalPresence } from '../base/Modal.js'
 import { IconChevronRightOutline14, IconRefreshOutline16 } from '../base/icons.js'
 import { MobileSettingsHeader } from './MobileSettingsHeader.js'
+import { useRouteBack, useRouteMotion } from './routeMotion.js'
 import settings from './Settings.module.css'
 import styles from './ApiUsage.module.css'
 
 const usageEvent = 'deepchat:open-api-usage'
 export const openApiUsage = () => window.dispatchEvent(new Event(usageEvent))
 
+type UsageSource = 'settings' | 'account'
+
 export const ApiUsageDialog = () => {
-  const [source, setSource] = useState<'settings' | 'account' | null>(null)
+  const [source, setSource] = useState<UsageSource | null>(null)
+  const [leaving, setLeaving] = useState(false)
+  const closing = useRef(false)
   const mobile = useIsSettingsMobile()
   const t = useTranslate()
   useEffect(() => {
     const show = (event: Event) => {
-      setSource(
-        event instanceof CustomEvent && event.detail?.fromAccount === true ? 'account' : 'settings'
-      )
+      closing.current = false
+      setLeaving(false)
+      setSource(event instanceof CustomEvent && event.detail?.fromAccount === true ? 'account' : 'settings')
     }
     window.addEventListener(usageEvent, show)
     return () => window.removeEventListener(usageEvent, show)
   }, [])
+  useLayoutEffect(() => {
+    if (!mobile && leaving) setSource(null)
+  }, [mobile, leaving])
   const close = () => {
-    setSource(null)
-    if (source === 'account' && hasAccountBridge) openAccount()
+    if (closing.current) return
+    closing.current = true
+    if (source === 'account' && hasAccountBridge) returnToAccount()
+    if (mobile) setLeaving(true)
+    else setSource(null)
   }
-  if (!source) return null
   const title = t('usageTitle')
-  return mobile ? (
-    <MobileUsagePage title={title} onClose={close}>
+  if (mobile) return source ? (
+    <MobileUsagePage title={title} source={source} leaving={leaving} onClose={close} onExited={() => setSource(null)}>
       <UsageReport />
     </MobileUsagePage>
-  ) : (
-    <Modal
-      title={title}
-      closable
-      onClose={close}
-      className={styles.dialog}
-      mainClassName={styles.desktopBody}
-    >
-      <UsageReport />
-    </Modal>
+  ) : null
+  return (
+    <ModalPresence>{source ? (
+      <Modal title={title} closable onClose={close} className={styles.dialog} mainClassName={styles.desktopBody}>
+        <UsageReport />
+      </Modal>
+    ) : null}</ModalPresence>
   )
 }
 
-/** A full-page dialog keeps the underlying Settings scroll position and traps keyboard focus. */
-const MobileUsagePage = ({
-  title,
-  onClose,
-  children,
-}: {
-  title: string
-  onClose: () => void
-  children: ReactNode
+/** Keep the native focus trap and its transparent backdrop until the page has slid away. */
+const MobileUsagePage = ({ title, source, leaving, onClose, onExited, children }: {
+  title: string; source: UsageSource; leaving: boolean; onClose: () => void; onExited: () => void; children: ReactNode
 }) => {
-  const ref = useRef<HTMLDialogElement>(null)
-  const closeRef = useRef(onClose)
-  closeRef.current = onClose
+  const dialog = useRef<HTMLDialogElement>(null)
   useLayoutEffect(() => {
-    const page = ref.current!
+    const page = dialog.current!
     const previous = document.activeElement
     page.showModal()
     page.focus({ preventScroll: true })
-    const layer = pushLayer(() => closeRef.current())
     return () => {
-      popLayer(layer)
       page.close()
-      if (previous instanceof HTMLElement && previous.isConnected)
-        previous.focus({ preventScroll: true })
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
   }, [])
+  const surface = useRouteMotion<HTMLDivElement>(true, leaving, onExited)
+  useRouteBack(onClose)
   return createPortal(
-    <dialog
-      ref={ref}
-      tabIndex={-1}
-      aria-label={title}
-      className={`${settings.page} ${styles.mobileDialog}`}
-      onCancel={(event) => {
-        event.preventDefault()
-        onClose()
-      }}
-    >
-      <MobileSettingsHeader title={title} onBack={onClose} />
-      <div className={`${settings.body} ${styles.mobileBody}`}>{children}</div>
-    </dialog>,
-    document.body
+    <dialog ref={dialog} tabIndex={-1} aria-label={title} className={styles.mobileDialog}
+      data-usage-source={source} data-route-position={leaving ? 'leaving' : 'front'}
+      onCancel={(event) => { event.preventDefault(); onClose() }}>
+      <div ref={surface} className={settings.page} data-route-position={leaving ? 'leaving' : 'front'}
+        {...(leaving ? { inert: '' } : {})}>
+        <MobileSettingsHeader title={title} onBack={onClose} />
+        <div className={`${settings.body} ${styles.mobileBody}`}>{children}</div>
+      </div>
+    </dialog>, document.body
   )
 }
 

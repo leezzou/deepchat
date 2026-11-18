@@ -11,6 +11,9 @@ const post = (value: object) => {
 export function openAccount() {
   post({ op: 'account' })
 }
+export function returnToAccount() {
+  post({ op: 'account', fromUsage: true })
+}
 export function initializeAccount(onStatus: (profile: AccountProfile) => void) {
   if (!port) return
   port.onmessage = ({ data }) => {

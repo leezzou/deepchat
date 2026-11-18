@@ -16,7 +16,7 @@ import { isReplyForQuestion } from '../../services/chat/reply.js'
 import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
 import { Button } from '../base/Button.js'
-import { Modal } from '../base/Modal.js'
+import { Modal, ModalPresence } from '../base/Modal.js'
 import { AssistantMessage } from './AssistantMessage.js'
 import { UserMessage } from './UserMessage.js'
 import { clearHistoryLocation, useHistorySearch } from '../historySearch/historySearchState.js'
@@ -486,14 +486,16 @@ export const MessageList = ({
         </div>
         {footer}
       </div>
-      {pendingDelete ? (
-        <DeleteMessageDialog
-          key={`${session.id}:${pendingDelete.id}`}
-          session={session}
-          messageId={pendingDelete.id}
-          onClose={() => setPendingDelete(null)}
-        />
-      ) : null}
+      <ModalPresence>
+        {pendingDelete ? (
+          <DeleteMessageDialog
+            key={`${session.id}:${pendingDelete.id}`}
+            session={session}
+            messageId={pendingDelete.id}
+            onClose={() => setPendingDelete(null)}
+          />
+        ) : null}
+      </ModalPresence>
     </>
   )
 }

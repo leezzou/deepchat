@@ -17,6 +17,11 @@
 }
 
 .option {
+  width: 100%;
+  border: 0;
+  font: inherit;
+  text-align: start;
+  background: transparent;
   display: flex;
   align-items: center;
   gap: 8px;

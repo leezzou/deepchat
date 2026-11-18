@@ -64,3 +64,11 @@
     border-left: none;
   }
 }
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel { animation: panelIn var(--nav-enter) var(--nav-ease); }
+  .panel[data-leaving] { animation: panelOut var(--nav-exit) ease-in both; pointer-events: none; }
+}
+@keyframes panelIn { from { opacity: 0; transform: translateX(var(--panel-travel, 32px)); } }
+@keyframes panelOut { to { opacity: 0; transform: translateX(var(--panel-travel, 32px)); } }
+:global([dir='rtl']) .panel { --panel-travel: -32px; }

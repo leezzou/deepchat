@@ -29,6 +29,7 @@ declare const styles: {
   readonly confirm: string
   readonly cellButton: string
   readonly page: string
+  readonly routeViewport: string
   readonly subPage: string
   readonly topBar: string
   readonly backButton: string

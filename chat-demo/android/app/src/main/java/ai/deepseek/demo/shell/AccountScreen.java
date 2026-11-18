@@ -21,7 +21,6 @@ import android.text.InputType;
 import android.text.format.DateFormat;
 import android.view.inputmethod.EditorInfo;
 import android.view.View;
-import android.view.Window;
 import android.view.WindowManager;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -30,6 +29,9 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.browser.customtabs.CustomTabsIntent;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -59,13 +61,16 @@ public final class AccountScreen {
     private final ExecutorService walletWorker = Executors.newSingleThreadExecutor();
     private int walletGeneration;
     private final Runnable poll = () -> checkStatus(false);
-    private Dialog dialog;
+    private AccountWindow dialog, proxyDialog;
+    private AccountPage proxyPage;
+    // The exact wallet view (including focus and scroll) remains owned by this visit to usage.
+    private boolean underUsage, walletNeedsRender;
     private AlertDialog confirmation, manualPrompt;
     private boolean exchanging;
     private AccountPage page;
     private volatile boolean destroyed;
     private boolean checking, refreshing, refreshAgain, returningFromPayment;
-    private boolean proxyExpanded, proxyRunning;
+    private boolean proxyRunning;
     private String proxyAddress = "";
     private Session session = Session.UNKNOWN;
     private Action action = Action.NONE;
@@ -81,53 +86,64 @@ public final class AccountScreen {
         this.openUsage = openUsage;
     }
 
-    public boolean isShowing() { return dialog != null && dialog.isShowing(); }
+    public boolean isShowing() { return dialog != null && dialog.isActive() && !underUsage; }
 
     void updateTheme() {
         if (page != null && page.dark != theme.isAppDark()) {
             page.updateTheme();
+            if (proxyPage != null) proxyPage.updateTheme();
             render();
         }
     }
 
-    public void show() {
+    public void show(boolean fromUsage) {
         if (destroyed || activity.isFinishing() || activity.isDestroyed() || isShowing()) return;
+        if (fromUsage && underUsage && dialog != null && host.signedIn()) {
+            underUsage = false;
+            dialog.reveal(true);
+            if (walletNeedsRender) render();
+            checkStatus(false);
+            return;
+        }
+        if (dialog != null) dialog.dismissNow();
+        closeConfirmation();
+        closeProxy();
+        underUsage = walletNeedsRender = false;
         session = Session.UNKNOWN;
         exchanging = false;
         action = Action.NONE;
         name = statusError = actionError = walletError = proxyError = "";
-        checking = refreshing = refreshAgain = returningFromPayment = proxyExpanded = proxyRunning = false;
+        checking = refreshing = refreshAgain = returningFromPayment = proxyRunning = false;
         proxyAddress = "";
         wallets = null;
         updated = null;
-        boolean dark = theme.isAppDark();
-        Dialog opened = new Dialog(activity, dark ? android.R.style.Theme_Material_NoActionBar
-                : android.R.style.Theme_Material_Light_NoActionBar) {
-            @Override public void onWindowFocusChanged(boolean focus) {
-                super.onWindowFocusChanged(focus);
-                if (dialog == this) schedulePoll();
-            }
-        };
+        AccountWindow opened = new AccountWindow(activity, theme.isAppDark(), this::schedulePoll);
         dialog = opened;
-        opened.requestWindowFeature(Window.FEATURE_NO_TITLE);
-        Window window = opened.getWindow();
-        window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
-        page = new AccountPage(activity, window, theme, opened::dismiss, this::render);
+        page = new AccountPage(activity, opened.getWindow(), theme, "DeepChat 账户", opened::dismiss, this::render);
         opened.setContentView(page);
         opened.setTitle("DeepChat 账户");
         opened.setOnDismissListener(ignored -> {
             if (dialog != opened) return;
             main.removeCallbacks(poll);
             closeConfirmation();
+            closeProxy();
             dialog = null;
             page = null;
             wallets = null;
-            proxyAddress = "";
+            underUsage = false;
         });
-        opened.show();
-        window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        opened.reveal(fromUsage);
         render();
         checkStatus(true);
+    }
+
+    void accountChanged() {
+        if (destroyed) return;
+        if (underUsage && !host.signedIn()) {
+            // Never restore balances after the wallet's grant was invalidated.
+            underUsage = false;
+            dialog.dismissNow();
+        } else if (isShowing()) checkStatus(false);
     }
 
     /** Payment has no success callback. Fetch balances once on the first resume after a launch. */
@@ -146,7 +162,8 @@ public final class AccountScreen {
         destroyed = true;
         main.removeCallbacks(poll);
         closeConfirmation();
-        if (dialog != null) dialog.dismiss();
+        closeProxy();
+        if (dialog != null) dialog.dismissNow();
         accountWorker.shutdownNow();
         walletWorker.shutdownNow();
     }
@@ -170,7 +187,7 @@ public final class AccountScreen {
     // A late result from a closed dialog must never update a reopened dialog or its clipboard.
     private interface Result<T> { void complete(T value, Exception failure); }
     private <T> void submit(ExecutorService worker, Callable<T> job, Result<T> result) {
-        Dialog owner = dialog;
+        AccountWindow owner = dialog;
         if (destroyed || owner == null) return;
         worker.execute(() -> {
             T value = null;
@@ -179,7 +196,7 @@ public final class AccountScreen {
             final T done = value;
             final Exception failed = error;
             main.post(() -> {
-                if (!destroyed && dialog == owner && owner.isShowing()) result.complete(done, failed);
+                if (!destroyed && dialog == owner && (isShowing() || underUsage)) result.complete(done, failed);
             });
         });
     }
@@ -216,8 +233,7 @@ public final class AccountScreen {
                     wallets = null;
                     updated = null;
                     walletError = "";
-                    proxyExpanded = false;
-                    proxyAddress = "";
+                    closeProxy();
                 }
                 page.scrollToStart();
             }
@@ -311,13 +327,13 @@ public final class AccountScreen {
             if (ex != null) {
                 String label = next == Action.LOGIN ? "无法开始登录" : next == Action.CANCEL ? "未能取消登录" : "退出登录失败";
                 actionError = failure(label, ex);
-                if (next == Action.LOGOUT && proxyExpanded) readProxyState();
+                if (next == Action.LOGOUT && proxyDialog != null) readProxyState();
             } else if (next == Action.LOGOUT) {
                 session = Session.UNKNOWN;
                 name = proxyAddress = "";
                 wallets = null;
                 updated = null;
-                proxyExpanded = proxyRunning = false;
+                closeProxy();
             }
             render();
             checkStatus(false);
@@ -377,6 +393,7 @@ public final class AccountScreen {
         AlertDialog prompt = builder.setTitle("手动完成授权").setView(scroll)
                 .setNegativeButton("返回", null).setPositiveButton("提交网址", null).create();
         manualPrompt = prompt;
+        prompt.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
         prompt.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         prompt.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         prompt.setOnDismissListener(ignored -> {
@@ -387,6 +404,12 @@ public final class AccountScreen {
         prompt.show();
         prompt.getWindow().getDecorView().getViewTreeObserver().addOnWindowFocusChangeListener(focus -> schedulePoll());
         prompt.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(page.blue);
+        prompt.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> {
+            WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(input);
+            if (insets != null && insets.isVisible(WindowInsetsCompat.Type.ime())) {
+                WindowCompat.getInsetsController(prompt.getWindow(), input).hide(WindowInsetsCompat.Type.ime());
+            } else prompt.dismiss();
+        });
         prompt.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(page.blue);
         prompt.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (session != Session.PENDING || exchanging || action != Action.NONE || manualPrompt != prompt) return;
@@ -422,24 +445,45 @@ public final class AccountScreen {
 
     private void confirmLogout() {
         if (action != Action.NONE || confirmation != null) return;
-        confirmation = new AlertDialog.Builder(activity, page.dark ? android.R.style.Theme_Material_Dialog_Alert
+        AlertDialog prompt = new AlertDialog.Builder(activity, page.dark ? android.R.style.Theme_Material_Dialog_Alert
                 : android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("退出 DeepSeek 账号？")
                 .setMessage("此手机将停止使用该账号聊天，并关闭本机 API。")
                 .setNegativeButton("取消", null)
                 .setPositiveButton("退出登录", (ignored, which) -> accountAction(Action.LOGOUT)).create();
-        confirmation.setOnDismissListener(ignored -> confirmation = null);
-        confirmation.show();
+        confirmation = prompt;
+        prompt.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
+        prompt.setOnDismissListener(ignored -> { if (confirmation == prompt) confirmation = null; });
+        prompt.show();
         confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(page.error);
         confirmation.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(page.blue);
     }
 
-    private void toggleProxyDetails() {
-        proxyExpanded = !proxyExpanded;
-        proxyError = "";
-        if (proxyExpanded) readProxyState();
-        else proxyAddress = "";
-        render();
+    private void openProxy() {
+        if (!isShowing() || proxyDialog != null || session != Session.SIGNED_IN) return;
+        AccountWindow child = new AccountWindow(activity, theme.isAppDark(), null);
+        proxyDialog = child;
+        proxyPage = new AccountPage(activity, child.getWindow(), theme, "本机 API 设置", child::dismiss, this::renderProxy);
+        child.setTitle("本机 API 设置");
+        child.setContentView(proxyPage);
+        child.setOnDismissListener(ignored -> {
+            if (proxyDialog == child) clearProxyPage();
+        });
+        readProxyState();
+        child.reveal(false);
+        renderProxy();
+    }
+
+    private void clearProxyPage() {
+        proxyDialog = null;
+        proxyPage = null;
+        proxyRunning = false;
+        proxyAddress = proxyError = "";
+    }
+
+    private void closeProxy() {
+        if (proxyDialog != null) proxyDialog.dismissNow();
+        clearProxyPage();
     }
 
     // status() is an in-memory snapshot. Keep just the address while the user has details open.
@@ -464,14 +508,14 @@ public final class AccountScreen {
             return null;
         }, (ignored, ex) -> {
             action = Action.NONE;
-            readProxyState();
-            if (ex != null) proxyError = enable ? "未能启用本机 API。请确认仍已登录，然后重试。" : "未能关闭本机 API，请重试。";
+            if (proxyDialog != null && proxyDialog.isActive()) readProxyState();
+            if (ex != null && proxyDialog != null) proxyError = enable ? "未能启用本机 API。请确认仍已登录，然后重试。" : "未能关闭本机 API，请重试。";
             render();
         });
     }
 
     private void copyLocal(boolean key) {
-        if (!isShowing() || !proxyExpanded || session != Session.SIGNED_IN) return;
+        if (!isShowing() || proxyDialog == null || !proxyDialog.isActive() || session != Session.SIGNED_IN) return;
         JSONObject info = proxy.status();
         if (!info.optBoolean("running")) {
             readProxyState();
@@ -498,7 +542,9 @@ public final class AccountScreen {
     }
 
     private void render() {
+        if (underUsage) { walletNeedsRender = true; return; }
         if (!isShowing() || page == null) return;
+        walletNeedsRender = false;
         boolean welcome = session != Session.SIGNED_IN;
         page.reset(welcome);
         if (welcome) page.logo();
@@ -522,6 +568,7 @@ public final class AccountScreen {
                 break;
             case SIGNED_IN:
                 renderSignedIn();
+                renderProxy();
                 break;
             default:
                 page.heading(checking ? "正在读取账户…" : "账户状态未确认", 24);
@@ -546,14 +593,14 @@ public final class AccountScreen {
         page.button(row, "前往充值", TONAL, 0, available ? this::openPayment : null);
         page.button(row, refreshing ? "正在刷新…" : "刷新余额", PLAIN, 8, available && !refreshing ? this::refreshWallets : null);
         page.navigationRow("API 使用情况", 16, available ? () -> {
-            dialog.dismiss();
+            if (!isShowing()) return;
+            underUsage = true;
             openUsage.run();
+            dialog.hideForUsage();
         } : null);
         page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
         page.divider(page.body, 28);
-        page.navigationRow(proxyExpanded ? "收起本机 API 设置" : "本机 API 设置", 8,
-                available ? this::toggleProxyDetails : null);
-        if (proxyExpanded) renderProxy();
+        page.navigationRow("本机 API 设置", 8, available ? this::openProxy : null);
         page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 8, available ? this::confirmLogout : null);
     }
 
@@ -568,17 +615,20 @@ public final class AccountScreen {
     }
 
     private void renderProxy() {
-        body("仅限本机访问。持有本机密钥的应用可以使用你的账户余额。", 8);
+        AccountPage page = proxyPage;
+        if (page == null || !proxyDialog.isActive()) return;
+        page.reset(false);
+        page.label(page.body, "仅限本机访问。持有本机密钥的应用可以使用你的账户余额。", 16, page.muted, false, 0);
         if (proxyRunning) {
             page.label(page.body, "连接地址", 15, page.ink, true, 16);
-            body(proxyAddress, 4);
+            page.label(page.body, proxyAddress, 16, page.muted, false, 4);
             page.label(page.body, "本机密钥  ••••••••", 15, page.ink, true, 12);
             LinearLayout row = page.actionRow(page.body, 12);
             boolean enabled = action == Action.NONE;
             page.button(row, "复制地址", TONAL, 0, enabled ? () -> copyLocal(false) : null);
             page.button(row, "复制本机密钥", TONAL, 8, enabled ? () -> copyLocal(true) : null);
         }
-        error(page.body, proxyError);
+        error(page, page.body, proxyError);
         page.button(page.body, action == Action.PROXY ? "正在处理…" : proxyRunning ? "关闭本机 API" : "启用本机 API",
                 proxyRunning ? PLAIN : TONAL, 12, action == Action.NONE ? this::toggleProxy : null);
     }
@@ -589,6 +639,9 @@ public final class AccountScreen {
         error(page.body, actionError);
     }
     private void error(LinearLayout parent, String message) {
+        error(page, parent, message);
+    }
+    private void error(AccountPage page, LinearLayout parent, String message) {
         if (message.isEmpty()) return;
         TextView text = page.label(parent, message, 15, page.error, false, 12);
         text.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);

@@ -12,7 +12,7 @@ export const useSearchPanel = create<SearchPanelState>(() => ({ entry: null, sou
 
 export const toggleSearchPanel = (entry: string, sources: Source[]) =>
   useSearchPanel.setState((state) =>
-    state.entry === entry ? { entry: null, sources: [] } : { entry, sources }
+    state.entry === entry ? { entry: null } : { entry, sources }
   )
 
-export const closeSearchPanel = () => useSearchPanel.setState({ entry: null, sources: [] })
+export const closeSearchPanel = () => useSearchPanel.setState({ entry: null })

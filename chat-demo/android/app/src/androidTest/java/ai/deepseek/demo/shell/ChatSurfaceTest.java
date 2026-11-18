@@ -14,11 +14,14 @@ import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView;
+import android.widget.ScrollView;
 
 import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import androidx.test.platform.app.InstrumentationRegistry;
 import androidx.test.runner.intent.IntentStubberRegistry;
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry;
+import androidx.test.runner.lifecycle.Stage;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -168,8 +171,13 @@ public class ChatSurfaceTest {
             launches.add(new Intent(intent));
             return new Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null);
         });
+        // Enough currencies to require actual scrolling, including on a tall phone.
+        JSONArray balances = new JSONArray();
+        for (String unit : "USD CNY EUR GBP HKD JPY AUD NZD CAD CHF SGD SEK NOK AED MXN ZAR INR BRL PLN KRW".split(" ")) {
+            balances.put(new JSONObject().put("currency", unit).put("balance", "13.3400"));
+        }
         OfflineHttps.Exchange refreshed = net.json("GET", "https://platform.deepseek.com/api/v0/users/get_user_summary", 200,
-            "{\"code\":0,\"data\":{\"biz_code\":0,\"biz_data\":{\"normal_wallets\":[{\"currency\":\"USD\",\"balance\":\"13.3400\"}],\"bonus_wallets\":[]}}}");
+            "{\"code\":0,\"data\":{\"biz_code\":0,\"biz_data\":{\"normal_wallets\":" + balances + ",\"bonus_wallets\":[]}}}");
         try {
             nativeLabel("前往充值", true);
             Intent payment = launches.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
@@ -180,21 +188,75 @@ public class ChatSurfaceTest {
             onUi(() -> { screen.onResume(); return null; });
             assertEquals(grant, refreshed.await().getRequestProperty("x-dsh-auth-token"));
             nativeLabel("13.34", false);
+            AccountPage walletPage = onUi(() -> (AccountPage) pageField.get(screen));
+            ScrollView walletScroll = (ScrollView) field(AccountPage.class, "scroll").get(walletPage);
+            int walletY = onUi(() -> { walletScroll.scrollTo(0, walletScroll.getHeight()); return walletScroll.getScrollY(); });
+            assertTrue("fixture scrolled the wallet", walletY > 0);
+            Field childField = field(AccountScreen.class, "proxyDialog");
+            for (boolean header : new boolean[]{true, false}) {
+                nativeLabel("本机 API 设置", true);
+                await("child owns input", () -> onUi(() -> {
+                    AccountWindow child = (AccountWindow) childField.get(screen);
+                    return child != null && child.getWindow().getDecorView().hasWindowFocus();
+                }));
+                if (header) onUi(() -> {
+                    AccountPage childPage = (AccountPage) field(AccountScreen.class, "proxyPage").get(screen);
+                    ((View) field(AccountPage.class, "back").get(childPage)).performClick();
+                    return null;
+                });
+                else InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+                await("only child was popped", () -> onUi(() -> childField.get(screen) == null && screen.isShowing()));
+                assertEquals(walletY, (int) onUi(walletScroll::getScrollY));
+            }
             nativeLabel("API 使用情况", true);
             dom("the in-app usage report opens from the native wallet", "!!document.querySelector('[data-api-usage]')");
             assertFalse("wallet yields to the usage report", onUi(screen::isShowing));
             assertTrue("opening usage stays in the app", launches.isEmpty());
-            OfflineHttps.Exchange reopened = net.json("GET", "https://platform.deepseek.com/api/v0/users/get_user_summary", 200,
-                "{\"code\":0,\"data\":{\"biz_code\":0,\"biz_data\":{\"normal_wallets\":[],\"bonus_wallets\":[]}}}");
+            await("usage owns input after wallet exit", () -> onUi(() -> activity.getWindow().getDecorView().hasWindowFocus()));
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
             nativeLabel("API 使用情况", false);
-            assertEquals(grant, reopened.await().getRequestProperty("x-dsh-auth-token"));
+            nativeLabel("13.34", false);
+            assertSame("same wallet view on return", walletPage, onUi(() -> pageField.get(screen)));
+            assertEquals("wallet scroll is retained", walletY, (int) onUi(walletScroll::getScrollY));
             dom("system back restores the account", "!document.querySelector('[data-api-usage]')");
             nativeLabel("API 使用情况", true);
             clickDom("open the official platform report", "[data-api-usage-official]");
             Intent report = launches.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
             assertNotNull("DeepSeek usage dashboard intent", report);
             assertEquals("https://platform.deepseek.com/usage", report.getDataString());
+            // A real Custom Tab pauses the controller, which finishes on its second resume.
+            // The stub intercepts that launch, so finish the controller to simulate returning.
+            await("intercepted Custom Tab controller", () -> onUi(() -> {
+                for (Activity resumed : ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)) {
+                    if (resumed instanceof com.capacitorjs.plugins.browser.BrowserControllerActivity) {
+                        resumed.finish();
+                        return true;
+                    }
+                }
+                return false;
+            }));
+            await("usage regains input after browser return", () -> onUi(() -> activity.getWindow().getDecorView().hasWindowFocus()));
+            clickDom("usage header returns to wallet", "[data-usage-source='account'] header button");
+            await("wallet regains input", () -> onUi(walletPage::hasWindowFocus));
+            dom("usage closed", "!document.querySelector('[data-api-usage]')");
+            assertEquals(walletY, (int) onUi(walletScroll::getScrollY));
+            nativeLabel("退出登录", true);
+            Field confirmField = field(AccountScreen.class, "confirmation");
+            await("logout confirmation owns input", () -> onUi(() -> {
+                android.app.Dialog confirm = (android.app.Dialog) confirmField.get(screen);
+                return confirm != null && confirm.getWindow().getDecorView().hasWindowFocus();
+            }));
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            await("Back cancels only logout", () -> onUi(() -> confirmField.get(screen) == null && walletPage.hasWindowFocus()));
+            onUi(() -> { ((View) field(AccountPage.class, "back").get(walletPage)).performClick(); return null; });
+            await("wallet header returns to settings", () -> onUi(() -> !screen.isShowing() && activity.getWindow().getDecorView().hasWindowFocus()));
+            dom("settings still on its root page", "!!document.querySelector('[data-settings-route=root][data-route-position=front]')");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            dom("settings closed with drawer open", "!document.querySelector('[data-settings-shell]') && "
+                    + "!!document.querySelector(\"[aria-hidden='false'] button[aria-label='设置'],[aria-hidden='false'] button[aria-label='Settings']\")");
+            InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
+            dom("drawer yields to chat", "!!document.querySelector('main textarea') && "
+                    + "!document.querySelector(\"[aria-hidden='false'] button[aria-label='设置'],[aria-hidden='false'] button[aria-label='Settings']\")");
         } finally { IntentStubberRegistry.reset(); }
     }
 

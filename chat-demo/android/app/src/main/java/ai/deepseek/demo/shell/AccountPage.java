@@ -39,7 +39,7 @@ final class AccountPage extends LinearLayout {
     boolean dark;
     int paper, panel, ink, muted, blue, onBlue, tint, rule, error;
 
-    AccountPage(Activity activity, Window window, SystemBars theme, Runnable close, Runnable redraw) {
+    AccountPage(Activity activity, Window window, SystemBars theme, String title, Runnable close, Runnable redraw) {
         super(activity);
         this.window = window;
         this.theme = theme;
@@ -56,8 +56,9 @@ final class AccountPage extends LinearLayout {
         back.setContentDescription("返回");
         back.setOnClickListener(v -> close.run());
         bar.addView(back, new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.START | Gravity.CENTER_VERTICAL));
-        barTitle = text("DeepChat 账户", 18, 0, true);
+        barTitle = text(title, 18, 0, true);
         barTitle.setGravity(Gravity.CENTER);
+        if (Build.VERSION.SDK_INT >= 28) barTitle.setAccessibilityHeading(true);
         FrameLayout.LayoutParams titleParams = new FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER);
         titleParams.setMarginStart(dp(54));
         titleParams.setMarginEnd(dp(54));

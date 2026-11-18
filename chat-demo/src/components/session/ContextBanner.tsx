@@ -24,7 +24,7 @@ import { useSettings } from '../../services/settings.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import { saveBlob } from '../../shell/saveFile.js'
 import { Button } from '../base/Button.js'
-import { Modal } from '../base/Modal.js'
+import { Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import styles from './ContextBanner.module.css'
 
@@ -315,7 +315,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
           <span className={styles.ringText}>{percent}</span>
         </button>
       </div>
-      {panelOpen ? (
+      <ModalPresence>{panelOpen ? (
         <Modal
           title={t('contextPanelTitle')}
           className={styles.dialog}
@@ -331,10 +331,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
                   variant="primary"
                   size="m"
                   disabled={busy}
-                  onClick={() => {
-                    setPanelOpen(false)
-                    setConfirmOpen(true)
-                  }}
+                  onClick={() => setConfirmOpen(true)}
                 >
                   {t('contextCompact')}
                 </Button>
@@ -409,10 +406,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
               <button
                 type="button"
                 className={styles.backupButton}
-                onClick={() => {
-                  setPanelOpen(false)
-                  setSummaryOpen(true)
-                }}
+                onClick={() => setSummaryOpen(true)}
               >
                 {t('contextSummaryView')}
               </button>
@@ -488,9 +482,9 @@ export const ContextBanner = ({ session }: { session: Session }) => {
             ) : null}
           </div>
         </Modal>
-      ) : null}
-      {confirmOpen ? renderConfirm() : null}
-      {summaryOpen ? renderSummary() : null}
+      ) : null}</ModalPresence>
+      <ModalPresence>{confirmOpen ? renderConfirm() : null}</ModalPresence>
+      <ModalPresence>{summaryOpen ? renderSummary() : null}</ModalPresence>
     </>
   )
 }

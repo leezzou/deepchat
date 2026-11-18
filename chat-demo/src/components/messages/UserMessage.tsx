@@ -1,3 +1,4 @@
+import { useBackLayer } from '../../shell/navigationMotion.js'
 import { useTranslate } from '../../i18n/index.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import clsx from 'clsx'
@@ -45,6 +46,7 @@ export const UserMessage = memo(function UserMessage({
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
   usePendingEdit(editing)
+  useBackLayer(editing, () => setEditing(false))
   const [draft, setDraft] = useState(message.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMobile = useIsMobile()

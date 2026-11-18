@@ -1,4 +1,7 @@
 import { useEffect, type ReactNode } from 'react'
+import clsx from 'clsx'
+import { POPOVER_EXIT_MS, useMotionPresence } from './motionPresence.js'
+import motion from './popoverMotion.module.css'
 import { createPortal } from 'react-dom'
 import { useIsMobile } from '../../app/viewport.js'
 import { useAnchoredPosition, useDelayedOpen } from './anchored.js'
@@ -23,8 +26,12 @@ export const Tooltip = ({
 }) => {
   const isMobile = useIsMobile()
   const { open, setOpen, schedule, cancel } = useDelayedOpen()
+  const { present, closing } = useMotionPresence(
+    open && !isMobile && Boolean(content),
+    POPOVER_EXIT_MS
+  )
   const { anchorRef, floatingRef, position } = useAnchoredPosition<HTMLSpanElement, HTMLDivElement>(
-    open,
+    present,
     { side: placement, align: 'center', measureFirstChild: true, measureKey: content }
   )
 
@@ -40,8 +47,6 @@ export const Tooltip = ({
     return () => window.removeEventListener('scroll', onScroll, true)
   }, [open, setOpen])
 
-  const visible = open && !isMobile && Boolean(content)
-
   return (
     <>
       <span
@@ -52,12 +57,13 @@ export const Tooltip = ({
       >
         {children}
       </span>
-      {visible
+      {present
         ? createPortal(
             <div
               ref={floatingRef}
               role="tooltip"
-              className={styles.tooltip}
+              className={clsx(styles.tooltip, motion.popover)}
+              data-state={closing ? 'closing' : 'open'}
               style={position ?? { top: 0, left: 0, visibility: 'hidden' }}
             >
               {content}

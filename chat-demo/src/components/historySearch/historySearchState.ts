@@ -11,10 +11,12 @@ export type HistoryLocation = {
 
 export const useHistorySearch = create<{
   open: boolean
+  initialQuery: string
   location: HistoryLocation | null
-}>(() => ({ open: false, location: null }))
+}>(() => ({ open: false, initialQuery: '', location: null }))
 
-export const openHistorySearch = () => useHistorySearch.setState({ open: true })
+export const openHistorySearch = () => useHistorySearch.setState({ open: true, initialQuery: '' })
+export const restoreHistorySearch = (initialQuery: string) => useHistorySearch.setState({ open: true, initialQuery })
 export const closeHistorySearch = () => useHistorySearch.setState({ open: false })
 export const clearHistoryLocation = () => useHistorySearch.setState({ location: null })
 let requestId = 0
