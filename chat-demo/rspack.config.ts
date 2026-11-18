@@ -29,7 +29,7 @@ export const createConfig = ({
   devServer,
 }: ConfigOptions = {}): Configuration => ({
   mode: dev ? 'development' : 'production',
-  entry: './src/main.tsx',
+  entry: { main: ['./src/polyfills.ts', './src/main.tsx'] },
   output: {
     path: path.resolve(root, 'dist'),
     // 运行时按当前脚本地址推导资源路径，file:// 下异步 chunk、字体都按相对位置加载

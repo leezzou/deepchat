@@ -8,5 +8,21 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      (function () {
+        function showLoadError() {
+          var root = document.getElementById('root')
+          if (!root || root.childNodes.length > 0) return
+          root.innerHTML =
+            '<div role="alert" style="box-sizing:border-box;min-height:100vh;padding:24px;background:#fff;color:#333;font:16px/1.7 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif">' +
+            '<strong>应用加载失败</strong><br>' +
+            '请先在应用商店更新 Android System WebView，或安装/更新 Chrome，然后重新打开应用。' +
+            '</div>'
+        }
+        window.addEventListener('error', showLoadError)
+        window.addEventListener('unhandledrejection', showLoadError)
+        window.setTimeout(showLoadError, 8000)
+      })()
+    </script>
   </body>
 </html>

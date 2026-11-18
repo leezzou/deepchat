@@ -1,8 +1,8 @@
 {
-  "version": "1.0.33",
+  "version": "1.0.34",
   "publishedAt": "2026-11-18",
-  "notes": "修复 Android 导入大型聊天记录时可能中途停止的问题，支持最大 2 GiB（含上限）的历史 ZIP 备份。",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.33",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.33/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.33/deepchat.apk"
+  "notes": "兼容旧版 Android System WebView：补齐 Object.hasOwn、Array.at、toReversed 等新 API；启动失败时显示更新 WebView 提示，不再只显示白屏",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.34",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.34/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.34/deepchat.apk"
 }
