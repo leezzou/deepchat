@@ -3,6 +3,7 @@ import { searchFeatureZh } from './searchFeature.js'
 import { backupFeatureZh } from './backupFeature.js'
 import { contextFeatureZh } from './contextFeature.js'
 import { deleteFeatureZh } from './deleteFeature.js'
+import { usageFeatureZh } from './usageFeature.js'
 
 export const zh = {
   dshAccountExpired: '账号登录已过期，请重新登录。',
@@ -17,6 +18,7 @@ export const zh = {
   ...backupFeatureZh,
   ...contextFeatureZh,
   ...deleteFeatureZh,
+  ...usageFeatureZh,
   welcomeGreeting: '欢迎回来，想从哪里开始？',
   contentCaveat: '回答由 AI 生成，仅供参考',
   expandSiderbarButton: '打开边栏',

@@ -17,6 +17,7 @@ import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey } from '../components/settings/settingsDialogState.js'
 import { BackupReminder, SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { ApiUsageDialog } from '../components/settings/ApiUsage.js'
 import { HistorySearch } from '../components/historySearch/HistorySearch.js'
 import {
   bindDraftPersistence,
@@ -208,6 +209,7 @@ export const App = () => {
         <SearchPanel />
       </div>
       <SettingsDialog />
+      <ApiUsageDialog />
       <HistorySearch />
       <BackupReminder />
       <Toast />

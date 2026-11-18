@@ -73,6 +73,7 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
+import { openApiUsage } from './ApiUsage.js'
 import { popLayer, pushLayer } from '../../shell/native.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
@@ -157,6 +158,11 @@ const SettingsContent = ({ historyImport }: ImportProps) => {
           ) : (
             <>
               <ApiKeyField editor={apiKeyEditor} />
+              <SettingCell label={t('usageTitle')} status={null} action={
+                <Button data-api-usage-entry variant="outlined" size="m" onClick={openApiUsage}>
+                  {t('usageView')}
+                </Button>
+              } />
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
               <SettingCell
@@ -1107,6 +1113,12 @@ const MobileApiKeyContent = ({
         </button>
       </MobileGroup>
       <div className={styles.profileHint}>{t('apiProfileHint')}</div>
+      <MobileGroup wide>
+        <button type="button" data-api-usage-entry className={styles.row} onClick={openApiUsage}>
+          <span className={styles.rowLabel}>{t('usageTitle')}</span>
+          <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
+        </button>
+      </MobileGroup>
     </>
   )
 }

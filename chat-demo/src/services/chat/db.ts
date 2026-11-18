@@ -6,6 +6,7 @@ import {
   type StoreNames,
 } from 'idb'
 import { createId } from '../../utils/id.js'
+import { countRecordedReplies, makeUsageDays } from './recordedUsage.js'
 import { toSessionSummary, type Session, type SessionSummary } from './types.js'
 
 const DB_VERSION = 12
@@ -13,7 +14,11 @@ const DB_VERSION = 12
 /** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份。 */
 export type StoredFile = { id: string; blob: Blob }
 
-type StoredSessionSummary = SessionSummary & { fileIds: string[] }
+type StoredSessionSummary = SessionSummary & {
+  fileIds: string[]
+  /** null for sessions without a usage snapshot (including ZIP imports); absent in older summaries. */
+  latestUsageAt?: number | null
+}
 type SummaryStore = { key: string; value: StoredSessionSummary; indexes: { fileIds: string } }
 type Generation = 0 | 1
 
@@ -36,16 +41,20 @@ const other = (generation: Generation): Generation => (generation === 0 ? 1 : 0)
 
 let dbPromise: Promise<IDBPDatabase<ChatDB>> | null = null
 
-const storedSummary = (session: Session): StoredSessionSummary => ({
-  ...toSessionSummary(session),
-  fileIds: [
-    ...new Set(
-      session.messages.flatMap((message) =>
-        message.role === 'user' ? message.files.map((file) => file.id) : []
-      )
-    ),
-  ],
-})
+const storedSummary = (session: Session): StoredSessionSummary => {
+  const fileIds = new Set<string>()
+  let latestUsageAt: number | null = null
+  for (const message of session.messages) {
+    if (message.role === 'user') {
+      for (const file of message.files) {
+        fileIds.add(file.id)
+      }
+    } else if (message.usage && Number.isFinite(message.createdAt)) {
+      latestUsageAt = Math.max(latestUsageAt ?? message.createdAt, message.createdAt)
+    }
+  }
+  return { ...toSessionSummary(session), fileIds: [...fileIds], latestUsageAt }
+}
 
 const getDB = () =>
   (dbPromise ??= openDB<ChatDB>('chat-demo', DB_VERSION, {
@@ -109,6 +118,30 @@ export const loadSessionSummaries = (): Promise<SessionSummary[]> =>
   transact(summaries, 'readonly', async (tx, g) =>
     (await tx.objectStore(summaries[g]).getAll()).map(toSessionSummary)
   )
+
+/** Read one session at a time, only from the active generation. Never load attachment blobs. */
+export const loadRecordedUsage = (signal: AbortSignal, now = Date.now()) =>
+  transact([...summaries, ...sessions], 'readonly', async (tx, g) => {
+    const days = makeUsageDays(now)
+    const [firstDay] = days.keys()
+    const store = tx.objectStore(sessions[g])
+    let cursor = await tx.objectStore(summaries[g]).openCursor()
+    while (cursor) {
+      if (signal.aborted) {
+        throw new DOMException('Usage report closed', 'AbortError')
+      }
+      const { latestUsageAt } = cursor.value
+      // Legacy summaries have no hint. Read those for accuracy, even when the session date differs.
+      if (latestUsageAt === undefined || (latestUsageAt !== null && latestUsageAt >= firstDay)) {
+        const session = await store.get(cursor.primaryKey)
+        if (session) {
+          countRecordedReplies(days, session.messages, now)
+        }
+      }
+      cursor = await cursor.continue()
+    }
+    return { asOf: now, days: [...days] }
+  })
 
 export const loadSession = (id: string): Promise<Session | undefined> =>
   transact(sessions, 'readonly', (tx, g) => tx.objectStore(sessions[g]).get(id))

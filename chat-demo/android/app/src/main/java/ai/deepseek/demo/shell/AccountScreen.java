@@ -52,6 +52,7 @@ public final class AccountScreen {
     private final Activity activity;
     private final DshAccountHost host;
     private final DshLocalProxy proxy;
+    private final Runnable openUsage;
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService accountWorker = Executors.newSingleThreadExecutor();
     // A slow wallet request must not hold up a confirmed logout or keep the proxy enabled.
@@ -72,10 +73,11 @@ public final class AccountScreen {
     private Wallets wallets;
     private Date updated;
 
-    public AccountScreen(Activity activity, DshAccountHost host, DshLocalProxy proxy) {
+    public AccountScreen(Activity activity, DshAccountHost host, DshLocalProxy proxy, Runnable openUsage) {
         this.activity = activity;
         this.host = host;
         this.proxy = proxy;
+        this.openUsage = openUsage;
     }
 
     public boolean isShowing() { return dialog != null && dialog.isShowing(); }
@@ -536,7 +538,11 @@ public final class AccountScreen {
         boolean available = action == Action.NONE;
         page.button(row, "前往充值", TONAL, 0, available ? this::openPayment : null);
         page.button(row, refreshing ? "正在刷新…" : "刷新余额", PLAIN, 8, available && !refreshing ? this::refreshWallets : null);
-        page.button(page.body, "继续聊天", PRIMARY, 20, dialog::dismiss);
+        page.button(page.body, "API 使用情况", TONAL, 16, available ? () -> {
+            dialog.dismiss();
+            openUsage.run();
+        } : null);
+        page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
         page.divider(page.body, 28);
         page.button(page.body, proxyExpanded ? "收起本机 API 设置" : "本机 API 设置", PLAIN, 8,
                 available ? this::toggleProxyDetails : null);

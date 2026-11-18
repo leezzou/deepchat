@@ -19,6 +19,9 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
 /** Native layout for the account dialog. All dimensions are dp; text follows the system font scale. */
 final class AccountPage extends LinearLayout {
     enum Style { PRIMARY, TONAL, PLAIN, DANGER }
@@ -140,7 +143,8 @@ final class AccountPage extends LinearLayout {
         parent.addView(line, paddedTop(MATCH, dp(1), top));
     }
 
-    void walletRow(LinearLayout parent, String currency, String balance) {
+    void walletRow(LinearLayout parent, String currency, String rawBalance) {
+        String balance = new BigDecimal(rawBalance).setScale(2, RoundingMode.HALF_UP).toPlainString();
         LinearLayout row = new LinearLayout(getContext());
         row.setGravity(Gravity.CENTER_VERTICAL);
         // Larger font scales and long decimal amounts get independent, full-width lines.

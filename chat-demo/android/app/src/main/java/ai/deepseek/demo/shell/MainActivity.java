@@ -27,7 +27,8 @@ public class MainActivity extends BridgeActivity {
                 && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             account = new DshAccountHost(this);
             proxy = new DshLocalProxy(account);
-            screen = new AccountScreen(this, account, proxy);
+            screen = new AccountScreen(this, account, proxy, () -> web.evaluateJavascript(
+                    "window.dispatchEvent(new Event('deepchat:open-api-usage'))", null));
             accountBridge = new DshWebBridge(web, account, screen::show);
             account.setSessionListener(() -> web.post(() -> {
                 if (accountBridge == null || isDestroyed()) return;

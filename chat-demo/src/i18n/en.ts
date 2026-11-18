@@ -4,6 +4,7 @@ import { searchFeatureEn } from './searchFeature.js'
 import { backupFeatureEn } from './backupFeature.js'
 import { contextFeatureEn } from './contextFeature.js'
 import { deleteFeatureEn } from './deleteFeature.js'
+import { usageFeatureEn } from './usageFeature.js'
 
 export const en = {
   dshAccountExpired: 'Your session expired. Sign in again.',
@@ -18,6 +19,7 @@ export const en = {
   ...backupFeatureEn,
   ...contextFeatureEn,
   ...deleteFeatureEn,
+  ...usageFeatureEn,
   welcomeGreeting: 'Welcome back. Where would you like to start?',
   contentCaveat: 'AI-generated, for reference only',
   expandSiderbarButton: 'Open sidebar',

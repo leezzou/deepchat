@@ -165,11 +165,16 @@ const readDelta = (value: unknown): ContentBlockDelta | null => {
   }
 }
 
-const isUsage = (value: unknown) =>
-  isRecord(value) &&
-  ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens', 'output_tokens'].every(
-    (key) => typeof value[key] === 'number' && Number.isFinite(value[key])
-  )
+// Some Anthropic-compatible streams omit the two optional cache counters. A delta
+// can contain only the cumulative output counter, leaving the starting input intact.
+const readUsage = (value: unknown, start: boolean) => {
+  if (!isRecord(value) || !isIndex(value.output_tokens)) return undefined
+  for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
+    if (value[key] !== undefined && !isIndex(value[key])) return undefined
+  }
+  if (start && !isIndex(value.input_tokens)) return undefined
+  return start ? { cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...value } : value
+}
 
 /** 未识别或无法安全消费的事件静默丢弃，不影响后续有效内容与正常结束。 */
 export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
@@ -185,7 +190,7 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
         ...value,
         message: {
           ...value.message,
-          usage: isUsage(value.message.usage) ? value.message.usage : undefined,
+          usage: readUsage(value.message.usage, true),
         },
       } as MessageStreamEvent
     case 'content_block_start': {
@@ -220,7 +225,7 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
           ...value.delta,
           title: isOptionalString(value.delta.title) ? value.delta.title : undefined,
         },
-        usage: isUsage(value.usage) ? value.usage : undefined,
+        usage: readUsage(value.usage, false),
       } as MessageStreamEvent
     case 'message_stop':
       break

@@ -101,6 +101,11 @@ public class ChatSurfaceTest {
         }
         assumeFalse("Leave an existing draft untouched", js("!!document.querySelector('main textarea').value || "
             + "!!document.querySelector('main button[aria-label=Delete],main button[aria-label=删除]')"));
+        assertTrue(js("(window.dispatchEvent(new Event('deepchat:open-api-usage')),true)"));
+        dom("initial usage snapshot", "!!document.querySelector('[data-usage-loaded]')");
+        assertTrue(js("(window.__beforeUsage=Number(document.querySelector('[data-usage-total]')?.dataset.usageTotal ?? 0), true)"));
+        assertTrue(js("(document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true})),true)"));
+        dom("return to composer", "!document.querySelector('[data-api-usage]')");
         String id = UUID.randomUUID().toString();
         String prompt = "Offline question " + id;
         String first = "Offline answer " + id;
@@ -120,20 +125,24 @@ public class ChatSurfaceTest {
             JSONObject question = messages.getJSONObject(messages.length() - 1);
             assertEquals("user", question.getString("role"));
             assertEquals(prompt, question.getString("content"));
-            event(upstream, "{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\"}}");
+            event(upstream, "{\"type\":\"message_start\",\"message\":{\"role\":\"assistant\",\"usage\":{\"input_tokens\":1200,\"cache_read_input_tokens\":512,\"output_tokens\":0}}}");
             event(upstream, "{\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}");
             delta(upstream, first);
             dom("first answer fragment before the second fragment or EOF", answerIs(first) + " && !!document.querySelector('" + STOP + "')");
             delta(upstream, last);
             event(upstream, "{\"type\":\"content_block_stop\",\"index\":0}");
-            event(upstream, "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}");
+            event(upstream, "{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":2059}}");
             event(upstream, "{\"type\":\"message_stop\"}");
             upstream.close();
             dom("completed assistant reply", answerIs(first + last) + " && !document.querySelector('" + STOP + "')");
         }
+        assertTrue(js("(window.dispatchEvent(new Event('deepchat:open-api-usage')),true)"));
+        dom("usage includes the streamed input, cache and final output", "Number(document.querySelector('[data-usage-total]')?.dataset.usageTotal) === window.__beforeUsage + 3771");
+        clickDom("30-day activity", "[data-usage-days='30']");
+        dom("30-day range is selected", "document.querySelector('[data-usage-days=\\\"30\\\"]')?.getAttribute('aria-pressed')==='true'");
     }
 
-    @Test public void phoneAccountPageShowsWalletAndOpensOnlyTheTopUpIntent() throws Exception {
+    @Test public void phoneAccountShowsRoundedBalancesAndOpensUsageReport() throws Exception {
         org.junit.Assume.assumeTrue("Exercise the phone settings entry", js("innerWidth < 768"));
         OfflineHttps.Exchange wallet = net.json("GET", "https://platform.deepseek.com/api/v0/users/get_user_summary", 200,
             "{\"code\":0,\"data\":{\"biz_code\":0,\"biz_data\":{\"normal_wallets\":[{\"currency\":\"USD\",\"balance\":\"12.3400\"}],"
@@ -142,10 +151,13 @@ public class ChatSurfaceTest {
         clickDom("open settings", "button[aria-label='设置'],button[aria-label='Settings']");
         clickDom("open native account", "button[data-dsh-account]");
         assertEquals(grant, wallet.await().getRequestProperty("x-dsh-auth-token"));
-        for (String label : new String[]{"钱包余额", "USD", "12.3400", "赠送余额", "CNY", "0.005"}) nativeLabel(label, false);
+        for (String label : new String[]{"钱包余额", "USD", "12.34", "赠送余额", "CNY", "0.01"}) nativeLabel(label, false);
 
         BlockingQueue<Intent> launches = new LinkedBlockingQueue<>();
         IntentStubberRegistry.load(intent -> {
+            // Let Capacitor's in-app browser controller launch the actual Custom Tab intent.
+            if (intent.getComponent() != null && intent.getComponent().getClassName().equals(
+                    "com.capacitorjs.plugins.browser.BrowserControllerActivity")) return null;
             launches.add(new Intent(intent));
             return new Instrumentation.ActivityResult(Activity.RESULT_CANCELED, null);
         });
@@ -160,7 +172,15 @@ public class ChatSurfaceTest {
             assertTrue("single top-up intent", launches.isEmpty());
             onUi(() -> { screen.onResume(); return null; });
             assertEquals(grant, refreshed.await().getRequestProperty("x-dsh-auth-token"));
-            nativeLabel("13.3400", false);
+            nativeLabel("13.34", false);
+            nativeLabel("API 使用情况", true);
+            dom("the in-app usage report opens from the native wallet", "!!document.querySelector('[data-api-usage]')");
+            assertFalse("wallet yields to the usage report", onUi(screen::isShowing));
+            assertTrue("opening usage stays in the app", launches.isEmpty());
+            clickDom("open the official platform report", "[data-api-usage-official]");
+            Intent report = launches.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            assertNotNull("DeepSeek usage dashboard intent", report);
+            assertEquals("https://platform.deepseek.com/usage", report.getDataString());
         } finally { IntentStubberRegistry.reset(); }
     }
 

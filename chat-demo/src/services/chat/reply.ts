@@ -3,6 +3,7 @@ import type {
   FileBlockParam,
   MessageParam,
   MessageStreamEvent,
+  MessageUsage,
   OutputBlockStart,
   TextBlockParam,
 } from '../api/types.js'
@@ -65,6 +66,17 @@ const updateBlock = (
   return { ...reply, blocks }
 }
 
+function mergeUsage(start: MessageUsage | undefined, delta: Extract<MessageStreamEvent, { type: 'message_delta' }>['usage']): MessageUsage | undefined {
+  if (!delta) return start
+  const input = delta.input_tokens ?? start?.input_tokens
+  if (input === undefined) return undefined
+  return {
+    ...start, ...delta, input_tokens: input,
+    cache_read_input_tokens: delta.cache_read_input_tokens ?? start?.cache_read_input_tokens ?? 0,
+    cache_creation_input_tokens: delta.cache_creation_input_tokens ?? start?.cache_creation_input_tokens ?? 0,
+  }
+}
+
 /**
  * 把一个流式事件合并进回复：只追加可识别的内容块，用本次请求的临时索引映射处理增量。
  * 跳过的块不占位；续写直接追加到已有内容之后，message_delta 更新结束原因与累计用量。
@@ -79,7 +91,8 @@ export const applyEvent = (
     reply.status === 'streaming' ? reply : { ...reply, status: 'streaming' }
   switch (event.type) {
     case 'message_start':
-      return { ...next, usage: event.message.usage ?? next.usage }
+      // A continuation starts a new request and must not inherit an older request's inputs.
+      return { ...next, usage: event.message.usage }
     case 'content_block_start': {
       blockIndexes.delete(event.index)
       const block = toReplyBlock(event.content_block, now)
@@ -129,7 +142,7 @@ export const applyEvent = (
         ...next,
         stopReason: event.delta.stop_reason,
         stopDetails: event.delta.stop_details,
-        usage: event.usage ?? next.usage,
+        usage: mergeUsage(next.usage, event.usage),
       }
     default:
       return next
