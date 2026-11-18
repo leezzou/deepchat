@@ -1,5 +1,7 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
-import { getApiConfig, getApiOrigin } from './origin.js'
+import { getApiOrigin } from './origin.js'
+import { accessOrigin, type ChatAccess } from './access.js'
+import { accountFetch } from '../../shell/account.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
 import type {
@@ -12,7 +14,7 @@ import type {
 } from './types.js'
 
 /** Anthropic 兼容接口的前缀（跟随当前配置的接口地址） */
-const anthropicBaseUrl = () => `${getApiOrigin()}/anthropic/v1`
+const anthropicBaseUrl = (access: ChatAccess) => `${accessOrigin(access)}/anthropic/v1`
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
 const FILES_BETA = 'files-api-2025-04-14'
 
@@ -66,10 +68,10 @@ const readErrorResponse = async (
   return new ApiError(kind, message, response.status)
 }
 
-export const request = async (url: string, init: RequestInit): Promise<Response> => {
+export const request = async (url: string, init: RequestInit, access?: ChatAccess): Promise<Response> => {
   let response: Response
   try {
-    response = await fetch(url, init)
+    response = access?.source === 'account' ? await accountFetch(url, init) : await fetch(url, init)
   } catch (error) {
     if (init.signal?.aborted) {
       throw error
@@ -77,6 +79,11 @@ export const request = async (url: string, init: RequestInit): Promise<Response>
     throw new ApiError('network', error instanceof Error ? error.message : String(error))
   }
   if (!response.ok) {
+    if (access?.source === 'account' && (response.status === 401 || response.status === 402)) {
+      await response.body?.cancel()
+      const key = response.status === 401 ? 'dshAccountExpired' : 'dshAccountInsufficient'
+      throw new ApiError('http', { key }, response.status)
+    }
     throw await readErrorResponse(response)
   }
   return response
@@ -110,9 +117,9 @@ const requestWithTimeout = async (
   }
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
+const anthropicHeaders = (access: ChatAccess, beta: boolean): Record<string, string> => ({
   // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
+  ...(access.source === 'api' ? { 'x-api-key': access.key } : {}),
   // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
   ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
 })
@@ -157,7 +164,7 @@ export const fetchModelIds = async (
  * purpose 为 null 时不传该字段（图片）；purpose 必须排在 file 之前。
  */
 export const uploadFile = async (
-  apiKey: string,
+  access: ChatAccess,
   file: File,
   purpose: FilePurpose | null,
   signal?: AbortSignal
@@ -167,21 +174,21 @@ export const uploadFile = async (
     form.append('purpose', purpose)
   }
   form.append('file', file)
-  const response = await request(`${anthropicBaseUrl()}/files`, {
+  const response = await request(`${anthropicBaseUrl(access)}/files`, {
     method: 'POST',
-    headers: anthropicHeaders(apiKey, true),
+    headers: anthropicHeaders(access, true),
     body: form,
     signal,
-  })
+  }, access)
   return (await response.json()) as FileObject
 }
 
 /** DELETE /anthropic/v1/files/{file_id} */
-export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
-  await request(`${anthropicBaseUrl()}/files/${encodeURIComponent(fileId)}`, {
+export const deleteFile = async (access: ChatAccess, fileId: string): Promise<void> => {
+  await request(`${anthropicBaseUrl(access)}/files/${encodeURIComponent(fileId)}`, {
     method: 'DELETE',
-    headers: anthropicHeaders(apiKey, true),
-  })
+    headers: anthropicHeaders(access, true),
+  }, access)
 }
 
 const hasFile = (body: CreateMessageRequest) =>
@@ -231,15 +238,15 @@ const toOpenAiMessages = (body: CreateMessageRequest) => {
  * 上层的 applyEvent / 渲染逻辑完全不用改。
  */
 async function* streamOpenAiChat(
-  apiKey: string,
+  access: Extract<ChatAccess, { source: 'api' }>,
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  const { origin, model } = getApiConfig()
+  const { origin, model } = access.config
   const response = await request(`${origin}/chat/completions`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${access.key}`,
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
       'x-opencode-session': OPENCODE_SESSION,
@@ -311,24 +318,24 @@ async function* streamOpenAiChat(
  * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
  */
 export async function* streamMessage(
-  apiKey: string,
+  access: ChatAccess,
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  if (getApiConfig().protocol === 'openai') {
-    yield* streamOpenAiChat(apiKey, body, signal)
+  if (access.source === 'api' && access.config.protocol === 'openai') {
+    yield* streamOpenAiChat(access, body, signal)
     return
   }
-  const response = await request(`${anthropicBaseUrl()}/messages`, {
+  const response = await request(`${anthropicBaseUrl(access)}/messages`, {
     method: 'POST',
     headers: {
-      ...anthropicHeaders(apiKey, hasFile(body)),
+      ...anthropicHeaders(access, hasFile(body)),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
     body: JSON.stringify({ ...body, stream: true }),
     signal,
-  })
+  }, access)
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) {
     throw await readErrorResponse(response, 'protocol', '')

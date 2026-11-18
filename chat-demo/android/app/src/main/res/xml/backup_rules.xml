@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- The login envelope is bound to this device's Android Keystore. -->
+    <exclude domain="sharedpref" path="dsh-account-v1.xml" />
+</full-backup-content>

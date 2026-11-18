@@ -10,6 +10,7 @@ import {
   IconThinkOutline14,
 } from '../base/icons.js'
 import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import { requireChatAccess } from '../../services/api/access.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
@@ -59,6 +60,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
   const apiProtocol = useSettings((state) => {
+    if (state.chatSource === 'account') return 'deepseek'
     const active = state.apiProfiles.find((item) => item.id === state.activeProfileId)
     return active?.protocol ?? 'deepseek'
   })
@@ -92,7 +94,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       showToast({ key: 'apiAttachmentUnsupported' })
       return
     }
-    const error = addDraftFiles(sessionId, files, useSettings.getState().apiKey ?? '')
+    const error = addDraftFiles(sessionId, files, requireChatAccess())
     if (error) {
       showToast(error)
     }
@@ -100,7 +102,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const retryFile = useCallback(
     (id: string) => {
       if (!useChatStore.getState().importingHistory && ensureApiKey()) {
-        retryDraftAttachment(sessionId, id, useSettings.getState().apiKey ?? '')
+        retryDraftAttachment(sessionId, id, requireChatAccess())
       }
     },
     [sessionId]

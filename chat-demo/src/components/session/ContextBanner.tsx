@@ -49,6 +49,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   // API 配置切换后立即重新计算窗口和百分比。
   useSettings((state) => state.apiProfiles)
   useSettings((state) => state.activeProfileId)
+  useSettings((state) => state.chatSource)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [editingSummary, setEditingSummary] = useState(false)

@@ -5,6 +5,13 @@ import { contextFeatureZh } from './contextFeature.js'
 import { deleteFeatureZh } from './deleteFeature.js'
 
 export const zh = {
+  dshAccountExpired: '账号登录已过期，请重新登录。',
+  dshAccountInsufficient: '账号余额不足，请查看余额或充值。',
+  dshAccountLogin: '登录 DeepSeek 账号',
+  dshAccount: 'DeepSeek 账号',
+  dshAccountManage: '余额与充值',
+  dshChatUses: '聊天使用',
+  dshAccountBalance: '账号余额',
   ...safetyFeatureZh,
   ...searchFeatureZh,
   ...backupFeatureZh,

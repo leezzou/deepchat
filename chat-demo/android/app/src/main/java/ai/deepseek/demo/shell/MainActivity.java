@@ -1,21 +1,63 @@
 package ai.deepseek.demo.shell;
 
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
+import android.webkit.WebView;
+import androidx.webkit.WebViewFeature;
 
 import com.getcapacitor.BridgeActivity;
 
 public class MainActivity extends BridgeActivity {
     private SystemBars systemBars;
+    private DshAccountHost account;
+    private DshLocalProxy proxy;
+    private AccountScreen screen;
+    private DshWebBridge accountBridge;
+
+    @Override
+    protected void load() {
+        // Install all bridges before Capacitor loads the packaged page.
+        WebView web = findViewById(com.getcapacitor.android.R.id.webview);
+        systemBars = new SystemBars(this);
+        web.addJavascriptInterface(systemBars, "AndroidSystemBars");
+        web.addJavascriptInterface(new Updater(this), "AndroidUpdater");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
+                && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            account = new DshAccountHost(this);
+            proxy = new DshLocalProxy(account);
+            screen = new AccountScreen(this, account, proxy);
+            accountBridge = new DshWebBridge(web, account, screen::show);
+            account.setSessionListener(() -> web.post(() -> {
+                if (accountBridge == null || isDestroyed()) return;
+                if (!account.signedIn()) proxy.stop();
+                accountBridge.changed();
+            }));
+        }
+        super.load();
+    }
+
+    @Override public void onResume() {
+        super.onResume();
+        if (screen != null) screen.onResume();
+        if (accountBridge != null) accountBridge.changed();
+    }
+
+    @Override public void onDestroy() {
+        if (screen != null) screen.dismiss();
+        if (accountBridge != null) accountBridge.close();
+        if (proxy != null) proxy.stop();
+        if (account != null) account.close();
+        super.onDestroy();
+    }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        systemBars = new SystemBars(this);
-        // 暴露给 Web 端：主题改系统栏配色、点语音时申请录音权限
-        getBridge().getWebView().addJavascriptInterface(systemBars, "AndroidSystemBars");
-        // 应用内更新：下载 Release 里的 APK 并拉起系统安装器
-        getBridge().getWebView().addJavascriptInterface(new Updater(this), "AndroidUpdater");
+        if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
+            WebView.setWebContentsDebuggingEnabled(false);
+        }
     }
 
     @Override

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
+import { hasAccountBridge, initializeAccount } from '../shell/account.js'
 import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
 import {
@@ -113,8 +114,11 @@ export const App = () => {
   useEffect(() => {
     void initChat()
     void initDrafts()
-    // 首次打开先在设置里输入 API Key
-    ensureApiKey()
+    if (hasAccountBridge) {
+      initializeAccount((accountSignedIn) => useSettings.setState({ accountSignedIn }))
+    } else {
+      ensureApiKey()
+    }
   }, [])
 
   return (

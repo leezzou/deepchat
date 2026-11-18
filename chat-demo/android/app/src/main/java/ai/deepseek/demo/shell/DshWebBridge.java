@@ -1,0 +1,60 @@
+package ai.deepseek.demo.shell;
+
+import android.webkit.WebView;
+import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
+import java.util.Collections;
+import org.json.JSONObject;
+
+/** Only the packaged Capacitor main document may request inference or open native account controls. */
+final class DshWebBridge {
+    private final WebView web;
+    private final DshAccountHost host;
+    private final DshMessagesTransport transport;
+    private JavaScriptReplyProxy page;
+    DshWebBridge(WebView web, DshAccountHost host, Runnable openAccount) {
+        this.web = web;
+        this.host = host;
+        transport = new DshMessagesTransport(host);
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
+        WebViewCompat.addWebMessageListener(web, "DshNative", Collections.singleton("https://localhost"),
+                (view, message, origin, mainFrame, reply) -> {
+                    if (!mainFrame || !"https://localhost".equals(origin.toString())
+                            || message.getType() != androidx.webkit.WebMessageCompat.TYPE_STRING) return;
+                    String text = message.getData();
+                    if (text == null || text.length() > 36 * 1024 * 1024) return;
+                    String id = "";
+                    try {
+                        JSONObject request = new JSONObject(text);
+                        page = reply;
+                        switch (request.getString("op")) {
+                            case "status": changed(); return;
+                            case "account": openAccount.run(); return;
+                        }
+                        id = request.getString("id");
+                        if (!id.matches("[a-zA-Z0-9-]{1,64}")) return;
+                        final String call = id;
+                        if (request.getString("op").equals("cancel")) { transport.cancel(id); return; }
+                        if (!request.getString("op").equals("request")) return;
+                        transport.start(id, request.getString("path"), request.getString("method"), request.optString("contentType"), request.optString("body"),
+                                frame -> web.post(() -> {
+                                    if (page != reply) { transport.cancel(call); return; }
+                                    if (frame.optInt("status") == 401) changed();
+                                    try { reply.postMessage(frame.put("id", call).toString()); } catch (Exception gone) { transport.cancel(call); }
+                                }));
+                    } catch (Exception invalid) {
+                        try { reply.postMessage(new JSONObject().put("type", "error").put("id", id).put("message", "请求未能发送，请稍后重试。").toString()); } catch (Exception ignored) {}
+                    }
+                });
+    }
+    void changed() {
+        if (page == null) return;
+        try { page.postMessage(new JSONObject().put("type", "account").put("signedIn", host.signedIn()).toString()); } catch (Exception ignored) {}
+    }
+    void close() {
+        WebViewCompat.removeWebMessageListener(web, "DshNative");
+        page = null;
+        transport.close();
+    }
+}

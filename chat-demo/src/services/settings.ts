@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { hasAccountBridge } from '../shell/account.js'
 import {
   defaultApiOrigin,
   defaultApiModel,
@@ -38,6 +39,9 @@ export type ApiProfile = {
 type Settings = {
   /** 当前启用配置的 Key；没有配置时为 null */
   apiKey: string | null
+  /** Native host reports only sign-in status. */
+  accountSignedIn: boolean
+  chatSource: ChatSource
   /** 当前启用配置的接口地址 */
   apiOrigin: string
   apiProfiles: ApiProfile[]
@@ -58,7 +62,10 @@ type Settings = {
   autoCollapseThinking: boolean
 }
 
+export type ChatSource = 'account' | 'api'
+
 const KEYS = {
+  chatSource: 'chat-demo:chat-source',
   apiKey: 'chat-demo:api-key',
   apiProfiles: 'chat-demo:api-profiles',
   activeProfileId: 'chat-demo:active-profile',
@@ -202,7 +209,13 @@ setApiConfig({
   model: initialActive?.model,
 })
 
+const savedSource = read(KEYS.chatSource)
+const initialSource: ChatSource = hasAccountBridge &&
+  (savedSource === 'account' || (!initialActive && savedSource !== 'api')) ? 'account' : 'api'
+
 export const useSettings = create<Settings>(() => ({
+  accountSignedIn: false,
+  chatSource: initialSource,
   apiKey: initialActive?.apiKey ?? null,
   apiOrigin: initialActive?.origin ?? defaultApiOrigin,
   apiProfiles: initialProfiles,
@@ -221,6 +234,11 @@ export const useSettings = create<Settings>(() => ({
   fontScale: Number(read(KEYS.fontScale)) || 1,
   autoCollapseThinking: read(KEYS.autoCollapseThinking) !== 'false',
 }))
+
+export const setChatSource = (chatSource: ChatSource) => {
+  write(KEYS.chatSource, chatSource)
+  useSettings.setState({ chatSource })
+}
 
 export const setLocale = (locale: LocalePreference) => {
   write(KEYS.locale, locale)
@@ -281,6 +299,7 @@ export const saveApiProfile = (profile: ApiProfile) => {
     : [...apiProfiles, normalized]
   // 「保存并启用」：无论新增还是编辑，保存后都切到这条配置
   applyProfiles(next, normalized.id)
+  if (hasAccountBridge) setChatSource('api')
 }
 
 /** 删除一条配置；删掉当前启用的那条时自动切到第一条 */
@@ -293,6 +312,7 @@ export const removeApiProfile = (id: string) => {
 /** 切换当前启用的配置 */
 export const selectApiProfile = (id: string) => {
   applyProfiles(useSettings.getState().apiProfiles, id)
+  if (hasAccountBridge) setChatSource('api')
 }
 
 /** 退出登录：清空全部 API 配置（对话记录保留） */

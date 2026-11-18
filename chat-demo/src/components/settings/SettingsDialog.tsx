@@ -41,6 +41,7 @@ import {
   selectApiProfile,
   clearApiProfiles,
   setAutoCollapseThinking,
+  setChatSource,
   setAvatar,
   setDisplayName,
   setFontScale,
@@ -58,6 +59,7 @@ import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { requestUpdateInstall } from '../../services/updateSafety.js'
+import { hasAccountBridge, openAccount } from '../../shell/account.js'
 import { openExternal } from '../../shell/native.js'
 import {
   resolveLocale,
@@ -146,6 +148,7 @@ const SettingsContent = ({ historyImport }: ImportProps) => {
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (
             <>
+              {hasAccountBridge ? <AccountSettings /> : null}
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
@@ -513,6 +516,57 @@ const MobileSelectRow = ({
   </div>
 )
 
+/** The account panel never displays or edits an API profile. */
+const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
+  const t = useTranslate()
+  const signedIn = useSettings((state) => state.accountSignedIn)
+  const hasKey = useSettings((state) => Boolean(state.apiKey))
+  const source = useSettings((state) => state.chatSource)
+  const options = [
+    { value: 'account', label: t('dshAccountBalance') },
+    { value: 'api', label: 'API Key' },
+  ] as const
+  const showChoice = source === 'account' ? hasKey : signedIn
+  const picker = (
+    <Select
+      ariaLabel={t('dshChatUses')}
+      value={source}
+      className={mobile ? styles.selectHit : undefined}
+      options={[...options]}
+      onChange={(choice) => {
+        setChatSource(choice)
+        if (choice === 'account' && !signedIn) openAccount()
+      }}
+    />
+  )
+  const label = t(signedIn ? 'dshAccount' : 'dshAccountLogin')
+  if (!mobile) return (
+    <>
+      <SettingCell label={t('dshAccount')} status={null} action={
+        <Button data-dsh-account variant="outlined" size="m" onClick={openAccount}>
+          {signedIn ? t('dshAccountManage') : t('dshAccountLogin')}
+        </Button>
+      } />
+      {showChoice ? <SettingCell label={t('dshChatUses')} status={null} action={picker} /> : null}
+    </>
+  )
+  return (
+    <>
+      <button data-dsh-account type="button" className={styles.row} onClick={openAccount}>
+        <span className={styles.rowIcon}><IconPersonalize /></span>
+        <span className={styles.rowLabel}>{label}</span>
+        {signedIn ? <span className={styles.rowValue}>{t('dshAccountManage')}</span> : null}
+        <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
+      </button>
+      {showChoice ? (
+        <MobileSelectRow label={t('dshChatUses')} value={source === 'api' ? 'API Key' : t('dshAccountBalance')}>
+          {picker}
+        </MobileSelectRow>
+      ) : null}
+    </>
+  )
+}
+
 /** 设置根页：账户 / 应用 / 语音 / 关于，再加帮助与反馈、清除数据两张独立卡片 */
 const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
@@ -561,6 +615,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   return (
     <>
       <MobileGroup title="账户">
+        {hasAccountBridge ? <AccountSettings mobile /> : null}
         <MobileRow
           icon={<IconKey />}
           label="API Key 管理"
@@ -989,7 +1044,7 @@ const MobileApiKeyContent = ({
 }) => {
   const t = useTranslate()
   const apiProfiles = useSettings((state) => state.apiProfiles)
-  const activeProfileId = useSettings((state) => state.activeProfileId)
+  const activeProfileId = useSettings((state) => state.chatSource === 'api' ? state.activeProfileId : null)
   // 从申请指引过来时自动展开新增表单
   if (autoAdd && editing === null) {
     setEditing('new')
@@ -1091,7 +1146,7 @@ const MobileApiProfileForm = ({
     setLoadingModels(true)
     setModelError(false)
     try {
-      const list = await fetchModelIds(key, origin.trim() || undefined)
+      const list = await fetchModelIds(key, origin.trim() || defaultApiOrigin)
       setModels(list)
       setCustomModel(list.length === 0 || !list.includes(model))
       // 只有一个模型时直接选上，省一步
@@ -1143,7 +1198,7 @@ const MobileApiProfileForm = ({
     setVerifying(true)
     setFailure(null)
     try {
-      await verifyApiKey(key, origin.trim() || undefined)
+      await verifyApiKey(key, origin.trim() || defaultApiOrigin)
       saveApiProfile({
         ...profile,
         name: name.trim(),

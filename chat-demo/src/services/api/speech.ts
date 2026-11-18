@@ -1,5 +1,5 @@
 import { ApiError, request } from './client.js'
-import { getApiOrigin } from './origin.js'
+import { accessOrigin, type ChatAccess } from './access.js'
 
 /**
  * 语音接口：
@@ -7,7 +7,9 @@ import { getApiOrigin } from './origin.js'
  * - TTS：POST /v1/tools/tts，返回音频字节流（产出首帧后即返回 200）
  * 鉴权都用 Authorization: Bearer。
  */
-const toolsBaseUrl = () => `${getApiOrigin()}/v1/tools`
+const toolsBaseUrl = (access: ChatAccess) => `${accessOrigin(access)}/v1/tools`
+const headers = (access: ChatAccess): Record<string, string> =>
+  access.source === 'api' ? { Authorization: `Bearer ${access.key}` } : {}
 
 export type TtsVoice = 'stella' | 'tide'
 
@@ -16,18 +18,18 @@ export const TTS_SAMPLE_RATE = 24000
 
 /** 语音识别：audio 为 WAV（单声道 16-bit PCM）或 Ogg Opus，时长不超过 120 秒、大小不超过 8 MiB */
 export const transcribe = async (
-  apiKey: string,
+  access: ChatAccess,
   audio: Blob,
   signal?: AbortSignal
 ): Promise<string> => {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
-  const response = await request(`${toolsBaseUrl()}/asr`, {
+  const response = await request(`${toolsBaseUrl(access)}/asr`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
+    headers: headers(access),
     body: form,
     signal,
-  })
+  }, access)
   const raw = await response.text()
   let body: unknown
   try {
@@ -48,17 +50,17 @@ export const transcribe = async (
 
 /** 语音合成：返回裸 PCM 字节流；服务端默认过滤代码块、表格、引用标记与长公式 */
 export const synthesize = async (
-  apiKey: string,
+  access: ChatAccess,
   text: string,
   voice: TtsVoice,
   signal: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> => {
-  const response = await request(`${toolsBaseUrl()}/tts`, {
+  const response = await request(`${toolsBaseUrl(access)}/tts`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    headers: { ...headers(access), 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, voice_id: voice, format: 'pcm', filter_markdown: true }),
     signal,
-  })
+  }, access)
   if (!response.body) {
     throw new ApiError('protocol', await response.text())
   }

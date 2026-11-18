@@ -6,6 +6,13 @@ import { contextFeatureEn } from './contextFeature.js'
 import { deleteFeatureEn } from './deleteFeature.js'
 
 export const en = {
+  dshAccountExpired: 'Your session expired. Sign in again.',
+  dshAccountInsufficient: 'Your account has insufficient balance. Check your balance or top up.',
+  dshAccountLogin: 'Sign in to DeepSeek',
+  dshAccount: 'DeepSeek account',
+  dshAccountManage: 'Balance & top-up',
+  dshChatUses: 'Chat uses',
+  dshAccountBalance: 'Account balance',
   ...safetyFeatureEn,
   ...searchFeatureEn,
   ...backupFeatureEn,

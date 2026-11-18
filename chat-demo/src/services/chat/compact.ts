@@ -1,5 +1,6 @@
 import { streamMessage } from '../api/client.js'
 import { getApiConfig } from '../api/origin.js'
+import { getChatAccess } from '../api/access.js'
 import type { CreateMessageRequest, MessageParam } from '../api/types.js'
 import { useSettings } from '../settings.js'
 import { getContextRounds, getEffectiveContext, getReplyText, toRequestMessages } from './reply.js'
@@ -78,6 +79,7 @@ export { estimateTokens } from './contextBudget.js'
 /** 当前选中 API 配置的窗口优先；不把默认 DeepSeek 窗口套到其他模型。 */
 export const contextWindowTokens = (): number => {
   const state = useSettings.getState()
+  if (state.chatSource === 'account') return 1_000_000
   const active = state.apiProfiles.find((profile) => profile.id === state.activeProfileId)
   if (active?.contextWindow && Number.isFinite(active.contextWindow) && active.contextWindow > 0) {
     return active.contextWindow
@@ -159,9 +161,8 @@ export type CompactOptions = {
 
 const profileSignature = () =>
   JSON.stringify([
-    getApiConfig(),
+    getChatAccess(),
     useSettings.getState().activeProfileId,
-    useSettings.getState().apiKey,
     contextWindowTokens(),
   ])
 
@@ -205,11 +206,11 @@ export const compactSession = async (
   sessionId: string,
   options: CompactOptions = {}
 ): Promise<CompactResult> => {
-  const state = useSettings.getState()
+  const access = getChatAccess()
   const store = useChatStore.getState()
   const session = store.sessionCache[sessionId]
   const failure = (message: string): CompactResult => ({ ok: false, message })
-  if (!state.apiKey) {
+  if (!access) {
     return failure(translate('contextSummaryKeyMissing'))
   }
   if (!session || store.importingHistory) {
@@ -289,7 +290,7 @@ export const compactSession = async (
       let completed = false
       let stopReason: string | undefined
       for await (const event of streamMessage(
-        state.apiKey,
+        access,
         summaryRequest(messages),
         controller.signal
       )) {

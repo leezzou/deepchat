@@ -1,8 +1,8 @@
 {
-  "version": "1.0.31",
+  "version": "1.0.32",
   "publishedAt": "2026-11-18",
-  "notes": "帮助与反馈增加联系邮箱 leezzou@mail.ustc.edu.cn",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.31",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.31/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.31/deepchat.apk"
+  "notes": "设置顶部新增 DSH 账号登录，可使用账户余额聊天、查看余额和前往充值。API Key 管理保留独立入口。",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.32",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.32/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.32/deepchat.apk"
 }
