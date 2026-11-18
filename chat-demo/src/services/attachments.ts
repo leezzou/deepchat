@@ -1,7 +1,7 @@
 import type { ChatAccess } from './api/access.js'
 import { create } from 'zustand'
 import type { LinkedMessage, TranslationMessage } from '../i18n/index.js'
-import { uploadFile } from './api/client.js'
+import { ApiError, uploadFile } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
 import type { FilePurpose } from './api/types.js'
 import { ACCEPT_FILE_EXTS } from './uploadExts.js'
@@ -10,10 +10,12 @@ import { ACCEPT_FILE_EXTS } from './uploadExts.js'
 export const ACCEPTED_EXTS = ACCEPT_FILE_EXTS
 /** 选择文件对话框的过滤条件 */
 export const ACCEPT = ACCEPTED_EXTS.map((ext) => `.${ext}`).join(',')
-/** 单文件大小上限与 Files API 一致 */
-export const MAX_SIZE_MB = 64
+/** 文档（PDF/Word/PPT）上限，与 Files API 文档解析上限一致 */
+export const MAX_SIZE_MB = 100
 /** 按 user_data 上传的文件（纯文本、代码、表格、电子书）原文件上限更小 */
 export const MAX_USER_DATA_SIZE_MB = 32
+/** 超过该体积的 PDF/Word/PPT 改用纯文本解析：更快，也避免版面图片挤占请求 */
+const LARGE_DOCUMENT_MB = 20
 export const MAX_COUNT = 50
 /** 同时上传的文件数 */
 const MAX_CONCURRENT = 3
@@ -30,16 +32,25 @@ export const isAcceptedExt = (name: string) => ACCEPTED_EXTS.includes(getFileExt
 const LAYOUT_RECOGNITION_EXTS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx'])
 
 /** 上传时的 purpose：图片不传，PDF 与 Word、PPT 做版面解析，其余按 user_data 上传 */
-export const getUploadPurpose = (name: string, isImage: boolean): FilePurpose | null => {
+export const getUploadPurpose = (
+  name: string,
+  isImage: boolean,
+  sizeBytes = 0
+): FilePurpose | null => {
   if (isImage) {
     return null
   }
-  return LAYOUT_RECOGNITION_EXTS.has(getFileExt(name)) ? 'rich_layout_recognition' : 'user_data'
+  if (!LAYOUT_RECOGNITION_EXTS.has(getFileExt(name))) {
+    return 'user_data'
+  }
+  return sizeBytes > LARGE_DOCUMENT_MB * 1024 * 1024
+    ? 'text_recognition'
+    : 'rich_layout_recognition'
 }
 
 /** 文件允许的最大体积（MB），按上传时的 purpose 区分 */
 const getMaxSizeMB = (file: File) =>
-  getUploadPurpose(file.name, isImage(resolveMimeType(file))) === 'user_data'
+  getUploadPurpose(file.name, isImage(resolveMimeType(file)), file.size) === 'user_data'
     ? MAX_USER_DATA_SIZE_MB
     : MAX_SIZE_MB
 
@@ -68,6 +79,12 @@ export const describeUploadError = (error: unknown): TranslationMessage => {
   }
   if (getUploadErrorInfo(error)?.code === 'parseFailed') {
     return { key: 'uploadParseFailed' }
+  }
+  if (classifyApiError(error) === 'tooLarge') {
+    return { key: 'uploadServerTooLarge' }
+  }
+  if (error instanceof ApiError && error.status === 400) {
+    return { key: 'uploadFileRejected' }
   }
   return { key: 'uploadFileStatusFailed' }
 }
@@ -133,7 +150,7 @@ const enqueueUpload = (
       }
       try {
         const body = file instanceof File ? file : new File([file], name, { type: file.type })
-        resolve((await uploadFile(access, body, getUploadPurpose(name, isImage), signal)).id)
+        resolve((await uploadFile(access, body, getUploadPurpose(name, isImage, body.size), signal)).id)
       } catch (error) {
         reject(error)
       }

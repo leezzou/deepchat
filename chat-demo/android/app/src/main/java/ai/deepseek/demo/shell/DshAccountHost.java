@@ -35,10 +35,11 @@ final class DshAccountHost {
     private final SharedPreferences prefs;
     private final ExecutorService workers = Executors.newCachedThreadPool();
     private final SecureRandom rng = new SecureRandom();
-    private String grant, name = "", error = "";
+    private String grant, name = "", avatar = "", error = "";
     private Attempt active;
     private boolean closed;
     private Runnable sessionListener;
+    private boolean refreshingProfile;
 
     synchronized void setSessionListener(Runnable listener) { sessionListener = listener; }
     // Called under the host lock. The listener only posts a status refresh onto the UI thread.
@@ -71,8 +72,9 @@ final class DshAccountHost {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, decode(prefs.getString("iv", ""))));
             JSONObject saved = new JSONObject(new String(cipher.doFinal(decode(prefs.getString("ciphertext", ""))), StandardCharsets.UTF_8));
-            grant = saved.getString("token"); name = saved.optString("name");
+            grant = saved.getString("token"); name = saved.optString("name"); avatar = validPicture(saved.optString("avatar"));
         } catch (Exception invalid) { error = "此设备上的登录凭据无法读取，请重新授权。"; }
+        if (grant != null && avatar.isEmpty()) refreshProfile();
     }
     private static SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -89,7 +91,7 @@ final class DshAccountHost {
     synchronized String token() { return grant; }
     synchronized boolean signedIn() { return grant != null; }
     synchronized JSONObject status() throws Exception {
-        return new JSONObject().put("signedIn", signedIn()).put("pending", active != null).put("exchanging", active != null && active.receivedCode != null).put("name", name).put("error", error);
+        return new JSONObject().put("signedIn", signedIn()).put("pending", active != null).put("exchanging", active != null && active.receivedCode != null).put("name", name).put("avatar", avatar).put("error", error);
     }
     synchronized JSONObject beginLogin() throws Exception {
         if (closed) throw new IOException("账户页已关闭。");
@@ -169,6 +171,79 @@ final class DshAccountHost {
         if (code == null || !claim(a, code)) throw new IOException("该返回地址无效、已处理或已过期。");
     }
 
+    /** 账号资料只保留昵称与 HTTPS 头像地址，不保存平台返回的其它字段。 */
+    private static JSONObject profileOf(JSONObject user) {
+        if (user == null) return null;
+        JSONObject profile = user.optJSONObject("id_profile");
+        if (profile != null) return profile;
+        JSONObject nested = user.optJSONObject("user");
+        return nested == null ? null : nested.optJSONObject("id_profile");
+    }
+
+    private static String profileName(JSONObject profile) {
+        if (profile == null || profile.isNull("name")) return "";
+        String value = profile.optString("name", "").trim();
+        return value.length() > 80 ? value.substring(0, 80) : value;
+    }
+
+    private static String profilePicture(JSONObject profile) {
+        if (profile == null || profile.isNull("picture")) return "";
+        String value = profile.optString("picture", "").trim();
+        if (value.startsWith("//")) value = "https:" + value;
+        return value.startsWith("https://") && value.length() <= 2048 ? value : "";
+    }
+
+    private static String validPicture(String value) {
+        String picture = value == null ? "" : value.trim();
+        return picture.startsWith("https://") && picture.length() <= 2048 ? picture : "";
+    }
+
+    private boolean saveCredential(String token, String display, String picture) {
+        try {
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.ENCRYPT_MODE, key());
+            byte[] encrypted = cipher.doFinal(new JSONObject()
+                    .put("token", token).put("name", display).put("avatar", picture)
+                    .toString().getBytes(StandardCharsets.UTF_8));
+            return prefs.edit()
+                    .putString("iv", encode(cipher.getIV()))
+                    .putString("ciphertext", encode(encrypted))
+                    .commit();
+        } catch (Exception unavailable) {
+            return false;
+        }
+    }
+
+    /** 旧版本只存了昵称；启动时补一次 current 资料，让头像自动出现。 */
+    private void refreshProfile() {
+        final String token;
+        synchronized (this) {
+            if (grant == null || !avatar.isEmpty() || refreshingProfile) return;
+            token = grant;
+            refreshingProfile = true;
+        }
+        workers.execute(() -> {
+            try {
+                JSONObject profile = profileOf(request("/auth-api/v0/users/current", null, token));
+                String display = profileName(profile);
+                String picture = profilePicture(profile);
+                synchronized (this) {
+                    if (!token.equals(grant)) return;
+                    if (name.equals(display) && avatar.equals(picture)) return;
+                    if (saveCredential(token, display, picture)) {
+                        name = display;
+                        avatar = picture;
+                        sessionChanged();
+                    }
+                }
+            } catch (Exception ignored) {
+                // 资料接口失败不影响登录和余额；下次启动再试。
+            } finally {
+                synchronized (this) { refreshingProfile = false; }
+            }
+        });
+    }
+
     private void exchange(Attempt a) throws Exception {
         JSONObject result = request(AUTH + "auth_exchange", new JSONObject().put("code", a.receivedCode).put("code_verifier", a.verifier)
             .put("redirect_uri", a.redirect).put("device_id", deviceId()).put("device_model", Build.MANUFACTURER + " " + Build.MODEL)
@@ -182,24 +257,21 @@ final class DshAccountHost {
                     finish(a, "本次授权已过期，请重新登录。");
                     return;
                 }
-                JSONObject user = result.optJSONObject("user");
-                JSONObject profile = user == null ? null : user.optJSONObject("id_profile");
-                String display = profile == null || profile.isNull("name") ? "" : profile.optString("name");
-                try {
-                    Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
-                    cipher.init(Cipher.ENCRYPT_MODE, key());
-                    byte[] encrypted = cipher.doFinal(new JSONObject().put("token", received).put("name", display).toString().getBytes(StandardCharsets.UTF_8));
-                    if (!prefs.edit().putString("iv", encode(cipher.getIV())).putString("ciphertext", encode(encrypted)).commit()) throw new IOException();
-                } catch (Exception unavailable) {
+                JSONObject profile = profileOf(result.optJSONObject("user"));
+                String display = profileName(profile);
+                String picture = profilePicture(profile);
+                if (!saveCredential(received, display, picture)) {
                     throw new PlatformFailure("设备未能安全保存登录凭据，请解锁手机并检查可用存储后重试。");
                 }
                 grant = received;
                 name = display;
+                avatar = picture;
                 active = null;
                 error = "";
                 committed = true;
                 sessionChanged();
             }
+            if (avatar.isEmpty()) refreshProfile();
         } finally { if (!committed) revoke(received); }
     }
     private synchronized void finish(Attempt a, String message) { if (active == a) { active = null; error = message; a.close(); } }
@@ -257,7 +329,7 @@ final class DshAccountHost {
     }
     private void clear() {
         if (!prefs.edit().remove("iv").remove("ciphertext").commit()) throw new IllegalStateException("删除设备登录凭据失败，请重试。");
-        grant = null; name = ""; error = "";
+        grant = null; name = ""; avatar = ""; error = "";
         sessionChanged();
     }
     synchronized void logout() {

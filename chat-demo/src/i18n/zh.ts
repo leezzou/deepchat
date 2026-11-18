@@ -302,6 +302,8 @@ export const zh = {
   uploadFileStatusUploading: '上传中...',
   uploadServerBusy: '服务器繁忙',
   uploadParseFailed: '解析失败',
+  uploadServerTooLarge: '文件过大，服务端没有接受；请压缩或拆分后重试',
+  uploadFileRejected: '服务端没有接受这个文件，可能是格式、加密或页数限制；可尝试压缩、拆分或另存后重试',
   uploadFileCountLimit: '已上传文件数达到上限（{limit} 个），可 ',
   uploadStorageLimit: '已上传文件占用空间达到上限（{limit}GB），可 ',
   uploadDeleteFiles: '删除文件',

@@ -1,4 +1,5 @@
-type Frame = { type: string; id?: string; signedIn?: boolean; status?: number; contentType?: string; base64?: string; message?: string }
+type Frame = { type: string; id?: string; signedIn?: boolean; name?: string; avatar?: string; status?: number; contentType?: string; base64?: string; message?: string }
+export type AccountProfile = { signedIn: boolean; name: string; avatar: string | null }
 type Port = { postMessage: (value: string) => void; onmessage: ((value: MessageEvent<string>) => void) | null }
 const port = typeof window !== 'undefined' ? (window as Window & { DshNative?: Port }).DshNative : undefined
 export const hasAccountBridge = !!port
@@ -10,18 +11,24 @@ const post = (value: object) => {
 export function openAccount() {
   post({ op: 'account' })
 }
-export function initializeAccount(onStatus: (signedIn: boolean) => void) {
+export function initializeAccount(onStatus: (profile: AccountProfile) => void) {
   if (!port) return
   port.onmessage = ({ data }) => {
     const frame = JSON.parse(data) as Frame
     if (frame.type === 'account') {
-      if (typeof frame.signedIn === 'boolean') onStatus(frame.signedIn)
+      if (typeof frame.signedIn === 'boolean') {
+        onStatus({
+          signedIn: frame.signedIn,
+          name: typeof frame.name === 'string' ? frame.name : '',
+          avatar: typeof frame.avatar === 'string' && frame.avatar ? frame.avatar : null,
+        })
+      }
     } else if (frame.id) requests.get(frame.id)?.(frame)
   }
   post({ op: 'status' })
 }
 async function body64(body: Blob): Promise<string> {
-  if (body.size > 24 * 1024 * 1024) throw new Error('账号模式的请求大小上限为 24 MB。')
+  if (body.size > 40 * 1024 * 1024) throw new Error('账号模式的请求大小上限为 40 MB。')
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result).split(',', 2)[1] ?? '')

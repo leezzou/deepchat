@@ -39,8 +39,13 @@ const AvatarGlyph = () => (
 /** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
 export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
-  const userName = useSettings((state) => state.displayName)
-  const avatar = useSettings((state) => state.avatar)
+  const accountSignedIn = useSettings((state) => state.accountSignedIn)
+  const accountName = useSettings((state) => state.accountName)
+  const accountAvatar = useSettings((state) => state.accountAvatar)
+  const localName = useSettings((state) => state.displayName)
+  const localAvatar = useSettings((state) => state.avatar)
+  const userName = accountSignedIn && accountName ? accountName : localName
+  const avatar = accountSignedIn ? accountAvatar : localAvatar
   const hasUpdate = useUpdateNotice((state) => state.available !== null)
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)

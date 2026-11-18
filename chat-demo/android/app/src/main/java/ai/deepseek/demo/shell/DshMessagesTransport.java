@@ -101,7 +101,7 @@ final class DshMessagesTransport {
     }
 
     private enum Route {
-        MESSAGES(4 * MIB, 16 * MIB), FILE_UPLOAD(16 * MIB, MIB), FILE_DELETE(0, MIB),
+        MESSAGES(4 * MIB, 16 * MIB), FILE_UPLOAD(32 * MIB, MIB), FILE_DELETE(0, MIB),
         ASR(8 * MIB + 8192, MIB), TTS(MIB, 32 * MIB);
 
         final int requestLimit, responseLimit;

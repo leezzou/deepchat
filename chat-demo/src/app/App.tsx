@@ -116,7 +116,13 @@ export const App = () => {
     void initChat()
     void initDrafts()
     if (hasAccountBridge) {
-      initializeAccount((accountSignedIn) => useSettings.setState({ accountSignedIn }))
+      initializeAccount((account) =>
+        useSettings.setState({
+          accountSignedIn: account.signedIn,
+          accountName: account.name,
+          accountAvatar: account.avatar,
+        })
+      )
     } else {
       ensureApiKey()
     }

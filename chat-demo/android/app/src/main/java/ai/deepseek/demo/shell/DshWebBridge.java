@@ -23,7 +23,7 @@ final class DshWebBridge {
                     if (!mainFrame || !"https://localhost".equals(origin.toString())
                             || message.getType() != androidx.webkit.WebMessageCompat.TYPE_STRING) return;
                     String text = message.getData();
-                    if (text == null || text.length() > 36 * 1024 * 1024) return;
+                    if (text == null || text.length() > 48 * 1024 * 1024) return;
                     String id = "";
                     try {
                         JSONObject request = new JSONObject(text);
@@ -50,7 +50,11 @@ final class DshWebBridge {
     }
     void changed() {
         if (page == null) return;
-        try { page.postMessage(new JSONObject().put("type", "account").put("signedIn", host.signedIn()).toString()); } catch (Exception ignored) {}
+        try {
+            JSONObject status = host.status();
+            status.put("type", "account");
+            page.postMessage(status.toString());
+        } catch (Exception ignored) {}
     }
     void close() {
         WebViewCompat.removeWebMessageListener(web, "DshNative");

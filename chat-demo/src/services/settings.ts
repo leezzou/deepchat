@@ -39,8 +39,10 @@ export type ApiProfile = {
 type Settings = {
   /** 当前启用配置的 Key；没有配置时为 null */
   apiKey: string | null
-  /** Native host reports only sign-in status. */
+  /** Native host reports sign-in status; profile fields are memory-only. */
   accountSignedIn: boolean
+  accountName: string
+  accountAvatar: string | null
   chatSource: ChatSource
   /** 当前启用配置的接口地址 */
   apiOrigin: string
@@ -215,6 +217,8 @@ const initialSource: ChatSource = hasAccountBridge &&
 
 export const useSettings = create<Settings>(() => ({
   accountSignedIn: false,
+  accountName: '',
+  accountAvatar: null,
   chatSource: initialSource,
   apiKey: initialActive?.apiKey ?? null,
   apiOrigin: initialActive?.origin ?? defaultApiOrigin,

@@ -1,8 +1,8 @@
 {
-  "version": "1.0.37",
+  "version": "1.0.38",
   "publishedAt": "2026-11-18",
-  "notes": "钱包和赠送余额显示两位小数。新增 API 使用情况，可在手机查看近 7 天或 30 天的本机 Token 用量、每日明细，并打开 DeepSeek 官方账号用量报告。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.37",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.37/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.37/deepchat.apk"
+  "notes": "支持 20MB 以上 PDF/Word：大文档改用更快的纯文本解析，账号模式放宽大文件传输；登录 DeepSeek 账号后侧栏自动使用账号头像和昵称",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.38",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.38/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.38/deepchat.apk"
 }

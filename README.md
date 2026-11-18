@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.37/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.38/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
   <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
 </p>
@@ -66,7 +66,7 @@
 | **熟悉的移动端界面** | 首页、聊天输入框、会话抽屉与分层设置；系统返回键逐层返回，横滑打开或关闭会话列表。 |
 | **自己的 API** | 保存多条 API 配置，在服务商、模型和接口地址之间切换；支持 DeepSeek 专用接口与 OpenAI 兼容文本接口。 |
 | **读得舒服** | 流式回复、Markdown、代码高亮、数学公式与 Mermaid 图表；浅色、深色和跟随系统主题。 |
-| **调成喜欢的样子** | 七档聊天字号，拖动滑块实时预览；思考内容自动折叠开关；本地头像与昵称。 |
+| **调成喜欢的样子** | 七档聊天字号，拖动滑块实时预览；思考内容自动折叠开关；本地头像与昵称，登录 DeepSeek 账号后自动使用账号头像和昵称。 |
 | **说出来，也听得到** | 支持语音转文字及回复朗读；提供海星、暗潮两个音色选项。需要所选服务端提供相应语音接口。 |
 | **继续编辑与分享** | 编辑提问、重新生成回复、切换消息分支，删除单条消息及其后续分支；复制内容或打开 Android 系统分享面板。 |
 | **带着历史继续聊** | 导入、导出本机历史；消息级搜索直达原文；长对话可逐轮选择上下文并使用手动或自动摘要。 |
@@ -136,7 +136,7 @@ DeepSeek 专用接口还接入了深度思考、联网搜索、链接阅读与�
 <details>
 <summary><b>这是 DeepSeek 官方应用吗？</b></summary>
 
-不是。DeepChat 是基于开源 chat-demo 改造的社区客户端，参考官方移动端的交互习惯，使用你自己的 API Key。它没有 DeepSeek 官方账号登录或云端会话同步。
+不是。DeepChat 是基于开源 chat-demo 改造的社区客户端，参考官方移动端的交互习惯。可以填自己的 API Key，也可以登录 DeepSeek 账号使用账号额度；对话只保存在本机，没有 DeepChat 云端会话同步。
 
 </details>
 

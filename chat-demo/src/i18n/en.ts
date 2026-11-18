@@ -322,6 +322,9 @@ export const en = {
   uploadFileStatusUploading: 'Uploading...',
   uploadServerBusy: 'Server busy',
   uploadParseFailed: 'Parsing failed',
+  uploadServerTooLarge: 'The file is too large for the service. Compress or split it and try again.',
+  uploadFileRejected:
+    'The service rejected this file. It may be unsupported, encrypted or too long; try compressing, splitting or saving a new copy.',
   uploadFileCountLimit: 'Uploaded file limit reached ({limit} files). ',
   uploadStorageLimit: 'Uploaded file storage limit reached ({limit} GB). ',
   uploadDeleteFiles: 'Delete files',
