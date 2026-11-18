@@ -246,6 +246,7 @@ const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
 const helpText = [
   '在「账户 → API Key 管理」中填写 DeepSeek API Key 后即可开始对话。',
   '「数据管理」可以导入或导出全部历史对话，导出的 ZIP 文件也能再次导入。',
+  '如果遇到问题，请联系 leezzou@mail.ustc.edu.cn。',
 ].join('\n')
 
 /** 版本号来自构建时注入的 <meta name="application-version">，拿不到就不展示 */

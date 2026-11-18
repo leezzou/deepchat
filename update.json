@@ -1,8 +1,8 @@
 {
-  "version": "1.0.30",
+  "version": "1.0.31",
   "publishedAt": "2026-11-18",
-  "notes": "数据管理页将「从 DeepSeek 导入」移到「历史备份」上方，导入入口更靠前",
-  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.30",
-  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.30/deepchat.apk",
-  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.30/deepchat.apk"
+  "notes": "帮助与反馈增加联系邮箱 leezzou@mail.ustc.edu.cn",
+  "pageUrl": "https://github.com/leezzou/deepchat/releases/tag/v1.0.31",
+  "apkUrl": "https://gh-proxy.com/https://github.com/leezzou/deepchat/releases/download/v1.0.31/deepchat.apk",
+  "apkUrlFallback": "https://github.com/leezzou/deepchat/releases/download/v1.0.31/deepchat.apk"
 }
