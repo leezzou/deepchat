@@ -1,8 +1,8 @@
 {
-  "version": "1.0.35",
+  "version": "1.0.36",
   "publishedAt": "2026-11-18",
-  "notes": "国内更新检查优先走加速、GitHub 兜底；APK 下载与发布接入 Gitee 镜像；精简仓库，移除本地审计截图和内部交接文档",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.35",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.35/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.35/deepchat.apk"
+  "notes": "更新检查优先走 Gitee 镜像清单并缓存两分钟，GitHub 兜底；继续双发 GitHub 与 Gitee",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.36",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.36/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.36/deepchat.apk"
 }

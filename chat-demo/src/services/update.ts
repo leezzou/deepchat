@@ -1,6 +1,6 @@
 /**
- * 检查更新：直接读 GitHub Releases（本仓库的最新 release）。
- * 发版流程：改 chat-demo/package.json 的 version → 打包 → gh release create vX.Y.Z deepchat.apk
+ * 检查更新：优先读 Gitee 镜像清单，失败后走 ghfast/GitHub raw，最后回退 GitHub Releases API。
+ * 发版流程见 scripts/release.sh（GitHub 主仓库 + Gitee 镜像双发）。
  */
 
 /** 本项目的 GitHub 仓库，发版与检查更新都指向它 */
@@ -8,10 +8,14 @@ export const GITHUB_REPO = 'leezzou/deepchat'
 
 /**
  * 版本清单：仓库根目录的 update.json。
- * 国内优先走 ghfast 加速 GitHub raw，失败再直连 GitHub；API 只在清单缺失时兜底。
+ * 国内优先读 Gitee 镜像，失败再走 ghfast/GitHub raw，最后才用 GitHub Releases API 兜底。
  */
+const GITEE_MANIFEST_URL = 'https://gitee.com/api/v5/repos/yllzz/deepchat/contents/update.json'
 const GITHUB_MANIFEST_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/main/update.json`
-const MANIFEST_URLS = [`https://ghfast.top/${GITHUB_MANIFEST_URL}`, GITHUB_MANIFEST_URL]
+const GITHUB_MANIFEST_URLS = [
+  `https://ghfast.top/${GITHUB_MANIFEST_URL}`,
+  GITHUB_MANIFEST_URL,
+]
 
 /** 去掉 v 前缀与预发布后缀，只留 x.y.z */
 const normalizeVersion = (value: string): string =>
@@ -87,8 +91,30 @@ const parseManifest = (data: Manifest): ReleaseInfo | null => {
 }
 
 /** 优先读 update.json；没有清单（老仓库/发版脚本没跑）时回退到 Releases API */
-export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
-  for (const manifestUrl of MANIFEST_URLS) {
+const fetchGiteeManifest = async (): Promise<ReleaseInfo | null> => {
+  try {
+    const response = await fetch(`${GITEE_MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' })
+    if (!response.ok) {
+      return null
+    }
+    const file = (await response.json()) as { content?: unknown; encoding?: unknown }
+    if (file.encoding !== 'base64' || typeof file.content !== 'string') {
+      return null
+    }
+    const binary = atob(file.content.replace(/\s/g, ''))
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+    return parseManifest(JSON.parse(new TextDecoder().decode(bytes)) as Manifest)
+  } catch {
+    return null
+  }
+}
+
+const fetchLatestReleaseUncached = async (): Promise<ReleaseInfo | null> => {
+  const mirrored = await fetchGiteeManifest()
+  if (mirrored) {
+    return mirrored
+  }
+  for (const manifestUrl of GITHUB_MANIFEST_URLS) {
     try {
       // 加时间戳绕过 CDN 缓存，否则刚发版可能还拿到旧版本号
       const response = await fetch(`${manifestUrl}?t=${Date.now()}`, { cache: 'no-store' })
@@ -103,6 +129,27 @@ export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
     }
   }
   return fetchLatestFromApi()
+}
+
+/** Gitee API 未登录限流约 60 次/小时，前台每 60 秒检查一次，缓存两分钟避免打满。 */
+const MANIFEST_CACHE_MS = 2 * 60 * 1000
+let manifestCache: { at: number; result: Promise<ReleaseInfo | null> } | null = null
+
+export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
+  const now = Date.now()
+  if (manifestCache && now - manifestCache.at < MANIFEST_CACHE_MS) {
+    return manifestCache.result
+  }
+  const result = fetchLatestReleaseUncached()
+  manifestCache = { at: now, result }
+  try {
+    return await result
+  } catch (error) {
+    if (manifestCache?.result === result) {
+      manifestCache = null
+    }
+    throw error
+  }
 }
 
 /** 回退方案：GitHub Releases API（未登录 60 次/小时 / IP，只作兜底） */

@@ -73,7 +73,7 @@ pnpm --dir chat-demo exec cap sync android
 
 维护者可使用 [发布脚本](../scripts/release.sh)，但该脚本会修改版本和更新清单、提交并推送 GitHub 主仓库与 Gitee 镜像、创建两边 Release 并上传 APK；请在需要正式发布时使用。Gitee 私人令牌建议通过 `scripts/setup-gitee-token.sh` 存入 macOS 钥匙串，脚本不会把令牌写入仓库。
 
-应用优先通过 `ghfast.top` 加速读取 GitHub 上的 [更新清单](../update.json)，失败时直连 GitHub raw，再回退到 GitHub Releases API。APK 下载以 Gitee 发行版为主，失败时回退到 ghfast 加速的 GitHub 地址；GitHub 仍是主仓库和备用下载入口。
+应用优先通过 Gitee API 读取镜像里的 [更新清单](../update.json)，失败时走 `ghfast.top` 加速的 GitHub raw，再直连 GitHub raw，最后回退到 GitHub Releases API。Gitee API 未登录约 60 次/小时，客户端会缓存清单两分钟。APK 下载以 Gitee 发行版为主，失败时回退到 ghfast 加速的 GitHub 地址；GitHub 仍是主仓库和备用下载入口。
 
 ## 代码入口
 
