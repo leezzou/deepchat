@@ -25,7 +25,7 @@ import { useSettings } from '../../services/settings.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import { saveBlob } from '../../shell/saveFile.js'
 import { Button } from '../base/Button.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import styles from './ContextBanner.module.css'
 
@@ -233,14 +233,13 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   }
 
   const renderConfirm = () => (
-    <Modal
+    <ConfirmationModal
       title={t('contextRiskTitle')}
-      className={styles.dialog}
-      mainClassName={styles.dialogMain}
       onClose={() => setConfirmOpen(false)}
       footer={
         <>
           <Button
+            autoFocus
             variant="outlined"
             size="m"
             onClick={() => {
@@ -253,7 +252,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
             {t('cancel')}
           </Button>
           <Button
-            variant="dangerOutlined"
+            variant="danger"
             size="m"
             disabled={busy || requesting}
             onClick={() => void runCompaction()}
@@ -263,19 +262,17 @@ export const ContextBanner = ({ session }: { session: Session }) => {
         </>
       }
     >
-      <div className={styles.riskBody}>
-        <p className={styles.riskIntro}>{t('contextOriginalsPreserved')}</p>
-        <p className={styles.riskNote}>{t('contextSummaryRisk')}</p>
-        <button
-          type="button"
-          className={styles.backupButton}
-          disabled={backingUp}
-          onClick={() => void backupFirst()}
-        >
-          {backingUp ? t('contextBackingUp') : t('contextRiskBackup')}
-        </button>
-      </div>
-    </Modal>
+      <p>{t('contextOriginalsPreserved')}</p>
+      <p>{t('contextSummaryRisk')}</p>
+      <button
+        type="button"
+        className={styles.backupButton}
+        disabled={backingUp}
+        onClick={() => void backupFirst()}
+      >
+        {backingUp ? t('contextBackingUp') : t('contextRiskBackup')}
+      </button>
+    </ConfirmationModal>
   )
 
   return (

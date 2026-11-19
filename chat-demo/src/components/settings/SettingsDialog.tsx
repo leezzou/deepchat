@@ -54,7 +54,7 @@ import {
 } from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { syncLockAppearance } from '../../services/security/bridge.js'
@@ -641,6 +641,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       <ModalPresence>{updateOpen ? (
         <Modal
           title={t('checkUpdate')}
+          placement="bottom"
           onClose={() => setUpdateOpen(false)}
           footer={
             update?.status === 'available' ? (
@@ -768,6 +769,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       <ModalPresence>{helpOpen ? (
         <Modal
           title={t('settingsHelp')}
+          placement="bottom"
           onClose={() => setHelpOpen(false)}
           footer={
             <Button variant="outlined" size="m" onClick={() => setHelpOpen(false)}>
@@ -1233,7 +1235,7 @@ const MobileApiProfileForm = ({
         )}
       </div>
       <ModalPresence>{confirmDelete ? (
-      <Modal
+      <ConfirmationModal
         title={t('apiProfileDeleteTitle')}
         onClose={() => setConfirmDelete(false)}
         footer={
@@ -1242,7 +1244,7 @@ const MobileApiProfileForm = ({
               {t('cancel')}
             </Button>
             <Button
-              variant="dangerOutlined"
+              variant="danger"
               size="m"
               onClick={async () => {
                 try { await removeApiProfile(profile.id) } catch {
@@ -1258,8 +1260,8 @@ const MobileApiProfileForm = ({
           </>
         }
       >
-        <div className={styles.importConfirmText}>{t('apiProfileDeleteDescription')}</div>
-      </Modal>
+        {t('apiProfileDeleteDescription')}
+      </ConfirmationModal>
       ) : null}</ModalPresence>
     </>
   )
@@ -1648,12 +1650,11 @@ const DeleteAllConfirm = ({
 }) => {
   const t = useTranslate()
   return (
-    <Modal
+    <ConfirmationModal
       title={t('backupClearTitle')}
-      className={styles.deleteConfirm}
       onClose={historyDelete.cancel}
       footer={
-        <div className={styles.deleteActions} aria-busy={historyDelete.busy}>
+        <>
           <Button
             variant="outlined"
             autoFocus
@@ -1669,11 +1670,11 @@ const DeleteAllConfirm = ({
           >
             {t(historyDelete.busy ? 'historyDeleting' : 'deleteAllSessions')}
           </Button>
-        </div>
+        </>
       }
     >
       {t('backupClearSafety')}
-    </Modal>
+    </ConfirmationModal>
   )
 }
 
@@ -1830,23 +1831,22 @@ const ImportConfirm = ({
 }) => {
   const t = useTranslate()
   return (
-    <Modal
+    <ConfirmationModal
       title={t('historyImportConfirmTitle')}
-      className={styles.importConfirm}
       onClose={historyImport.cancel}
       footer={
         <>
           <Button variant="outlined" size="m" autoFocus onClick={historyImport.cancel}>
             {t('cancel')}
           </Button>
-          <Button variant="dangerOutlined" size="m" onClick={() => void historyImport.confirm()}>
+          <Button variant="danger" size="m" onClick={() => void historyImport.confirm()}>
             {t('historyImportConfirm')}
           </Button>
         </>
       }
     >
-      <div className={styles.importConfirmText}>{t('backupImportSafety')}</div>
-    </Modal>
+      {t('backupImportSafety')}
+    </ConfirmationModal>
   )
 }
 

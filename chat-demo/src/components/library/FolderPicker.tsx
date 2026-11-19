@@ -1,9 +1,11 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
 import {
   createFolder,
   deleteFolder,
+  getFolderDeletionImpact,
+  readLibrary,
   GUIDE_FOLDER_ID,
   updateFolder,
   type Folder,
@@ -12,13 +14,21 @@ import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { IconCheckOutline16, IconEditOutline16, IconTrashOutline16 } from '../base/icons.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { LibraryIcon } from './LibraryIcon.js'
 import './library.css'
 import './localSwitch.css'
 
 type Editor = { id?: string; name: string; shareMemory: boolean }
+
+type Deletion = {
+  id: string
+  name: string
+  stage: 'review' | 'final'
+  changed: boolean
+  impact: ReturnType<typeof getFolderDeletionImpact>
+}
 
 export const FolderPicker = ({
   current,
@@ -35,7 +45,22 @@ export const FolderPicker = ({
   const placement = useIsMobile() ? 'bottom' : 'center'
   const { folders } = useLibrarySnapshot()
   const [editor, setEditor] = useState<Editor | null>(null)
-  const [deleting, setDeleting] = useState<Folder | null>(null)
+  const [deleting, setDeleting] = useState<Deletion | null>(null)
+  const [armed, setArmed] = useState(false)
+  const cancelId = useId()
+  const committing = useRef(false)
+  useLayoutEffect(() => {
+    if (!deleting) {
+      return
+    }
+    document.getElementById(cancelId)?.focus({ preventScroll: true })
+    if (deleting.stage === 'final') {
+      // The second tap of a double tap must not approve a new destructive action.
+      const timer = window.setTimeout(() => setArmed(true), 500)
+      return () => window.clearTimeout(timer)
+    }
+    return undefined
+  }, [cancelId, deleting])
   const listRef = useRef<HTMLUListElement>(null)
   const returnToList = useRef(false)
   const nameId = useId()
@@ -82,6 +107,43 @@ export const FolderPicker = ({
       setEditor(null)
     } catch {
       showToast({ key: 'libSaveError', type: 'error' })
+    }
+  }
+  const reviewDeletion = (id: string, changed = false) => {
+    try {
+      const impact = getFolderDeletionImpact(id)
+      const folder = readLibrary().folders.find((item) => item.id === id)
+      if (!folder) {
+        returnToList.current = true
+        setDeleting(null)
+        setEditor(null)
+        showToast({ key: 'libFolderGone' })
+        return
+      }
+      setArmed(false)
+      committing.current = false
+      setDeleting({ id, name: folder.name, stage: 'review', changed, impact })
+    } catch {
+      showToast({ key: 'libSaveError', type: 'error' })
+    }
+  }
+  const confirmDeletion = () => {
+    if (!deleting || deleting.stage !== 'final' || !armed || committing.current) {
+      return
+    }
+    committing.current = true
+    try {
+      if (!deleteFolder(deleting.id, deleting.impact.token)) {
+        reviewDeletion(deleting.id, true)
+        return
+      }
+      returnToList.current = true
+      setDeleting(null)
+      setEditor(null)
+    } catch {
+      showToast({ key: 'libSaveError', type: 'error' })
+    } finally {
+      committing.current = false
     }
   }
   const option = (folder?: Folder) => (
@@ -204,7 +266,7 @@ export const FolderPicker = ({
                 <button
                   type="button"
                   className="lib-folder-delete"
-                  onClick={() => setDeleting(folders.find((item) => item.id === editor.id) ?? null)}
+                  onClick={() => editor.id && reviewDeletion(editor.id)}
                 >
                   <IconTrashOutline16 />
                   {t('libDeleteFolder')}
@@ -216,35 +278,56 @@ export const FolderPicker = ({
       </ModalPresence>
       <ModalPresence>
         {deleting && (
-          <Modal
-            placement={placement}
-            title={t('libDeleteFolder')}
+          <ConfirmationModal
+            title={t(deleting.stage === 'review' ? 'libDeleteFolder' : 'libFinalDeleteTitle')}
             onClose={() => setDeleting(null)}
             footer={
               <>
-                <Button variant="outlined" onClick={() => setDeleting(null)}>
+                <Button id={cancelId} variant="outlined" onClick={() => setDeleting(null)}>
                   {t('cancel')}
                 </Button>
-                <Button
-                  variant="danger"
-                  onClick={() => {
-                    try {
-                      deleteFolder(deleting.id)
-                      returnToList.current = true
-                      setDeleting(null)
-                      setEditor(null)
-                    } catch {
-                      showToast({ key: 'libSaveError', type: 'error' })
-                    }
-                  }}
-                >
-                  {t('delete')}
-                </Button>
+                {deleting.stage === 'review' ? (
+                  <Button
+                    key="review"
+                    variant="primary"
+                    onClick={() => setDeleting({ ...deleting, stage: 'final' })}
+                  >
+                    {t('libContinueDelete')}
+                  </Button>
+                ) : (
+                  <Button
+                    key="final"
+                    variant="danger"
+                    aria-disabled={!armed}
+                    tabIndex={armed ? 0 : -1}
+                    onPointerDown={(event) => {
+                      if (!armed) {
+                        event.preventDefault()
+                      }
+                    }}
+                    onClick={(event) => {
+                      if (event.detail < 2) {
+                        confirmDeletion()
+                      }
+                    }}
+                  >
+                    {t('libConfirmDelete')}
+                  </Button>
+                )}
               </>
             }
           >
-            {t('libFolderDeleteHint', { name: deleting.name })}
-          </Modal>
+            {deleting.changed && deleting.stage === 'review' && (
+              <p role="alert">{t('libFolderChanged')}</p>
+            )}
+            <p className="lib-delete-summary">
+              {t(deleting.stage === 'review' ? 'libFolderDeleteHint' : 'libFinalDeleteHint', {
+                name: deleting.name,
+                sessions: deleting.impact.sessionCount,
+                memories: deleting.impact.memoryCount,
+              })}
+            </p>
+          </ConfirmationModal>
         )}
       </ModalPresence>
     </>

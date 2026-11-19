@@ -175,10 +175,12 @@ test('folder sharing follows current membership while personal and global memori
   assert.deepEqual(visibleTexts('b'), ['c', 'b', 'global'])
   lib.deleteFolder(home)
   assert.deepEqual(lib.getSessionMemoryTexts('b'), [])
-  assert.deepEqual(visibleTexts('b'), ['b', 'global'])
+  assert.deepEqual(visibleTexts('b'), ['global'])
+  assert.deepEqual(visibleTexts('c'), ['global'])
+  // Individual chat deletion also clears a memory created while ungrouped.
+  lib.addMemory('ungrouped later', 'b')
   lib.removeLibrarySession('b')
   assert.deepEqual(visibleTexts('b'), ['global'])
-  assert.deepEqual(visibleTexts('c'), ['c', 'global'])
 })
 
 test('folder drafts share from the first turn and promote their preference and folder together', () => {
@@ -217,4 +219,92 @@ test('failed shared-folder updates preserve both persisted name and permissions'
   assert.throws(() => lib.updateFolder(folder, 'Changed', false))
   assert.deepEqual(lib.exportLibrarySnapshot(), before)
   assert.deepEqual(lib.getSessionMemoryTexts('a'), ['shared'])
+})
+
+for (const sharing of [false, true]) {
+  test(`folder deletion removes only current members' memories (sharing=${sharing})`, () => {
+    const folder = lib.createFolder('Remove', 'a', sharing)
+    const other = lib.createFolder('Keep', 'moved')
+    lib.moveSessionToFolder('moved', folder)
+    lib.addMemory('owned before moving', 'moved')
+    lib.moveSessionToFolder('moved', other)
+    lib.moveSessionToFolder('b', folder)
+    lib.addMemory('global')
+    lib.addMemory('unfiled', 'u')
+    lib.addMemory('private a', 'a')
+    lib.addMemory('private b', 'b')
+    lib.addMemory('another a', 'a')
+    lib.setPinned('a', true)
+    lib.setMemoryEnabled('b', true)
+    lib.toggleFavorite('b', 'reply', 'keep favorite')
+    const { sessionCount, memoryCount, token } = lib.getFolderDeletionImpact(folder)
+    assert.deepEqual([sessionCount, memoryCount], [2, 3])
+    lib.addMemory('out of scope', 'another')
+    assert.equal(lib.deleteFolder(folder, token), true)
+    assert.deepEqual(
+      lib.exportLibrarySnapshot().memories.map((row) => row.text),
+      ['out of scope', 'unfiled', 'global', 'owned before moving']
+    )
+    assert.equal(lib.getSessionFolderId('a'), null)
+    assert.equal(lib.getSessionFolderId('b'), null)
+    assert.equal(lib.readLibrary().sessions.find((row) => row.sessionId === 'a').pinned, true)
+    assert.equal(lib.getMemoryEnabled('b'), true)
+    assert.equal(lib.isFavorite('b', 'reply'), true)
+    assert.equal(lib.getSessionFolderId('moved'), other)
+    assert.equal(lib.deleteFolder(folder, token), false)
+  })
+}
+
+test('equal counts with replaced members or memories and an edited memory require fresh confirmation', () => {
+  const folder = lib.createFolder('Test', 'a', true)
+  lib.addMemory('same text', 'a')
+  lib.addMemory('same text', 'b')
+  const initial = lib.getFolderDeletionImpact(folder)
+  lib.moveSessionToFolder('a', null)
+  lib.moveSessionToFolder('b', folder)
+  const differentMembers = lib.getFolderDeletionImpact(folder)
+  assert.equal(initial.sessionCount, differentMembers.sessionCount)
+  assert.equal(initial.memoryCount, differentMembers.memoryCount)
+  assert.equal(lib.deleteFolder(folder, initial.token), false)
+  lib.deleteMemory(lib.getVisibleMemories('b')[0].id)
+  lib.addMemory('same text', 'b')
+  assert.equal(lib.deleteFolder(folder, differentMembers.token), false)
+  const replaced = lib.getFolderDeletionImpact(folder)
+  lib.editMemory(lib.getVisibleMemories('b')[0].id, 'edited during confirmation')
+  // A remote tab can write before its storage event arrives in this window.
+  const key = 'deepseek.local-library.v1'
+  const edited = JSON.parse(disk.get(key))
+  edited.memories[0].text = 'most recent edit'
+  disk.set(key, JSON.stringify(edited))
+  assert.equal(lib.deleteFolder(folder, replaced.token), false)
+  assert.deepEqual(lib.exportLibrarySnapshot(), edited)
+  assert.equal(lib.deleteFolder(folder, lib.getFolderDeletionImpact(folder).token), true)
+  assert.deepEqual(visibleTexts('a'), ['same text'])
+})
+
+test('folder deletion commits once and can retry after a failed storage write', () => {
+  const folder = lib.createFolder('Remove', 'member')
+  lib.addMemory('keep until committed', 'member')
+  lib.setDraftFolder(folder)
+  const { token } = lib.getFolderDeletionImpact(folder)
+  const before = lib.exportLibrarySnapshot()
+  let notifications = 0
+  const stop = lib.subscribeLibrary(() => {
+    notifications++
+  })
+  try {
+    full = true
+    assert.throws(() => lib.deleteFolder(folder, token), { name: 'QuotaExceededError' })
+    assert.equal(notifications, 0)
+    assert.deepEqual(lib.readLibrary(), before)
+    assert.deepEqual(JSON.parse(disk.get('deepseek.local-library.v1')), before)
+    assert.equal(lib.getSessionFolderId(null), folder)
+    full = false
+    assert.equal(lib.deleteFolder(folder, token), true)
+    assert.equal(notifications, 1)
+    assert.equal(lib.getSessionFolderId(null), null)
+    assert.deepEqual(lib.exportLibrarySnapshot(), empty)
+  } finally {
+    stop()
+  }
 })

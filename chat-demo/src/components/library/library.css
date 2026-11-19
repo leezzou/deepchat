@@ -197,6 +197,10 @@
 .lib-remove-folder:active {
   background: var(--dc-subtle);
 }
+.lib-delete-summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
 .lib-folder-delete {
   display: flex;
   align-items: center;

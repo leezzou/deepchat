@@ -13,8 +13,7 @@ import {
   testDavConnection,
 } from '../../services/backup/webDav.js'
 import { exportPortableHistory, restorePortableHistory } from '../../services/chat/backup.js'
-import { useIsSettingsMobile } from '../../app/viewport.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { Button } from '../base/Button.js'
 import './securitySettings.css'
 import './dataBackup.css'
@@ -68,7 +67,6 @@ const problems: Record<BackupProblem, [string, string]> = {
 type Action = 'test' | 'backup' | 'restore'
 
 export function WebDavSettings() {
-  const mobile = useIsSettingsMobile()
   const lang = useSettings((s) => resolveLocale(s.locale)) === 'zh-CN' ? 0 : 1
   const t = (zh: string, en: string) => (lang === 0 ? zh : en)
   const [folder, setFolder] = useState('')
@@ -241,9 +239,8 @@ export function WebDavSettings() {
           </div>
           <ModalPresence>
             {confirm && (
-              <Modal
+              <ConfirmationModal
                 title={t('确认恢复', 'Confirm restore')}
-                placement={mobile ? 'bottom' : 'center'}
                 onClose={() => setConfirm(false)}
                 footer={
                   <>
@@ -251,7 +248,7 @@ export function WebDavSettings() {
                       {t('取消', 'Cancel')}
                     </Button>
                     <Button
-                      variant="dangerOutlined"
+                      variant="danger"
                       disabled={busy}
                       onClick={() => void run('restore')}
                     >
@@ -260,13 +257,13 @@ export function WebDavSettings() {
                   </>
                 }
               >
-                <p className="history-restore-copy">
+                <p>
                   {t(
                     '恢复会替换本机会话、草稿及相关资料。替换前将保存本机安全快照。',
                     'Restoring replaces local conversations, drafts and related data. A local recovery point is saved first.'
                   )}
                 </p>
-              </Modal>
+              </ConfirmationModal>
             )}
           </ModalPresence>
           <div

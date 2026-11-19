@@ -138,18 +138,49 @@ const editFolder = (id: string, name: string, shareMemory?: boolean) =>
 export const renameFolder = (id: string, name: string) => editFolder(id, name)
 export const updateFolder = (id: string, name: string, shareMemory: boolean) =>
   editFolder(id, name, shareMemory)
-export const deleteFolder = (id: string) =>
-  change((next) => {
-    next.folders = next.folders.filter((folder) => folder.id !== id)
-    for (const session of next.sessions) {
-      if (session.folderId === id) {
-        session.folderId = null
-      }
+const folderDeletionScope = (snapshot: LibrarySnapshot, id: string) => {
+  const folder = snapshot.folders.find((row) => row.id === id)
+  const members = new Set(
+    snapshot.sessions.filter((row) => row.folderId === id).map((row) => row.sessionId)
+  )
+  const memories = snapshot.memories.filter(
+    (row) => row.sessionId !== null && members.has(row.sessionId)
+  )
+  // Bind the confirmation to the exact data being removed, even if the counts stay the same.
+  const memorySignatures = memories
+    .map((row) => JSON.stringify([row.id, row.sessionId, row.text]))
+    .sort()
+  const token = JSON.stringify([id, folder?.name ?? null, [...members].sort(), memorySignatures])
+  return {
+    folder,
+    members,
+    impact: { sessionCount: members.size, memoryCount: memories.length, token },
+  }
+}
+export const getFolderDeletionImpact = (id: string) => {
+  refresh()
+  return folderDeletionScope(state, id).impact
+}
+export const deleteFolder = (id: string, token?: string): boolean => {
+  const next = exportLibrarySnapshot()
+  const { folder, members, impact } = folderDeletionScope(next, id)
+  if (!folder || (token !== undefined && token !== impact.token)) {
+    return false
+  }
+  next.folders = next.folders.filter((row) => row.id !== id)
+  next.memories = next.memories.filter(
+    (row) => row.sessionId === null || !members.has(row.sessionId)
+  )
+  next.sessions = next.sessions.filter((row) => {
+    if (row.folderId !== id) {
+      return true
     }
-    next.sessions = next.sessions.filter(
-      (row) => row.folderId !== null || row.memoryEnabled || row.pinned
-    )
+    row.folderId = null
+    return row.memoryEnabled || row.pinned
   })
+  persist(next)
+  return true
+}
 export const moveSessionToFolder = (sessionId: string, folderId: string | null) =>
   updateAttributes(sessionId, { folderId })
 export const setPinned = (sessionId: string, pinned: boolean) =>

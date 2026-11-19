@@ -51,11 +51,7 @@ declare const styles: {
   readonly statusText: string
   readonly meta: string
   readonly mobileConfirm: string
-  readonly importConfirm: string
-  readonly importConfirmText: string
   readonly helpText: string
-  readonly deleteConfirm: string
-  readonly deleteActions: string
   readonly voiceDialog: string
   readonly voiceGrid: string
   readonly voiceCard: string

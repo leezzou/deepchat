@@ -16,7 +16,7 @@ import { newChat, removeSession, useChatStore } from '../../services/chat/store.
 import type { SessionSummary } from '../../services/chat/types.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
 import { hasAccountBridge, openAccount } from '../../shell/account.js'
@@ -303,7 +303,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
       </ModalPresence>
       <ModalPresence>
         {deleting ? (
-          <Modal
+          <ConfirmationModal
             title={t('deleteSessionModalContentTitle')}
             onClose={() => {
               if (!deletePending) {
@@ -341,7 +341,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             }
           >
             {t('deleteSessionWithFilesDescription')}
-          </Modal>
+          </ConfirmationModal>
         ) : null}
       </ModalPresence>
     </div>

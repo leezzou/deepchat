@@ -134,6 +134,29 @@
   .overlay[data-placement='bottom'] .header { min-height: 40px; margin-bottom: 4px; }
 }
 
+.content[data-confirmation] {
+  color: var(--dc-ink);
+  background: var(--dc-surface);
+}
+.content[data-confirmation] .title {
+  color: var(--dc-ink);
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.content[data-confirmation] .main {
+  color: var(--dc-secondary);
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+.content[data-confirmation] .footer > button {
+  min-height: var(--dc-touch);
+  height: auto;
+  white-space: normal;
+}
+
 .overlay[data-modal-state='closing'] > .content {
   pointer-events: none;
 }

@@ -13,7 +13,7 @@ import {
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { Button } from '../base/Button.js'
 import { IconChevronRightOutline14, IconTrashOutline16 } from '../base/icons.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { LibraryIcon } from './LibraryIcon.js'
 import { MemoryEditor } from './MemoryEditor.js'
@@ -136,10 +136,8 @@ export const MemorySettings = () => {
           (action.kind === 'edit' ? (
             <MemoryEditor sessionId={activeId} memory={action.memory} onClose={close} />
           ) : (
-            <Modal
+            <ConfirmationModal
               title={t('libMemoryDeleteConfirm')}
-              placement={mobile ? 'bottom' : 'center'}
-              closable
               onClose={close}
               footer={
                 <>
@@ -159,7 +157,7 @@ export const MemorySettings = () => {
               <blockquote className={styles.quote} dir="auto">
                 {action.memory.text}
               </blockquote>
-            </Modal>
+            </ConfirmationModal>
           ))}
       </ModalPresence>
     </div>

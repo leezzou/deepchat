@@ -23,7 +23,7 @@
     box-shadow: 0 0 0 2px var(--dsw-alias-button-primary-fill);
   }
 
-  &:disabled {
+  &:disabled, &[aria-disabled='true'] {
     opacity: 0.45;
     cursor: not-allowed;
   }
@@ -81,11 +81,11 @@
 }
 
 .danger {
-  color: var(--dsw-static-neutral-bluish-00);
-  background-color: var(--dsw-alias-state-error-primary);
+  color: var(--dc-on-danger);
+  background-color: var(--dc-danger);
 
   &:hover:not(:disabled) {
-    background-color: var(--dsw-alias-state-error-secondary);
+    background-color: var(--dc-danger-hover);
   }
 }
 

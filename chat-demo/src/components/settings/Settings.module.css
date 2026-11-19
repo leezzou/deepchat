@@ -694,42 +694,8 @@ body[data-ds-dark-theme] {
   }
 }
 
-.importConfirm {
-  padding-top: 26px;
-  padding-bottom: 24px;
-}
-
-.importConfirmText {
-  color: var(--dsw-alias-label-primary);
-}
-
 .helpText {
   white-space: pre-line;
-}
-
-.deleteConfirm {
-  max-height: calc(var(--full-viewport-height) - 32px);
-  overflow-y: auto;
-}
-
-.deleteActions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  width: 100%;
-}
-
-@media not all and (min-width: 768px), (pointer: coarse) and (min-width: 768px) and (max-width: 1600px) {
-  .deleteActions > button {
-    min-height: 48px;
-    height: auto;
-    padding-top: 10px;
-    padding-bottom: 10px;
-    white-space: normal;
-    overflow-wrap: anywhere;
-    max-width: 100%;
-  }
 }
 
 /* ---------- API 配置列表 / 表单（多 Key 与自定义接口地址） ---------- */

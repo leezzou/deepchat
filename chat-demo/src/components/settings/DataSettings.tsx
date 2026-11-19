@@ -22,7 +22,7 @@ import {
   useBackupState,
 } from '../../services/chat/backup.js'
 import { Button } from '../base/Button.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { IconChevronRightOutline14 } from '../base/icons.js'
 import { HistoryImportFeedback, type useHistoryImport } from './HistoryImportFeedback.js'
 import { SettingsIcon, type SettingsIconName } from './SettingsIcon.js'
@@ -449,9 +449,8 @@ export function DataSettings({
       )}
       <ModalPresence>
         {restoreOpen && safety && (
-          <Modal
+          <ConfirmationModal
             title={t('backupRestoreTitle')}
-            placement={mobile ? 'bottom' : 'center'}
             onClose={() => {
               if (!running) {
                 setRestoreOpen(false)
@@ -468,7 +467,7 @@ export function DataSettings({
                   {t('cancel')}
                 </Button>
                 <Button
-                  variant="dangerOutlined"
+                  variant="danger"
                   disabled={busy}
                   onClick={() =>
                     void run(async () => {
@@ -482,7 +481,7 @@ export function DataSettings({
               </>
             }
           >
-            <p className={styles.backupText}>
+            <p>
               {t('backupRestoreDescription', {
                 date: date(safety.createdAt),
                 count: safety.sessionCount,
@@ -493,7 +492,7 @@ export function DataSettings({
                 {message}
               </p>
             )}
-          </Modal>
+          </ConfirmationModal>
         )}
       </ModalPresence>
     </div>

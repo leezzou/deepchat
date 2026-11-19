@@ -21,7 +21,7 @@ import { useIsMobile } from '../../app/viewport.js'
 import { Select } from '../base/Select.js'
 import { IconChevronDownOutline14 } from '../base/icons.js'
 import { Button } from '../base/Button.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import './conversationControls.css'
 
@@ -335,33 +335,39 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                 </>
               )}
             </div>
-            {deleting && template && (
-              <div role="alert" className="conversation-mode-note">
-                {en
-                  ? 'Remove this template from every conversation?'
-                  : '删除此模板，并从使用它的会话中取消选用？'}
-                <div className="conversation-mode-actions">
-                  <Button variant="outlined" size="s" onClick={() => setDeleting(false)}>
-                    {en ? 'Keep' : '保留'}
-                  </Button>
-                  <Button
-                    variant="danger"
-                    size="s"
-                    onClick={() => {
-                      try {
-                        deletePromptTemplate(template.id)
-                        setChoice({ ...choice, templateId: undefined })
-                        setDeleting(false)
-                      } catch {
-                        showToast(en ? 'Deletion failed' : '删除失败')
-                      }
-                    }}
-                  >
-                    {en ? 'Delete template' : '删除模板'}
-                  </Button>
-                </div>
-              </div>
-            )}
+            <ModalPresence>
+              {deleting && template && (
+                <ConfirmationModal
+                  title={en ? 'Delete template?' : '删除模板？'}
+                  onClose={() => setDeleting(false)}
+                  footer={
+                    <>
+                      <Button variant="outlined" onClick={() => setDeleting(false)}>
+                        {en ? 'Cancel' : '取消'}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        onClick={() => {
+                          try {
+                            deletePromptTemplate(template.id)
+                            setChoice({ ...choice, templateId: undefined })
+                            setDeleting(false)
+                          } catch {
+                            showToast(en ? 'Deletion failed' : '删除失败')
+                          }
+                        }}
+                      >
+                        {en ? 'Delete template' : '删除模板'}
+                      </Button>
+                    </>
+                  }
+                >
+                  {en
+                    ? `“${template.name}” will be removed from every chat that uses it.`
+                    : `删除后，所有选用「${template.name}」的对话都会取消选用该模板。`}
+                </ConfirmationModal>
+              )}
+            </ModalPresence>
             {memories.length > 0 && (
               <details className="conversation-mode-memories">
                 <summary>

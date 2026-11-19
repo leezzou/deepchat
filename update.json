@@ -1,8 +1,8 @@
 {
-  "version": "1.0.46",
+  "version": "1.0.47",
   "publishedAt": "2026-11-19",
-  "notes": "新增文件夹记忆共享。可在创建或编辑文件夹时开启，同目录新对话从第一条消息起就能使用手动保存的记忆。新增可删除的示例文件夹，并适配深色与减少动态效果。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.46",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.46/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.46/deepchat.apk"
+  "notes": "统一消息删除、会话、记忆、模板和设置中的确认界面。删除文件夹要两次确认，并显示对话数和记忆数。聊天记录保留在「全部对话」，文件夹成员手动保存的记忆会一起删除。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.47",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.47/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.47/deepchat.apk"
 }

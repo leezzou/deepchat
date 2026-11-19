@@ -65,7 +65,8 @@ public final class AccountScreen {
     private AccountPage proxyPage;
     // The exact wallet view (including focus and scroll) remains owned by this visit to usage.
     private boolean underUsage, walletNeedsRender;
-    private AlertDialog confirmation, manualPrompt;
+    private AccountConfirmSheet confirmation;
+    private AlertDialog manualPrompt;
     private boolean exchanging;
     private AccountPage page;
     private volatile boolean destroyed;
@@ -492,24 +493,14 @@ public final class AccountScreen {
     private void confirmLogout() {
         if (settingsLogoutPending || confirmation != null || (isShowing() && action != Action.NONE)) return;
         boolean fromSettings = !isShowing();
-        AlertDialog prompt = new AlertDialog.Builder(activity, theme.isAppDark() ? android.R.style.Theme_Material_Dialog_Alert
-                : android.R.style.Theme_Material_Light_Dialog_Alert)
-                .setTitle("退出 DeepSeek 账号？")
-                .setMessage("此手机将退出该账号并关闭本机 API。API Key 配置和对话记录会保留。")
-                .setNegativeButton("取消", null)
-                .setPositiveButton("退出登录", (ignored, which) -> {
-                    if (fromSettings) logoutFromSettings();
-                    else accountAction(Action.LOGOUT);
-                }).create();
+        AccountConfirmSheet prompt = new AccountConfirmSheet(activity, theme.isAppDark(), () -> {
+            if (destroyed || !SecurityPlugin.isUnlocked() || !host.signedIn()) return;
+            if (fromSettings) logoutFromSettings();
+            else accountAction(Action.LOGOUT);
+        });
         confirmation = prompt;
-        if ((activity.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0)
-            prompt.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
-        prompt.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
         prompt.setOnDismissListener(ignored -> { if (confirmation == prompt) confirmation = null; });
         prompt.show();
-        boolean dark = theme.isAppDark();
-        prompt.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(dark ? 0xffffa4a4 : 0xffb32632);
-        prompt.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(dark ? 0xff9cb8ff : 0xff426efe);
     }
 
     private void openProxy() {

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
 import {
@@ -17,7 +17,7 @@ import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
 import { Button } from '../base/Button.js'
 import { IconCheckOutline16 } from '../base/icons.js'
-import { Modal, ModalPresence } from '../base/Modal.js'
+import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { AssistantMessage } from './AssistantMessage.js'
 import { UserMessage } from './UserMessage.js'
 import { useMessageTools } from './MessageTools.js'
@@ -65,6 +65,10 @@ const DeleteMessageDialog = ({
   const t = useTranslate()
   const [mode, setMode] = useState<'single' | 'following'>('single')
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  const cancelId = useId()
+  useLayoutEffect(() => {
+    document.getElementById(cancelId)?.focus({ preventScroll: true })
+  }, [step, cancelId])
   const [error, setError] = useState<string | null>(null)
   const [coolingDown, setCoolingDown] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -142,23 +146,21 @@ const DeleteMessageDialog = ({
   }
 
   return (
-    <Modal
+    <ConfirmationModal
       title={t('deleteConfirmTitle', { step })}
       onClose={() => {
         if (!busyRef.current) {
           onClose()
         }
       }}
-      className={styles.deleteDialog}
       footer={
         <>
-          <Button variant="outlined" size="m" disabled={busy} onClick={onClose}>
+          <Button id={cancelId} variant="outlined" disabled={busy} onClick={onClose}>
             {t('cancel')}
           </Button>
           <Button
             key={step}
             variant={step === 3 ? 'danger' : 'primary'}
-            size="m"
             disabled={busy || coolingDown || !preview.messageIds.length}
             onClick={confirm}
           >
@@ -232,7 +234,7 @@ const DeleteMessageDialog = ({
           <p role="alert">{error ?? t('deleteMessageUnavailable')}</p>
         ) : null}
       </div>
-    </Modal>
+    </ConfirmationModal>
   )
 }
 
