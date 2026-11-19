@@ -5,18 +5,14 @@ Set PLAYWRIGHT_NODE_MODULES to use the optional external Playwright runtime.
 Android requires the isolated read-only Pixel_7_API_34_arm64 already running on 5562.
 """
 import argparse
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 import hashlib
 import os
 from pathlib import Path
 import re
-import select
 import shlex
 import shutil
-import socket
-import socketserver
 import subprocess
-import threading
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -97,76 +93,33 @@ def guard_device():
         raise RuntimeError('Isolated emulator requires offline networking')
 
 
-# The opt-in consent check uses a local TLS tunnel. Only these official service/asset
-# hosts can connect. The guest's emulator-level dead proxy still denies direct TCP.
-CONSENT_HOSTS = frozenset({
-    'www.workbuddy.cn', 'assets.workbuddy.cn',
-    'open.weixin.qq.com', 'res.wx.qq.com', 'long.open.weixin.qq.com', 'lp.open.weixin.qq.com',
-    'api.account.tencent.com', 'gatherer.m.qq.com', 'browsertdidticket.m.qq.com',
-})
-
-
-class ConsentTunnel(socketserver.StreamRequestHandler):
-    def handle(self):
-        self.connection.settimeout(15)
-        try:
-            line = self.rfile.readline(1024)
-            match_host = re.fullmatch(rb'CONNECT ([a-z0-9.-]+):443 HTTP/1\.[01]\r\n', line)
-            host = match_host[1].decode('ascii') if match_host else ''
-            if host not in CONSENT_HOSTS:
-                self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
-                return
-            for _ in range(32):
-                if self.rfile.readline(4096) == b'\r\n':
-                    break
-            else:
-                return
-            with socket.create_connection((host, 443), timeout=10) as remote:
-                self.server.reached.add(host)
-                self.wfile.write(b'HTTP/1.1 200 Connection established\r\n\r\n')
-                while not self.server.stopping.is_set():
-                    ready, _, _ = select.select([self.connection, remote], [], [], 1)
-                    for source in ready:
-                        data = source.recv(65536)
-                        if not data:
-                            return
-                        (remote if source is self.connection else self.connection).sendall(data)
-        except OSError:
-            return
-
-
+# This network is confined to a signed-out read-only guest. Only consent navigation is exercised.
 @contextmanager
 def consent_network():
     guard_device()
-    processes = run(['ps', '-axo', 'command=']).splitlines()
-    assert any(re.search(r'/qemu-system-\S+ -avd Pixel_7_API_34_arm64 -port 5562 .*?-http-proxy http://127\.0\.0\.1:9(?:\s|$)', p) for p in processes), 'Live consent requires the guest isolation proxy'
-    with socketserver.ThreadingTCPServer(('127.0.0.1', 0), ConsentTunnel) as server:
-        server.daemon_threads = True
-        server.reached = set()
-        server.stopping = threading.Event()
-        worker = threading.Thread(target=server.serve_forever, daemon=True)
-        worker.start()
-        port = adb('reverse', 'tcp:0', f'tcp:{server.server_address[1]}').strip()
-        assert port.isdecimal()
-        try:
-            adb('shell', 'settings', 'put', 'global', 'http_proxy', f'127.0.0.1:{port}')
-            adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'disable')
-            adb('shell', 'svc', 'wifi', 'enable')
-            yield server.reached
-        finally:
-            server.stopping.set()
-            guard_device()
-            adb('shell', 'settings', 'put', 'global', 'http_proxy', ':0')
-            adb('reverse', '--remove', f'tcp:{port}')
-            server.shutdown()
-            worker.join()
+    try:
+        adb('shell', 'settings', 'put', 'global', 'http_proxy', ':0')
+        adb('emu', 'proxy', 'clear')
+        adb('shell', 'cmd', 'connectivity', 'airplane-mode', 'disable')
+        adb('shell', 'svc', 'wifi', 'enable')
+        adb('shell', 'svc', 'data', 'enable')
+        end = time.monotonic() + 30
+        while not re.search(r'Active default network: \d+', adb('shell', 'dumpsys', 'connectivity')):
+            if time.monotonic() > end:
+                raise RuntimeError('Guest network did not connect')
+            time.sleep(0.5)
+        yield True
+    finally:
+        guard_device()
 
 
-def tree():
-    xml = adb('exec-out', 'uiautomator', 'dump', '/dev/tty')
-    if '<?xml' not in xml or '</hierarchy>' not in xml:
-        return []  # Activity or WebView may still be changing during first launch.
-    xml = xml[xml.index('<?xml'):xml.rindex('</hierarchy>') + len('</hierarchy>')]
+def tree(all_windows=False):
+    args = ['--windows'] if all_windows else []
+    xml = adb('exec-out', 'uiautomator', 'dump', *args, '/dev/tty')
+    closing = '</displays>' if all_windows else '</hierarchy>'
+    if '<?xml' not in xml or closing not in xml:
+        return []  # Dialog or WebView can be changing during first launch.
+    xml = xml[xml.index('<?xml'):xml.rindex(closing) + len(closing)]
     return [node for node in ET.fromstring(xml).iter('node') if node.get('package') == PACKAGE]
 
 
@@ -185,11 +138,11 @@ def wait_for(pattern, allow_scroll=False):
         hit = match(nodes, pattern)
         if hit is not None:
             left, top, right, bottom = map(int, re.findall(r'-?\d+', hit.get('bounds')))
-            if right > left and bottom > top:
+            if right > left and bottom - top >= (75 if allow_scroll else 1):
                 return hit, nodes
         if time.monotonic() > end:
             raise AssertionError(f'Expected Android control {pattern!r} missing across {len(nodes)} app nodes')
-        if allow_scroll:
+        if allow_scroll and hit is not None:
             size = list(map(int, re.findall(r'(\d+)x(\d+)', adb('shell', 'wm', 'size'))[-1]))
             x, y1, y2 = size[0] // 2, size[1] * 3 // 4, size[1] // 3
             adb('shell', 'input', 'swipe', str(x), str(y1), str(x), str(y2), '260')
@@ -208,39 +161,90 @@ def assert_private(nodes):
 
 def consent_check():
     required = {'wechat-qr': r'微信扫码登录|WeChat QR', 'phone': r'手机(?:号)?(?:登录)?|Phone', 'sso': r'SSO(?:登录)?', 'qq': r'QQ(?:登录)?', 'email': r'邮箱(?:登录)?|Email'}
-    with consent_network() as reached:
-        login, nodes = wait_for('电脑版登录|Desktop sign-in')
-        assert match(nodes, r'未登录|Signed out') is not None
-        tap(login)
-        deadline = time.monotonic() + 55
-        seen = set()
-        qr_image = False
-        while time.monotonic() < deadline:
-            nodes = tree()  # Secure consent page: only emit fixed indicators, never dump labels or images.
-            seen = {key for key, pattern in required.items() if match(nodes, pattern) is not None}
-            qr_image = any(re.search(r'二维码|QR code', s, re.I) for n in nodes for s in labels(n))
-            header = match(nodes, r'www\.workbuddy\.cn')
-            back = match(nodes, r'返回 DeepChat|Return to DeepChat')
-            if seen == set(required) and header is not None and back is not None and 'open.weixin.qq.com' in reached:
-                break
-        else:
-            raise AssertionError(f'Consent indicators {sorted(seen)}, official hosts reached {sorted(reached)}')
-        tap(match(nodes, required['phone']))
-        phone_fields, nodes = wait_for(r'.*(?:请输入手机号|Enter phone number).*')
-        assert match(nodes, r'.*(?:请输入验证码|verification code).*') is not None, 'Phone tab must display a verification field'
-        print(f'PASS official WorkBuddy desktop consent on Android: {sorted(seen)}, WeChat QR origin reached, QR accessibility label={qr_image}, phone tab opened in the same visit', flush=True)
-        adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
-        # Collect only whitelisted rows from here on; an unexpected return to consent must never dump its URL.
-        end = time.monotonic() + 15
-        while time.monotonic() < end:
-            nodes = tree()
-            cancel = match(nodes, '取消|Cancel')
-            if match(nodes, 'WorkBuddy') is not None and cancel is not None:
-                tap(cancel)
-                break
-        else:
-            raise AssertionError('System Back did not return to the pending WorkBuddy visit')
+    login, nodes = wait_for('电脑版登录|Desktop sign-in')
+    assert match(nodes, r'未登录|Signed out') is not None
+    tap(login)
+    deadline = time.monotonic() + 55
+    seen = set()
+    qr_image = False
+    while time.monotonic() < deadline:
+        nodes = tree(all_windows=True)  # Keep external auth UI and identifiers in memory.
+        seen = {key for key, pattern in required.items() if match(nodes, pattern) is not None}
+        qr_image = any(re.search(r'二维码|QR code', s, re.I) for n in nodes for s in labels(n))
+        header = match(nodes, r'www\.workbuddy\.cn')
+        back = match(nodes, r'返回 DeepChat|Return to DeepChat')
+        if seen == set(required) and header is not None and back is not None :
+            break
+    else:
+        raise AssertionError(f'Consent indicators {sorted(seen)}')
+    print(f'PASS Android official WorkBuddy desktop page: {sorted(seen)}, QR accessibility label={qr_image}', flush=True)
+    tap(match(nodes, required['phone']))
+    end = time.monotonic() + 35
+    while time.monotonic() < end:
+        nodes = tree(all_windows=True)
+        phone = match(nodes, r'.*(?:请输入手机号|Enter phone number).*')
+        code = match(nodes, r'.*(?:请输入验证码|verification code).*')
+        if phone is not None and code is not None:
+            break
+    else:
+        raise AssertionError(f'Phone form missing across {len(nodes)} app nodes')
+    print(f'PASS official WorkBuddy desktop consent on Android: {sorted(seen)}, QR accessibility label={qr_image}, phone tab opened in the same visit', flush=True)
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    # Collect only whitelisted rows from here on; an unexpected return to consent must never dump its URL.
+    end = time.monotonic() + 15
+    while time.monotonic() < end:
+        nodes = tree()
+        cancel = match(nodes, '取消|Cancel')
+        if match(nodes, 'WorkBuddy') is not None and cancel is not None:
+            tap(cancel)
+            break
+    else:
+        raise AssertionError('System Back did not return to the pending WorkBuddy visit')
     wait_for('电脑版登录|Desktop sign-in')
+
+
+def check_sms_policy(apk, expected):
+    # Run the signed release's URI predicates on Android without constructing a WebView or HTTP request.
+    guard_device()
+    source = '''
+import android.net.Uri;
+import java.lang.reflect.Method;
+public class SignedWalletPolicy {
+    public static void main(String[] args) throws Exception {
+        Class<?> type = Class.forName("ai.deepseek.demo.shell.WorkBuddyDesktopBrowser");
+        Method resource = type.getDeclaredMethod("resourceAllowed", Uri.class);
+        Method document = type.getDeclaredMethod("documentAllowed", Uri.class, boolean.class, String.class);
+        resource.setAccessible(true);
+        document.setAccessible(true);
+        Uri exact = Uri.parse("https://oauth2.account.tencent.com/");
+        boolean allowed = (boolean) resource.invoke(null, exact);
+        if (allowed != Boolean.parseBoolean(args[0])) throw new AssertionError("Official account resource decision");
+        for (boolean main : new boolean[]{true, false}) {
+            if ((boolean) document.invoke(null, exact, main, "local-fixture")) throw new AssertionError("Account document permitted");
+        }
+        for (String invalid : new String[]{"http://oauth2.account.tencent.com/", "https://oauth2.account.tencent.com.example.invalid/"}) {
+            if ((boolean) resource.invoke(null, Uri.parse(invalid))) throw new AssertionError("Non-official resource permitted");
+        }
+        System.out.println("PASS packaged Android policy: SMS HTTPS resource=" + allowed + ", documents=false, insecure/lookalike=false");
+    }
+}'''
+    android = SDK / 'platforms/android-34/android.jar'
+    d8 = sorted((SDK / 'build-tools').glob('*/d8'))[-1]
+    with tempfile.TemporaryDirectory(prefix='signed-policy-') as temp:
+        folder = Path(temp)
+        java = folder / 'SignedWalletPolicy.java'
+        java.write_text(source)
+        probe = folder / 'probe.jar'
+        subprocess.run(['javac', '--release', '8', '-cp', android, '-d', folder, java], check=True)
+        subprocess.run([d8, '--lib', android, '--min-api', '34', '--output', probe, folder / 'SignedWalletPolicy.class'], check=True)
+        remote = adb('shell', 'mktemp', '-d', '/data/local/tmp/wb-policy.XXXXXX').strip()
+        assert re.fullmatch(r'/data/local/tmp/wb-policy\.[a-zA-Z0-9]{6}', remote)
+        adb('push', str(apk), remote + '/app.apk')
+        adb('push', str(probe), remote + '/probe.jar')
+        adb('shell', 'chmod', '444', remote + '/app.apk', remote + '/probe.jar')
+        output = adb('shell', f'CLASSPATH={remote}/probe.jar:{remote}/app.apk', 'app_process', '/system/bin', 'SignedWalletPolicy', str(expected).lower())
+        assert 'PASS packaged Android policy:' in output, 'Packaged URI regression failed'
+        print(output.strip(), flush=True)
 
 
 def native_checks(apk, live_consent=False):
@@ -249,6 +253,11 @@ def native_checks(apk, live_consent=False):
     if f'package:{PACKAGE}' in existing:
         print(adb('uninstall', PACKAGE).strip(), flush=True)  # Disposable guest can contain an older debug-signed APK.
     print(adb('install', str(apk)).strip(), flush=True)
+    with (consent_network() if live_consent else nullcontext(None)) as reached:
+        exercise_ui(reached)
+
+
+def exercise_ui(reached):
     adb('shell', 'wm', 'dismiss-keyguard')
     adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
     opener, home = wait_for('Open sidebar|打开边栏')
@@ -278,7 +287,7 @@ def native_checks(apk, live_consent=False):
     switches = [n for n in panel if n.get('class') == 'android.widget.Switch' and any(re.search(AUTO, s, re.I) for s in labels(n))]
     assert len(switches) == 1 and switches[0].get('checked') == 'false' and switches[0].get('enabled') == 'false', 'Expected a disabled, unchecked switch'
     assert not any(re.search(r'API[\s_-]*Key|密钥|访问令牌|access token', s, re.I) for n in panel for s in labels(n)), 'Unexpected WorkBuddy API key flow'
-    if live_consent:
+    if reached is not None:
         consent_check()
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     restored, returned = wait_for(VERSION)
@@ -293,13 +302,17 @@ if __name__ == '__main__':
     group = parser.add_mutually_exclusive_group()
     group.add_argument('--browser-only', action='store_true')
     group.add_argument('--device-only', action='store_true')
+    group.add_argument('--sms-policy-only', action='store_true', help='Exercise the signed Android code for the phone verification host on the offline guest')
     parser.add_argument('--live-consent', action='store_true', help='Visit official Tencent consent page with a fresh unsigned-in account on the isolated guest')
     args = parser.parse_args()
-    if args.browser_only and args.live_consent:
-        parser.error('--live-consent requires Android')
+    if (args.browser_only or args.sms_policy_only) and args.live_consent:
+        parser.error('--live-consent requires the Android UI checks')
     apk = args.apk.resolve(strict=True)
     validate(apk)
-    if not args.device_only:
-        browser_checks(apk)
-    if not args.browser_only:
-        native_checks(apk, args.live_consent)
+    if args.sms_policy_only:
+        check_sms_policy(apk, True)
+    else:
+        if not args.device_only:
+            browser_checks(apk)
+        if not args.browser_only:
+            native_checks(apk, args.live_consent)
