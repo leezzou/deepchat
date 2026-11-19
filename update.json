@@ -1,8 +1,8 @@
 {
-  "version": "1.0.50",
+  "version": "1.0.51",
   "publishedAt": "2026-11-19",
-  "notes": "WorkBuddy 改用电脑版登录页面，支持在 App 的隐藏页查看和刷新剩余积分。入口版本号移至设置页底部正中。全局记忆开关移至聊天顶栏，手动保存的对话笔记归到该对话的更多菜单。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.50",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.50/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.50/deepchat.apk"
+  "notes": "修复 WorkBuddy 手机号登录时，点击「获取验证码」提示「网络连接失败」的问题。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.51",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.51/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.51/deepchat.apk"
 }

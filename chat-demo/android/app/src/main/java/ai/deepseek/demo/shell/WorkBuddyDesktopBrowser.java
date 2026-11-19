@@ -39,7 +39,8 @@ final class WorkBuddyDesktopBrowser {
     private static final String PREFIX = "deepchat-wb-consent-";
     private static final Set<String> RESOURCE_HOSTS = Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
             WorkBuddySession.AUTH_HOST, "assets.workbuddy.cn", "open.weixin.qq.com", "res.wx.qq.com",
-            "lp.open.weixin.qq.com", "api.account.tencent.com", "browsertdidticket.m.qq.com", "gatherer.m.qq.com",
+            "lp.open.weixin.qq.com", "api.account.tencent.com", "oauth2.account.tencent.com",
+            "browsertdidticket.m.qq.com", "gatherer.m.qq.com",
             "graph.qq.com", "xui.ptlogin2.qq.com", "ssl.ptlogin2.qq.com", "ssl.captcha.qq.com", "t.captcha.qq.com")));
     private final String profile = PREFIX + UUID.randomUUID();
     private final Dialog dialog;

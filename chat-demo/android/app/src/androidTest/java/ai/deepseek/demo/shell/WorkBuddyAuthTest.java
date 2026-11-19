@@ -78,6 +78,16 @@ public final class WorkBuddyAuthTest {
         assertFalse(WorkBuddyDesktopBrowser.documentAllowed(wechat, true, STATE));
         assertFalse(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse("https://assets.workbuddy.cn/example"), true, STATE));
     }
+    @Test public void phoneVerificationHostIsAllowedOnlyForHttpsSubresources() {
+        Uri accountRequest = Uri.parse("https://oauth2.account.tencent.com/");
+        assertTrue(WorkBuddyDesktopBrowser.resourceAllowed(accountRequest));
+        assertFalse(WorkBuddyDesktopBrowser.documentAllowed(accountRequest, true, STATE));
+        assertFalse(WorkBuddyDesktopBrowser.documentAllowed(accountRequest, false, STATE));
+        for (String other : new String[]{"http://oauth2.account.tencent.com/", "https://oauth2.account.tencent.com.evil.example/",
+                "https://oauth2.account.tencent.com@evil.example/", "https://oauth2.account.tencent.com:8443/"}) {
+            assertFalse(WorkBuddyDesktopBrowser.resourceAllowed(Uri.parse(other)));
+        }
+    }
     @Test public void accountAndRefreshTokensNeverAppearInWebStatus() throws Exception {
         OfflineHttps.Connection init = start().await();
         assertNull(init.getRequestProperty("Authorization"));
