@@ -1,9 +1,16 @@
 :root {
+  --full-viewport-height: 100vh;
   --nav-enter: 230ms;
   --nav-exit: 180ms;
   --nav-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --message-list-max-width: 840px;
   --message-list-padding-horizontal: 44px;
+}
+
+@supports (height: 100dvh) {
+  :root {
+    --full-viewport-height: 100dvh;
+  }
 }
 
 @media (max-width: 1023px) {

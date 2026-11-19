@@ -17,14 +17,15 @@ export type UserLocation = {
 }
 
 const regions = new Set(regionCodes)
-const regionNames = {
+// Some Android 10 WebViews have Intl but no region-name formatter.
+const regionNames = typeof Intl.DisplayNames === 'function' ? {
   'zh-CN': new Intl.DisplayNames(['zh-CN'], { type: 'region' }),
   'en-US': new Intl.DisplayNames(['en-US'], { type: 'region' }),
-}
+} : undefined
 
 export const getRegionName = (code: string, locale: 'zh-CN' | 'en-US'): string =>
   regions.has(code)
-    ? (regionNameOverrides[locale][code] ?? regionNames[locale].of(code) ?? code)
+    ? (regionNameOverrides[locale][code] ?? regionNames?.[locale].of(code) ?? code)
     : ''
 
 export const normalizeLocation = (value: unknown): UserLocation | null => {

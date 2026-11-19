@@ -47,6 +47,9 @@ importers:
       clsx:
         specifier: 2.1.1
         version: 2.1.1
+      core-js:
+        specifier: 3.49.0
+        version: 3.49.0
       fflate:
         specifier: 0.8.3
         version: 0.8.3
@@ -942,6 +945,9 @@ packages:
 
   confbox@0.3.2:
     resolution: {integrity: sha512-ZUAKhKlkCOrIGKc8cj7zek9s9z1mveHif/25nUshI2BzCRzF7KH7KHa+Lnh2ubq+e1tIlaFuP763mzW4qVoehg==}
+
+  core-js@3.49.0:
+    resolution: {integrity: sha512-es1U2+YTtzpwkxVLwAFdSpaIMyQaq0PBgm3YD1W3Qpsn1NAmO3KSgZfu+oGSWVu6NvLHoHCV/aYcsE5wiB7ALg==}
 
   cose-base@1.0.3:
     resolution: {integrity: sha512-s9whTXInMSgAp/NVXVNuVxVKzGH2qck3aQlVHxDCdAEPgtMKwc4Wq6/QKhgdEdgbLSi9rBTAcPoRa6JpiG4ksg==}
@@ -2455,6 +2461,8 @@ snapshots:
   confbox@0.1.8: {}
 
   confbox@0.3.2: {}
+
+  core-js@3.49.0: {}
 
   cose-base@1.0.3:
     dependencies:

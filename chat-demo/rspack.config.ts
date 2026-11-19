@@ -5,11 +5,10 @@ import { defineConfig } from '@rspack/cli'
 import { rspack, type Configuration } from '@rspack/core'
 
 const dev = process.env.NODE_ENV !== 'production'
-const targets = ['chrome >= 105', 'edge >= 105', 'safari >= 16', 'firefox >= 110']
 const root = path.dirname(fileURLToPath(import.meta.url))
-const { version } = JSON.parse(
+const { version, browserslist: targets } = JSON.parse(
   readFileSync(new URL('./package.json', import.meta.url), 'utf8')
-) as { version: string }
+) as { version: string; browserslist: string[] }
 
 const cssLoader = {
   loader: 'builtin:lightningcss-loader',
@@ -29,7 +28,9 @@ export const createConfig = ({
   devServer,
 }: ConfigOptions = {}): Configuration => ({
   mode: dev ? 'development' : 'production',
-  entry: { main: ['./src/polyfills.ts', './src/main.tsx'] },
+  // Rspack 的引导和异步 chunk 加载代码也使用同一份浏览器目标。
+  target: 'browserslist',
+  entry: { main: ['./src/polyfills.ts', './src/compat/webview.ts', './src/main.tsx'] },
   output: {
     path: path.resolve(root, 'dist'),
     // 运行时按当前脚本地址推导资源路径，file:// 下异步 chunk、字体都按相对位置加载
@@ -70,8 +71,21 @@ export const createConfig = ({
         },
         type: 'javascript/auto',
       },
+      // Markdown、Mermaid 和 Capacitor 同时发布 .js/.mjs/.cjs，异步模块也须降级。
+      {
+        test: /\.[cm]?js$/,
+        include: /[\\/]node_modules[\\/]/,
+        loader: 'builtin:swc-loader',
+        options: { env: { targets } },
+      },
       { test: /\.(woff2?|ttf)$/, type: 'asset/resource' },
       { test: /\.(png|jpe?g|webp)$/, type: 'asset/resource' },
+    ],
+  },
+  optimization: {
+    minimizer: [
+      new rspack.SwcJsMinimizerRspackPlugin({ minimizerOptions: { ecma: 2019 } }),
+      new rspack.LightningCssMinimizerRspackPlugin({ minimizerOptions: { targets } }),
     ],
   },
   plugins: [

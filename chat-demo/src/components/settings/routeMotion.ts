@@ -18,17 +18,20 @@ export function useRouteMotion<T extends HTMLElement>(animateEntry: boolean, lea
   const finish = useRef(exited)
   finish.current = exited
   useLayoutEffect(() => {
-    const el = ref.current!
-    if (initialEntry.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    const el = ref.current
+    if (el && initialEntry.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       el.dataset.routeStart = ''
       void el.offsetWidth
       delete el.dataset.routeStart
     }
   }, [])
   useLayoutEffect(() => {
-    if (!leaving) return
-    const el = ref.current!
-    const motion = el.getAnimations().filter((a) => 'transitionProperty' in a && a.transitionProperty === 'transform')
+    if (!leaving) {
+      return
+    }
+    const motion = (ref.current?.getAnimations?.() ?? []).filter(
+      (a) => 'transitionProperty' in a && a.transitionProperty === 'transform'
+    )
     if (!motion.length) {
       finish.current()
       return

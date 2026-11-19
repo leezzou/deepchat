@@ -6,8 +6,8 @@
   flex-direction: column;
   width: 640px;
   max-width: calc(100vw - 32px);
-  height: min(680px, calc(var(--search-height, 100dvh) - 48px));
-  max-height: calc(var(--search-height, 100dvh) - 48px);
+  height: min(680px, calc(var(--search-height, var(--full-viewport-height)) - 48px));
+  max-height: calc(var(--search-height, var(--full-viewport-height)) - 48px);
   margin: 24px auto 0;
   padding: 20px;
   border: 1px solid var(--dsw-alias-border-l2);
@@ -179,8 +179,8 @@
   .dialog {
     width: 100%;
     max-width: 100%;
-    height: var(--search-height, 100dvh);
-    max-height: var(--search-height, 100dvh);
+    height: var(--search-height, var(--full-viewport-height));
+    max-height: var(--search-height, var(--full-viewport-height));
     margin: 0;
     padding: calc(16px + env(safe-area-inset-top, 0px)) 16px
       calc(16px + env(safe-area-inset-bottom, 0px));

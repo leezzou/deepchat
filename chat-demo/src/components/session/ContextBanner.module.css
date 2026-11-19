@@ -286,7 +286,7 @@
 
 .dialog {
   width: 580px;
-  max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  max-height: calc(var(--full-viewport-height) - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
 }
 
 .dialogMain {

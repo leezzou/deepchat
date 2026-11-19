@@ -1,10 +1,16 @@
 {
   "name": "chat-demo",
-  "version": "1.0.42",
+  "version": "1.0.43",
   "description": "基于 DeepSeek API 的静态聊天示例。",
   "license": "MIT",
   "private": true,
   "type": "module",
+  "browserslist": [
+    "chrome >= 74",
+    "edge >= 105",
+    "safari >= 16",
+    "firefox >= 110"
+  ],
   "scripts": {
     "dev": "rspack serve -c rspack.config.ts",
     "build": "rm -rf dist && NODE_ENV=production rspack build -c rspack.config.ts",
@@ -26,6 +32,7 @@
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
     "clsx": "2.1.1",
+    "core-js": "3.49.0",
     "fflate": "0.8.3",
     "idb": "8.0.3",
     "katex": "0.16.22",

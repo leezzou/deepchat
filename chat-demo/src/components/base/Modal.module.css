@@ -2,7 +2,7 @@
   --overlay-opacity: 0.36;
   position: fixed;
   inset: var(--dialog-top, 0px) 0 auto;
-  height: var(--dialog-height, 100dvh);
+  height: var(--dialog-height, var(--full-viewport-height));
   box-sizing: border-box;
   padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
     max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));

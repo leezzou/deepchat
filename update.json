@@ -1,8 +1,8 @@
 {
-  "version": "1.0.42",
+  "version": "1.0.43",
   "publishedAt": "2026-11-19",
-  "notes": "修复 Android 账户模式上传大文件失败或卡住的问题。手机上只选附件也可以直接发送。发送前会检查当前消息和聊天记录中引用的附件，超出文档数量或文字大小限制时会提示如何处理。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.42",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.42/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.42/deepchat.apk"
+  "notes": "修复部分 Android 10 手机打开 DeepChat 后白屏的问题。旧版 WebView 可正常显示聊天首页和输入框。若启动资源加载失败，页面会显示重新加载按钮和内核版本，便于反馈。可直接覆盖安装 1.0.42。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.43",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.43/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.43/deepchat.apk"
 }

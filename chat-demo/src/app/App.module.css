@@ -1,7 +1,9 @@
 .frame {
   position: fixed;
-  inset: var(--app-viewport-top, 0px) 0 auto;
-  height: var(--app-viewport-height, 100dvh);
+  top: var(--app-viewport-top, 0px);
+  right: 0;
+  left: 0;
+  height: var(--app-viewport-height, var(--full-viewport-height));
   display: flex;
   overflow: hidden;
   background-color: var(--dsw-alias-bg-base);
