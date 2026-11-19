@@ -3,7 +3,7 @@
   align-items: center;
   flex: none;
   box-sizing: border-box;
-  height: 56px;
+  min-height: 64px;
   gap: 4px;
   padding-inline: 6px;
   color: var(--dc-ink, var(--dsw-alias-label-primary));
@@ -42,33 +42,36 @@
 }
 .title {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  flex-flow: column;
   flex: 1;
   min-width: 0;
 }
 .title > button[data-stacked] {
   flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 4px;
+  min-height: 32px;
+  padding: 6px 0 0;
 }
 .title :global(.conversation-mode-caption) > span {
   display: none;
 }
-.title[data-home] {
-  position: relative;
-  justify-content: flex-end;
+.title :global(.lib-header-memory) {
+  box-sizing: border-box;
+  min-height: 32px;
+  max-width: 100%;
+  padding: 0 0 6px;
+  font-size: 12px;
 }
-.title[data-home] > button {
-  width: 48px;
-  height: 48px;
-}
-.title[data-home] > button > * {
-  display: none;
-}
-.modeIcon {
-  position: absolute;
-  inset-inline-end: 13px;
-  width: 22px;
-  height: 22px;
-  pointer-events: none;
+@media (max-width: 359px) {
+  .header {
+    gap: 2px;
+    padding-inline: 4px;
+  }
+  .menuWrap button,
+  .right button {
+    width: 44px;
+  }
 }

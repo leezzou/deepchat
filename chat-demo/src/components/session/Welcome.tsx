@@ -1,4 +1,4 @@
-import { ConversationMemoryControls } from '../library/ScopedMemoryControls.js'
+import { GlobalMemorySwitch } from '../library/ScopedMemoryControls.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { useSettings } from '../../services/settings.js'
@@ -22,7 +22,14 @@ export const Welcome = () => {
       : '今天有什么可以帮到你？'
   return (
     <div className={styles.container}>
-      {isMobile ? <MobileHeader /> : null}
+      {isMobile ? (
+        <MobileHeader />
+      ) : (
+        <header className={styles.header}>
+          <ConversationControls sessionId={null} />
+          <GlobalMemorySwitch sessionId={null} />
+        </header>
+      )}
       <div className={styles.welcome}>
         {isMobile ? (
           <div className={styles.hero}>
@@ -32,8 +39,6 @@ export const Welcome = () => {
         ) : (
           <h1 className={styles.greeting}>{greeting}</h1>
         )}
-        {!isMobile && <ConversationControls sessionId={null} />}
-        <ConversationMemoryControls sessionId={null} />
         <ChatInput sessionId={null} />
       </div>
     </div>

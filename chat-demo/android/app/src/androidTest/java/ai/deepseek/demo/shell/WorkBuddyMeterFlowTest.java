@@ -27,7 +27,8 @@ public final class WorkBuddyMeterFlowTest {
     private final OfflineHttps net = new OfflineHttps();
 
     private OfflineHttps.Exchange response(String method, String path, String data) {
-        return net.json(method, HOST + path, 200, "{\"code\":0,\"data\":" + data + "}");
+        String origin = path.startsWith("/v2/plugin/") ? "https://www.workbuddy.cn" : HOST;
+        return net.json(method, origin + path, 200, "{\"code\":0,\"data\":" + data + "}");
     }
 
     private void assertWalletRequest(OfflineHttps.Exchange exchange) throws Exception {
@@ -61,7 +62,7 @@ public final class WorkBuddyMeterFlowTest {
         singleton.set(null, session);
         net.activate();
         try {
-            String approval = HOST + "/login?platform=deepchat&state=" + STATE;
+            String approval = "https://www.workbuddy.cn/login?platform=deepchat&state=" + STATE;
             response("POST", "/v2/plugin/auth/state?platform=deepchat",
                     new JSONObject().put("state", STATE).put("authUrl", approval).toString());
             assertEquals(approval, session.begin().toString());

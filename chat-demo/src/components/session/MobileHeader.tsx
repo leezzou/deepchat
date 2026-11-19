@@ -11,6 +11,7 @@ import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
 import { openMobileSider, rememberChat, useMobileSider } from '../sider/mobileSiderState.js'
 import { closeTopLayer } from '../../shell/backLayers.js'
+import { GlobalMemorySwitch } from '../library/ScopedMemoryControls.js'
 import { ConversationControls } from './ConversationControls.js'
 import styles from './MobileHeader.module.css'
 
@@ -40,14 +41,9 @@ export const MobileHeader = ({ title }: { title?: string }) => {
         />
         {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
       </span>
-      <div className={styles.title} data-home={!activeId || undefined}>
-        <ConversationControls key={activeId} sessionId={activeId} heading={title || t('newChat')} />
-        {!activeId && (
-          <svg className={styles.modeIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
-            <path d="M3 7h7m4 0h7M3 17h11m4 0h3" />
-            <circle cx="12" cy="7" r="2.1" /><circle cx="16" cy="17" r="2.1" />
-          </svg>
-        )}
+      <div className={styles.title}>
+        <ConversationControls key={activeId} sessionId={activeId} heading={title || t('libNewChat')} />
+        <GlobalMemorySwitch sessionId={activeId} />
       </div>
       <div className={styles.right}>
         <IconButton

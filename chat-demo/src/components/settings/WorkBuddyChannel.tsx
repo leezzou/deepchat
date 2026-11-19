@@ -16,6 +16,30 @@ import {
 import { Button } from '../base/Button.js'
 import { Select } from '../base/Select.js'
 
+function signInMessage(raw: string, en: boolean): string {
+  switch (raw.replace(/^WorkBuddy · /, '')) {
+    case 'desktop_browser_unavailable':
+      return en
+        ? 'Update Android System WebView, then open desktop sign-in again.'
+        : '请先更新 Android System WebView，再打开电脑版登录。'
+    case 'login_expired':
+      return en
+        ? 'This sign-in has expired. Start desktop sign-in again.'
+        : '本次授权已过期，请重新点「电脑版登录」。'
+    case 'connection_or_storage':
+    case 'timeout':
+      return en
+        ? 'Could not complete this request. Check your connection and try again.'
+        : '请求未完成，请检查网络后重试。'
+    case 'personal_account_required':
+      return en
+        ? 'Choose your personal WorkBuddy account to continue.'
+        : '请选择 WorkBuddy 个人账号完成授权。'
+    default:
+      return raw
+  }
+}
+
 export function WorkBuddyChannel() {
   const en = useSettings((s) => resolveLocale(s.locale) !== 'zh-CN')
   const active = useSettings((s) => s.chatSource === 'workbuddy')
@@ -109,8 +133,8 @@ export function WorkBuddyChannel() {
                   ? 'Cancel'
                   : '取消'
                 : en
-                  ? 'Sign in'
-                  : '授权登录'}
+                  ? 'Desktop sign-in'
+                  : '电脑版登录'}
           </Button>
         </div>
         {metadata && (
@@ -141,7 +165,7 @@ export function WorkBuddyChannel() {
       </div>
       {error && (
         <p className="wb-status" role="alert">
-          {error}
+          {signInMessage(error, en)}
         </p>
       )}
       {!hasWorkBuddyBridge ? (
@@ -157,8 +181,8 @@ export function WorkBuddyChannel() {
       ) : !metadata ? (
         <p className="wb-status">
           {en
-            ? 'Sign in with your personal account on Tencent’s page to use its DeepSeek models.'
-            : '在腾讯授权页登录个人账号，使用该账号可用的 DeepSeek 模型。'}
+            ? 'Use your phone number on the WorkBuddy desktop page, or scan its QR code with another device.'
+            : '在 WorkBuddy 电脑版页面可选择手机号登录，也可用另一台设备扫码。'}
         </p>
       ) : null}
     </section>

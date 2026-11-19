@@ -77,7 +77,11 @@ async function seedChats(page) {
       const now = Date.now()
       const entry = { id, title, createdAt: now, updatedAt: now, fileIds: [] }
       tx.objectStore('sessionSummaries').put(entry)
-      tx.objectStore('sessions').put({ ...entry, messages: [] })
+      const messages = id === 'project' ? [
+        { id: 'question', role: 'user', content: '想沿河西走廊走一趟，先从哪座城开始？', files: [], createdAt: now },
+        { id: 'reply', role: 'assistant', model: null, prefix: false, status: 'done', blocks: [{ type: 'text', text: '可以从武威开始，向西经过张掖、嘉峪关，最后到敦煌。这样沿途换乘顺路，也能慢慢看完几段不同的地貌。' }], createdAt: now },
+      ] : []
+      tx.objectStore('sessions').put({ ...entry, messages })
     }
     await new Promise((ok, fail) => { tx.oncomplete = ok; tx.onerror = () => fail(tx.error) })
     db.close()
@@ -128,16 +132,83 @@ async function verify(view) {
     // Use the actual chat and history entry points; keep library storage untouched here.
     const globalSwitch = page.getByRole('switch', { name: '本对话使用全局记忆', exact: true })
     const openChat = async title => { await openDrawer(); await button(title).click(); await globalSwitch.waitFor() }
+    const openNotes = async title => {
+      await button(title).locator('..').getByRole('button', { name: '更多' }).click()
+      await menu('本对话的笔记').click()
+      const notes = dialog('本对话的笔记')
+      await notes.getByText(title, { exact: true }).waitFor()
+      return notes
+    }
+    const assertHeader = async () => {
+      await globalSwitch.waitFor()
+      check(await page.locator('main header').getByRole('switch', { name: '本对话使用全局记忆', exact: true }).count() === 1 && await globalSwitch.count() === 1, '全局记忆仅在聊天顶栏显示一次')
+      check(await globalSwitch.evaluate(input => {
+        const label = input.labels[0]
+        const rect = label.getBoundingClientRect()
+        return label.innerText === '本对话使用全局记忆' && rect.height >= 32 && rect.left >= 0 && rect.right <= window.innerWidth && label.scrollWidth <= label.clientWidth + 1
+      }), '完整标签可见且可点击，320px 顶栏无横向溢出')
+    }
+    await assertHeader()
+    await shot('draft-header')
     await openChat('河西走廊行程')
+    await assertHeader()
     check(!await globalSwitch.isChecked(), '会话页直接显示默认关闭的全局记忆开关')
+    await globalSwitch.focus()
+    await page.keyboard.press('Space')
+    check(await globalSwitch.isChecked(), '键盘空格开启本对话的全局记忆')
+    await globalSwitch.locator('..').getByText('本对话使用全局记忆').tap()
+    check(!await globalSwitch.isChecked(), '轻触完整标签可切换状态')
     await globalSwitch.check()
     await shot('chat-memory-switch')
+    if (width === 390) {
+      await page.setViewportSize({ width: 1280, height: 800 })
+      await page.locator('main header').getByText('河西走廊行程', { exact: true }).waitFor()
+      await assertHeader()
+      check(await globalSwitch.isChecked(), '桌面聊天标题栏保留开关状态')
+      await shot('desktop-header')
+      await page.setViewportSize({ width, height: 780 })
+      await button('打开边栏').waitFor()
+    }
+    await openDrawer()
+    const notes = await openNotes('河西走廊行程')
+    check((await notes.innerText()).includes('手动保存'), '笔记面板说明手动保存和发送范围')
+    const useNotes = notes.getByRole('switch', { name: '发消息时附上笔记' })
+    check(!await useNotes.isChecked(), '笔记开关与全局记忆分开')
+    await useNotes.check()
+    await button('添加笔记', notes).click()
+    const addChatNote = dialog('添加笔记')
+    await addChatNote.getByRole('textbox', { name: '笔记内容' }).fill('回程从敦煌出发')
+    await button('保存', addChatNote).click()
+    await addChatNote.waitFor({ state: 'hidden' })
+    await button('编辑笔记 · 回程从敦煌出发', notes).click()
+    const editChatNote = dialog('编辑笔记')
+    await editChatNote.getByRole('textbox').fill('回程从嘉峪关出发')
+    await button('保存', editChatNote).click()
+    await editChatNote.waitFor({ state: 'hidden' })
+    await button('编辑笔记 · 回程从嘉峪关出发', notes).waitFor()
+    await shot('chat-notes')
+    await back()
+    await notes.waitFor({ state: 'hidden' })
+    const otherNotes = await openNotes('读书笔记')
+    check(await button('编辑笔记 · 回程从嘉峪关出发', otherNotes).count() === 0, '其他对话不会列出此笔记')
+    await back()
+    await otherNotes.waitFor({ state: 'hidden' })
+    await back()
     await openChat('读书笔记')
     check(!await globalSwitch.isChecked(), '另一对话的开关独立')
     await page.reload()
     await openChat('河西走廊行程')
     check(await globalSwitch.isChecked(), '重载后原对话保留全局记忆开关状态')
     await openDrawer()
+    const savedNotes = await openNotes('河西走廊行程')
+    check(await savedNotes.getByRole('switch').isChecked(), '重载保留独立的笔记发送设置')
+    await button('删除笔记 · 回程从嘉峪关出发', savedNotes).click()
+    const confirmDeleteNote = dialog('删除这条笔记？')
+    await button('删除', confirmDeleteNote).click()
+    await confirmDeleteNote.waitFor({ state: 'hidden' })
+    check(await savedNotes.getByText('还没有笔记').isVisible(), '删除笔记后显示空状态')
+    await back()
+    await savedNotes.waitFor({ state: 'hidden' })
     await button('记忆').click()
     await button('添加记忆').click()
     const addNote = dialog('添加记忆')

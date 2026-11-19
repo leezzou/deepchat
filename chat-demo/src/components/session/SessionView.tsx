@@ -1,4 +1,4 @@
-import { ConversationMemoryControls } from '../library/ScopedMemoryControls.js'
+import { GlobalMemorySwitch } from '../library/ScopedMemoryControls.js'
 import clsx from 'clsx'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
@@ -28,19 +28,19 @@ export const SessionView = ({
       {isMobile ? (
         <MobileHeader title={title} />
       ) : (
-        <div className={styles.header}>
+        <header className={styles.header}>
           <div className={clsx(styles.title, siderCollapsed && styles.withCollapsedSider)}>
             {title}
           </div>
           <ConversationControls key={session.id} sessionId={session.id} />
-        </div>
+          <GlobalMemorySwitch sessionId={session.id} />
+        </header>
       )}
       <MessageList
         session={session}
         streaming={streaming}
         footer={
           <div className={styles.inputContainer}>
-            <ConversationMemoryControls key={session.id} sessionId={session.id} />
             <ContextBanner session={session} />
             <ChatInput sessionId={session.id} />
             <div className={styles.caveat}>{t('contentCaveat')}</div>

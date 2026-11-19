@@ -2,7 +2,6 @@ package ai.deepseek.demo.shell;
 
 import android.app.Activity;
 import android.net.Uri;
-import androidx.browser.customtabs.CustomTabsIntent;
 import android.util.Base64;
 import android.webkit.WebView;
 import androidx.webkit.JavaScriptReplyProxy;
@@ -29,6 +28,7 @@ final class WorkBuddyChat {
     private final WebView web;
     private final WorkBuddySession session;
     private final Activity activity;
+    private WorkBuddyDesktopBrowser browser; // Owned by the activity's main looper.
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
     private final ExecutorService network = Executors.newFixedThreadPool(3);
     private final Map<String, Call> active = new HashMap<>();
@@ -67,10 +67,11 @@ final class WorkBuddyChat {
                     web.post(() -> {
                         if (closed || !SecurityPlugin.isUnlocked()) { session.cancel(); error(reply, id, "locked"); return; }
                         try {
-                            new CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(activity, page);
-                            // Already on the unlocked main looper. Deliver pending before the browser pauses this activity.
+                            closeBrowser();
+                            browser = new WorkBuddyDesktopBrowser(activity, page);
+                            // The official page cannot signal success. The packaged UI polls our original state.
                             reply.postMessage(status.put("id", id).toString());
-                        } catch (Exception noBrowser) { session.cancel(); error(reply, id, "browser_unavailable"); }
+                        } catch (Exception noBrowser) { session.cancel(); error(reply, id, "desktop_browser_unavailable"); }
                     });
                     return;
                 }
@@ -81,8 +82,16 @@ final class WorkBuddyChat {
                 case "status": break;
                 default: error(reply, id, "operation"); return;
             }
-            emit(reply, id, session.status());
-        } catch (Exception failure) { error(reply, id, publicError(failure)); }
+            JSONObject status = session.status();
+            if (!status.optBoolean("pending")) web.post(this::closeBrowser);
+            emit(reply, id, status);
+        } catch (Exception failure) {
+            if (op.equals("poll") || op.equals("begin")) web.post(this::closeBrowser);
+            error(reply, id, publicError(failure));
+        }
+    }
+    private void closeBrowser() {
+        if (browser != null) { browser.close(); browser = null; }
     }
     private static String publicError(Exception e) {
         if (e instanceof WorkBuddySession.Fault) return e.getMessage();
@@ -213,6 +222,7 @@ final class WorkBuddyChat {
     }
     synchronized void close() {
         closed = true;
+        closeBrowser();
         cancelAll();
         storage.shutdownNow(); network.shutdownNow();
         WebViewCompat.removeWebMessageListener(web, PORT);

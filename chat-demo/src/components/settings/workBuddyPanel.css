@@ -1,7 +1,9 @@
 .wb-version-footer {
   display: flex;
-  justify-content: flex-end;
-  margin: 18px 0 0;
+  justify-content: center;
+  flex: none;
+  margin-block-start: auto;
+  padding-block-start: 18px;
 }
 .wb-version-footer button {
   min-height: 44px;
@@ -71,9 +73,13 @@ button.wb-row, label.wb-row, .wb-icon-button { cursor: pointer; -webkit-tap-high
 .wb-caption { margin-top: 2px; }
 .wb-status { margin: 8px 0 0; }
 .wb-status[role='alert'] { color: var(--dsw-alias-state-error-primary); }
-.wb-credit-value, .wb-value { flex: none; font-variant-numeric: tabular-nums; }
-.wb-credit-value { font-weight: 600; }
-.wb-value { max-width: 55%; overflow-wrap: anywhere; color: var(--dc-secondary); }
+.wb-credit-value {
+  max-width: 48%;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
 .wb-icon-button {
   display: grid;
   width: 44px;

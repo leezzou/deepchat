@@ -1,9 +1,10 @@
 import {
   setPinned,
-  setMemoryEnabled,
   type SessionAttributes,
 } from '../../services/library/index.js'
 import { LibraryIcon } from '../library/LibraryIcon.js'
+import { ChatNotesDialog } from '../library/ScopedMemoryControls.js'
+import { ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { useBackLayer } from '../../shell/navigationMotion.js'
 import clsx from 'clsx'
@@ -32,6 +33,7 @@ export const SessionItem = memo(function SessionItem({
 }) {
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
   useBackLayer(editing, () => setEditing(false))
   const displayTitle = session.title || t('untitledChat')
   const modify = (action: () => void) => {
@@ -75,8 +77,12 @@ export const SessionItem = memo(function SessionItem({
         className={styles.title}
         aria-current={active ? 'page' : undefined}
         onClick={() => {
-          if (useChatStore.getState().importingHistory) return
-          if (!active || useMobileSider.getState().open) rememberChat()
+          if (useChatStore.getState().importingHistory) {
+            return
+          }
+          if (!active || useMobileSider.getState().open) {
+            rememberChat()
+          }
           selectSession(session.id)
         }}
       >
@@ -98,11 +104,10 @@ export const SessionItem = memo(function SessionItem({
               onSelect: onMove,
             },
             {
-              key: 'memory',
-              label: t(attributes?.memoryEnabled ? 'libUsePersonalOff' : 'libUsePersonalOn'),
+              key: 'notes',
+              label: t('libChatNotes'),
               icon: <LibraryIcon name="memory" />,
-              onSelect: () =>
-                modify(() => setMemoryEnabled(session.id, !attributes?.memoryEnabled)),
+              onSelect: () => setNotesOpen(true),
             },
             {
               key: 'rename',
@@ -119,10 +124,13 @@ export const SessionItem = memo(function SessionItem({
             },
           ]}
         >
-          {({ toggle }) => (
-            <IconButton icon={<IconEllipsisOutline16 />} aria-label={t('more')} onClick={toggle} />
+          {({ open, toggle }) => (
+            <IconButton icon={<IconEllipsisOutline16 />} aria-label={t('more')} aria-haspopup="menu" aria-expanded={open} onClick={toggle} />
           )}
         </Menu>
+        <ModalPresence>
+          {notesOpen && <ChatNotesDialog sessionId={session.id} title={displayTitle} onClose={() => setNotesOpen(false)} />}
+        </ModalPresence>
       </div>
     </div>
   )

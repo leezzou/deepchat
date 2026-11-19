@@ -4,12 +4,11 @@ import { useSettings } from '../../services/settings.js'
 import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import {
   getWorkBuddyWallet,
-  openWorkBuddyWallet,
   refreshWorkBuddyWallet,
   setWorkBuddyAutoCheckIn,
   type WorkBuddyWalletSnapshot,
 } from '../../shell/workbuddy-wallet.js'
-import { IconChevronRightOutline14, IconRefreshOutline16 } from '../base/icons.js'
+import { IconRefreshOutline16 } from '../base/icons.js'
 import { WorkBuddyChannel } from './WorkBuddyChannel.js'
 import '../library/localSwitch.css'
 import './securitySettings.css'
@@ -97,7 +96,18 @@ function WalletSection() {
   const checked = wallet?.checkIn === 'checked-in'
   const lastUpdate = wallet?.observedAt ? new Date(wallet.observedAt).toLocaleString(locale) : ''
   const balance = wallet?.balance
-  const websiteOnly = wallet?.source === 'website'
+  const connected = useWorkBuddyState((s) => Boolean(s.metadata))
+  const hasCreditAccount = connected && wallet?.source === 'account'
+  const canRefresh = connected && !busy
+  const observedBalance =
+    hasCreditAccount && typeof balance === 'number' && Number.isFinite(balance)
+  const balanceCaption = !connected
+    ? text('登录后显示', 'Sign in to view')
+    : observedBalance && lastUpdate
+      ? text('更新于 ', 'Updated ') + lastUpdate
+      : busy
+        ? text('正在读取…', 'Checking…')
+        : ''
   const checkedText = checked
     ? text('今日已签到', 'Checked in today')
     : wallet?.checkIn === 'available'
@@ -118,59 +128,38 @@ function WalletSection() {
         {text('我的积分', 'My credits')}
       </h3>
       <div className="wb-card">
-        {!websiteOnly && wallet && (
-          <div className="wb-row" data-wb-balance aria-busy={busy}>
-            <div className="wb-label">
-              {text('剩余积分', 'Available credits')}
-              {lastUpdate && (
-                <small className="wb-caption">
-                  {text('更新于 ', 'Updated ')}
-                  {lastUpdate}
-                </small>
-              )}
-            </div>
-            <output className="wb-credit-value" aria-live="polite">
-              {typeof balance === 'number' ? balance.toLocaleString(locale) : '—'}
-            </output>
+        <div className="wb-row" data-wb-balance aria-busy={busy}>
+          <div className="wb-label">
+            {text('剩余积分', 'Available credits')}
+            {balanceCaption && <small className="wb-caption">{balanceCaption}</small>}
+          </div>
+          <output
+            className="wb-credit-value"
+            aria-label={text('剩余积分', 'Available credits')}
+            aria-live="polite"
+          >
+            {observedBalance ? balance.toLocaleString(locale, { maximumFractionDigits: 6 }) : '—'}
+          </output>
+          {connected && (
             <button
               type="button"
               className="wb-icon-button"
-              disabled={busy}
+              disabled={!canRefresh}
               aria-label={text('刷新积分', 'Refresh credits')}
               onClick={() => void perform(refreshWorkBuddyWallet)}
             >
               <IconRefreshOutline16 />
             </button>
-          </div>
-        )}
-        <button
-          type="button"
-          className="wb-row"
-          data-wb-wallet-page
-          disabled={busy}
-          onClick={() =>
-            void perform(async () => {
-              const page = await openWorkBuddyWallet()
-              return websiteOnly ? page : getWorkBuddyWallet()
-            })
-          }
-        >
-          <span className="wb-label">{text('剩余积分与用量', 'Credits and usage')}</span>
-          <span className="wb-value">{text('在官网查看', 'View on WorkBuddy')}</span>
-          <IconChevronRightOutline14 />
-        </button>
+          )}
+        </div>
         <label className="wb-row">
           <span className="wb-label">
             {text('每日自动签到', 'Daily automatic check-in')}
-            <small className="wb-caption" role="status">
-              {checkedText ||
-                (websiteOnly
-                  ? text(
-                      '请在 WorkBuddy 客户端的「Buddy 加油站」查看活动。',
-                      'See Buddy Gas Station in the WorkBuddy app for available activities.'
-                    )
-                  : '')}
-            </small>
+            {checkedText && (
+              <small className="wb-caption" role="status">
+                {checkedText}
+              </small>
+            )}
           </span>
           <input
             className="dc-local-switch"
@@ -191,10 +180,13 @@ function WalletSection() {
         <p className="wb-status" role="status">
           {wallet?.state === 'access-denied'
             ? text(
-                '请打开 WorkBuddy 账户，查看平台提示。',
-                'Open your WorkBuddy account to see the service message.'
+                '腾讯未授权读取此账号的积分。',
+                'WorkBuddy declined access to this account’s credits.'
               )
-            : text('暂时无法更新，请稍后刷新。', 'Could not update. Try refreshing later.')}
+            : text(
+                '暂时无法更新积分，请稍后刷新。',
+                'Could not update credits. Try refreshing later.'
+              )}
         </p>
       )}
     </section>

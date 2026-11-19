@@ -33,6 +33,10 @@ export function MemoryEditor({
   const tooLong = text.length > MEMORY_LIMIT
   const folderOwned = memory ? memory.folderId !== null : scope.kind === 'folder'
   const chatOwned = memory ? memory.sessionId !== null : scope.kind === 'chat'
+  const chatNotes = scope.kind === 'chat'
+  const editorTitle = message !== undefined ? 'libMemoryFromMessage'
+    : memory ? (chatNotes ? 'libNoteEdit' : 'libMemoryEdit')
+    : chatNotes ? 'libNoteAdd' : 'libMemoryAdd'
   const save = () => {
     try {
       if (memory) {
@@ -44,7 +48,7 @@ export function MemoryEditor({
           scope.kind === 'folder' ? scope.id : null
         )
       }
-      showToast({ key: 'libMemorySaved' })
+      showToast({ key: chatNotes && message === undefined ? 'libNoteSaved' : 'libMemorySaved' })
       onClose()
     } catch {
       setFailed(true)
@@ -55,9 +59,7 @@ export function MemoryEditor({
       placement={mobile ? 'bottom' : 'center'}
       closable
       onClose={onClose}
-      title={t(
-        memory ? 'libMemoryEdit' : message === undefined ? 'libMemoryAdd' : 'libMemoryFromMessage'
-      )}
+      title={t(editorTitle)}
       footer={
         <>
           <Button variant="outlined" onClick={onClose}>
@@ -70,7 +72,7 @@ export function MemoryEditor({
       }
     >
       <label className={styles.fieldLabel} htmlFor={field}>
-        {t('libMemoryText')}
+        {t(chatNotes ? 'libNoteText' : 'libMemoryText')}
       </label>
       <textarea
         id={field}
@@ -93,7 +95,7 @@ export function MemoryEditor({
               : folderOwned
                 ? 'libSaveToFolder'
                 : chatOwned
-                  ? 'memorySaveToChat'
+                  ? (chatNotes ? 'libSaveToChatNotes' : 'memorySaveToChat')
                   : 'memorySaveGeneral'
           )}
         </span>

@@ -102,32 +102,54 @@ export function FolderMemoryButton({ folder }: { folder: Folder }) {
   )
 }
 
-export function ConversationMemoryControls({ sessionId }: { sessionId: string | null }) {
+export function GlobalMemorySwitch({ sessionId }: { sessionId: string | null }) {
   const t = useTranslate()
+  useLibrarySnapshot()
+  return (
+    <label className="lib-header-memory">
+      <input
+        type="checkbox"
+        role="switch"
+        checked={getMemoryEnabled(sessionId)}
+        onChange={(event) => {
+          try {
+            setMemoryEnabled(sessionId, event.currentTarget.checked)
+          } catch {
+            showToast({ key: 'libSaveError', type: 'error' })
+          }
+        }}
+      />
+      <span>{t('libUseGlobalMemory')}</span>
+    </label>
+  )
+}
+
+export function ChatNotesDialog({
+  sessionId,
+  title,
+  onClose,
+}: {
+  sessionId: string
+  title: string
+  onClose: () => void
+}) {
+  const t = useTranslate()
+  const mobile = useIsMobile()
   const { sessions, folders } = useLibrarySnapshot()
   const session = sessions.find((row) => row.sessionId === sessionId)
   const shared = folders.find((folder) => folder.id === session?.folderId && folder.shareMemory)
   return (
-    <div className="lib-chat-memory-controls">
-      <MemorySwitch
-        label="libUseGlobalMemory"
-        checked={getMemoryEnabled(sessionId)}
-        change={(enabled) => setMemoryEnabled(sessionId, enabled)}
-      />
-      {sessionId && (
-        <MemoryPanel label={t('libChatNotes')}>
-          {shared ? (
-            <p className="lib-note">{t('memoryFolderScope', { name: shared.name })}</p>
-          ) : (
-            <MemorySwitch
-              label="libUseChatNotes"
-              checked={session?.chatMemoryEnabled ?? false}
-              change={(enabled) => setChatMemoryEnabled(sessionId, enabled)}
-            />
-          )}
-          <MemoryList scope={{ kind: 'chat', id: sessionId }} />
-        </MemoryPanel>
+    <Modal title={t('libChatNotes')} placement={mobile ? 'bottom' : 'center'} closable onClose={onClose}>
+      <p className="lib-chat-note-origin" dir="auto">{title}</p>
+      <p className="lib-note">{t(shared ? 'libChatNotesShared' : 'libChatNotesScope', { name: shared?.name ?? '' })}</p>
+      {!shared && (
+        <MemorySwitch
+          label="libUseChatNotes"
+          checked={session?.chatMemoryEnabled ?? false}
+          change={(enabled) => setChatMemoryEnabled(sessionId, enabled)}
+        />
       )}
-    </div>
+      <MemoryList scope={{ kind: 'chat', id: sessionId }} />
+    </Modal>
   )
 }

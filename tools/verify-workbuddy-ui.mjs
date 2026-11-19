@@ -1,4 +1,4 @@
-// Pass the web assets extracted from the v1.0.48 APK. No wallet, account or network mocks.
+// Pass the web assets extracted from the signed APK. Normal runs use the signed-out state. One opt-in local fixture exercises account balances.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -7,6 +7,7 @@ import { chromium } from 'playwright'
 
 assert.ok(process.argv[2], 'Supply the extracted assets/public directory')
 const assets = resolve(process.argv[2])
+const expectedVersion = process.argv[3] ?? JSON.parse(await readFile(new URL('../chat-demo/package.json', import.meta.url), 'utf8')).version
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webp': 'image/webp', '.woff2': 'font/woff2' }
 const server = createServer(async (req, res) => {
   try {
@@ -27,25 +28,61 @@ async function assertPrivate(page) {
   assert.doesNotMatch(await page.locator('body').innerText(), walletCopy)
 }
 
-async function inspectPanel(page) {
+async function inspectPanel(page, fixture) {
   const panel = page.locator('[data-wb-panel]')
   await panel.waitFor()
-  await panel.getByRole('button', { name: /Credits and usage.*View on WorkBuddy/i }).waitFor()
-  await panel.getByText(/Buddy Gas Station/i).waitFor()
-  assert.equal(await panel.locator('[data-wb-balance] output').count(), 0, 'website-only wallet cannot supply a numeric balance')
-  assert.equal(await panel.locator('[data-wb-auto]').isDisabled(), true, 'check-in must be disabled without an authorized connector')
+  const row = panel.locator('[data-wb-balance]')
+  await row.waitFor()
+  assert.equal(await panel.locator('[data-wb-wallet-page], a[href*="workbuddy.cn"]').count(), 0)
+  assert.equal(await panel.locator('[data-wb-auto]').isDisabled(), true)
   assert.equal(await panel.locator('[data-wb-auto]').isChecked(), false)
-  await panel.getByRole('button', { name: 'Sign in', exact: true }).waitFor()
-  await panel.getByText('Signed out', { exact: true }).waitFor()
+  if (fixture) {
+    await page.waitForFunction(() => document.querySelector('[data-wb-balance] output')?.textContent === '0')
+    const refresh = row.getByRole('button', { name: 'Refresh credits' })
+    await page.evaluate(() => { window.fixtureState.balance = 127.5 })
+    await refresh.click()
+    await page.waitForFunction(() => document.querySelector('[data-wb-balance] output')?.textContent === '127.5')
+    await page.evaluate(() => { window.fixtureState.balance = null })
+    await refresh.click()
+    await page.waitForFunction(() => document.querySelector('[data-wb-balance] output')?.textContent === '—')
+    assert.match(await panel.innerText(), /could not|unavailable|couldn.t|try again/i)
+  } else {
+    await row.getByText('Sign in to view', { exact: true }).waitFor()
+    assert.equal(await row.locator('output').innerText(), '—')
+    assert.equal(await row.getByRole('button', { name: 'Refresh credits' }).count(), 0)
+    await panel.getByRole('button', { name: 'Desktop sign-in', exact: true }).waitFor()
+    await panel.getByText('Signed out', { exact: true }).waitFor()
+  }
   const text = await panel.innerText()
   assert.doesNotMatch(text, /checked in today|available today/i)
   assert.doesNotMatch(text, /API[\s_-]*key|access token|secret key/i, 'account login must be the only WorkBuddy credential flow')
   assert.equal(await panel.locator('input[type="password"],input[name*="key" i],input[placeholder*="key" i],input[aria-label*="key" i]').count(), 0)
-  assert.equal(await page.locator('[data-wb-wallet-page], [data-wb-auto]').count(), 2)
-  assert.equal(await panel.locator('[data-wb-wallet-page], [data-wb-auto]').count(), 2)
+  assert.equal(await page.locator('[data-wb-balance], [data-wb-auto]').count(), 2)
+  assert.equal(await panel.locator('[data-wb-balance], [data-wb-auto]').count(), 2)
 }
 
-async function run(colorScheme, reducedMotion, desktop = false) {
+// Simulate only account metadata and wallet status/refresh in a separate localhost context.
+function installWalletFixture() {
+  window.fixtureState = { balance: 0 }
+  window.CapacitorPlatforms = { currentPlatform: { getPlatform: () => 'android', isNativePlatform: () => false } }
+  window.Capacitor = {
+    PluginHeaders: [{ name: 'WorkBuddyWallet', methods: ['status', 'refresh'].map(name => ({ name, rtype: 'promise' })) }],
+    async nativePromise(plugin, method) {
+      if (plugin !== 'WorkBuddyWallet' || !['status', 'refresh'].includes(method)) throw Error('Unexpected wallet fixture operation')
+      const { balance } = window.fixtureState
+      return { source: 'account', state: balance === null ? 'unavailable' : 'account-page', balance, checkIn: 'unknown',
+        canAutoCheckIn: false, autoCheckIn: false, observedAt: balance === null ? null : Date.now() }
+    },
+  }
+  window.WorkBuddyChat = { postMessage(raw) {
+    const { id, op } = JSON.parse(raw)
+    if (op !== 'status') throw Error('Unexpected account fixture operation')
+    queueMicrotask(() => this.onmessage({ data: JSON.stringify({ id, type: 'status', model: 'deepseek-v4.1-flash',
+      revision: '00000000-0000-4000-8000-000000000001', name: 'Local fixture' }) }))
+  } }
+}
+
+async function run(colorScheme, reducedMotion, desktop = false, fixture = false) {
   const context = await browser.newContext({ locale: 'en-US', colorScheme, reducedMotion,
     hasTouch: !desktop, viewport: desktop ? { width: 1280, height: 900 } : { width: 390, height: 730 }, serviceWorkers: 'block' })
   try {
@@ -61,11 +98,12 @@ async function run(colorScheme, reducedMotion, desktop = false) {
       return url.origin === origin && req.method() === 'GET' ? route.continue() : route.abort()
     })
     await context.addInitScript(() => localStorage.setItem('chat-demo:locale', 'en-US'))
+    if (fixture) await context.addInitScript(installWalletFixture)
     const page = await context.newPage()
     page.setDefaultTimeout(6000)
     page.on('pageerror', error => errors.push(error.message))
     await page.goto(origin)
-    assert.equal(await page.locator('meta[name="application-version"]').getAttribute('content'), '1.0.48')
+    assert.equal(await page.locator('meta[name="application-version"]').getAttribute('content'), expectedVersion)
     await page.locator(`body.${colorScheme}`).waitFor()
     assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), reducedMotion === 'reduce')
     // A clean browser has no chat credentials, so the app opens its ordinary API settings on startup.
@@ -94,17 +132,19 @@ async function run(colorScheme, reducedMotion, desktop = false) {
     }
     const version = page.locator('button[data-wb-version]')
     await version.waitFor()
-    assert.equal((await version.innerText()).trim(), 'Version 1.0.48')
+    assert.equal((await version.innerText()).trim(), `Version ${expectedVersion}`)
     await version.scrollIntoViewIfNeeded()
     await assertPrivate(page)
     const before = await version.boundingBox()
+    const footer = await version.locator('..').boundingBox()
+    assert.ok(Math.abs((before.x + before.width / 2) - (footer.x + footer.width / 2)) <= 1, 'Version must be centered in the footer')
     const hit = () => desktop ? version.click() : version.tap()
     for (let i = 0; i < 6; i++) {
       await hit()
       assert.equal(await page.locator('[data-wb-panel]').count(), 0, `opened on tap ${i + 1}`)
     }
     await hit()
-    await inspectPanel(page)
+    await inspectPanel(page, fixture)
     if (desktop) await page.keyboard.press('Escape')
     else await page.evaluate(() => history.back())
     await page.locator('[data-wb-panel]').waitFor({ state: 'detached' })
@@ -115,6 +155,7 @@ async function run(colorScheme, reducedMotion, desktop = false) {
     await assertPrivate(page)
     assert.deepEqual(errors, [])
     assert.deepEqual(keyRequests, [], 'Unexpected credential request during WorkBuddy navigation')
+    if (fixture) console.log('PASS local account fixture: in-app zero → 127.5 → unavailable, refresh stays in WorkBuddy')
     console.log(`PASS ${desktop ? 'desktop' : 'mobile'} ${colorScheme}/${reducedMotion}: six taps hidden; seventh opens private wallet, unknown balance, check-in off; Back restores ${originalSection || 'Settings at version footer'}`)
   } finally { await context.close() }
 }
@@ -124,6 +165,7 @@ try {
     for (const reducedMotion of ['no-preference', 'reduce']) await run(colorScheme, reducedMotion)
   }
   await run('dark', 'reduce', true)
+  await run('light', 'reduce', false, true)
 } finally {
   await browser.close()
   await new Promise(done => server.close(done))

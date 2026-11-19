@@ -18,7 +18,7 @@ import java.util.UUID;
 /** All HTTPS is handled in-process. The test vault directory is independent of the user's grant. */
 @RunWith(AndroidJUnit4.class)
 public final class WorkBuddyAuthTest {
-    private static final String HOST = "https://copilot.tencent.com";
+    private static final String HOST = "https://www.workbuddy.cn";
     private static final String STATE = "offline-test-state-442188";
     private static final String START = HOST + "/v2/plugin/auth/state?platform=deepchat";
     private static final String PAGE = HOST + "/login?platform=deepchat&state=" + STATE;
@@ -47,13 +47,31 @@ public final class WorkBuddyAuthTest {
     @Test public void authorizationIsBoundToDeepChatAndItsOwnPendingState() {
         assertTrue(WorkBuddySession.validApproval(PAGE, STATE));
         for (String invalid : new String[]{PAGE.replace("deepchat", "workbuddy"), PAGE.replace("https:", "http:"),
-                PAGE.replace("copilot.tencent.com", "copilot.tencent.com.example.org"), PAGE.replace("/login?", "/other?"),
+                PAGE.replace("www.workbuddy.cn", "www.workbuddy.cn.example.org"), PAGE.replace("/login?", "/other?"),
+                PAGE.replace("www.workbuddy.cn", "copilot.tencent.com"), PAGE + "&redirect_uri=https://example.org",
+                PAGE.replace("www.workbuddy.cn", "www.workbuddy.cn@evil.example"),
                 PAGE + "&platform=other", PAGE + "&state=another", PAGE + "#unwanted"}) {
             assertFalse(WorkBuddySession.validApproval(invalid, STATE));
         }
         assertFalse(WorkBuddySession.validApproval(PAGE, "different-state"));
         assertTrue(WorkBuddyChat.allowedModel("deepseek-v4.1-flash"));
         for (String model : new String[]{"auto", "deepseek-v4-pro ", "provider/deepseek-v4-pro", "other"}) assertFalse(WorkBuddyChat.allowedModel(model));
+    }
+    @Test public void desktopPresentationCannotOpenMiniProgramsOrReplaceThePendingRequest() {
+        String ua = WorkBuddyDesktopBrowser.desktopUserAgent("Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Version/4.0 Chrome/159.0.0.0 Mobile Safari/537.36");
+        assertTrue(ua.contains("Chrome/159.0.0.0"));
+        assertFalse(ua.matches(".*(Android|Mobile|; wv).*"));
+        assertTrue(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse(PAGE), true, STATE));
+        assertTrue(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse(PAGE.replace("/login?", "/login/?")), true, STATE));
+        assertFalse(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse(PAGE), true, "other"));
+        for (String raw : new String[]{"weixin://dl/business", "intent://open", "file:///data", "content://x", "http://www.workbuddy.cn/login", "https://localhost", "https://www.workbuddy.cn@evil.example", "https://localhost.weixin.qq.com/"}) {
+            assertFalse(WorkBuddyDesktopBrowser.resourceAllowed(Uri.parse(raw)));
+            assertFalse(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse(raw), false, STATE));
+        }
+        Uri wechat = Uri.parse("https://open.weixin.qq.com/connect/qrconnect");
+        assertTrue(WorkBuddyDesktopBrowser.documentAllowed(wechat, false, STATE));
+        assertFalse(WorkBuddyDesktopBrowser.documentAllowed(wechat, true, STATE));
+        assertFalse(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse("https://assets.workbuddy.cn/example"), true, STATE));
     }
     @Test public void accountAndRefreshTokensNeverAppearInWebStatus() throws Exception {
         OfflineHttps.Connection init = start().await();

@@ -25,6 +25,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
   const t = useTranslate()
   const mobile = useIsSettingsMobile()
   useLibrarySnapshot()
+  const chatNotes = scope.kind === 'chat'
   const memories = getManagedMemories(scope)
   const [action, setAction] = useState<Action | null>(null)
   const close = () => setAction(null)
@@ -40,7 +41,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
     <div className={styles.page} data-mobile={(mobile && scope.kind === 'global') || undefined}>
       <section>
         <h3 className={styles.heading}>
-          {t(scope.kind === 'global' ? 'libGlobalMemories' : 'libMemories')}
+          {t(chatNotes ? 'libNotesList' : scope.kind === 'global' ? 'libGlobalMemories' : 'libMemories')}
           {memories.length > 0 && <span className={styles.total}>{memories.length}</span>}
         </h3>
         {scope.kind === 'global' && <p className={styles.scope}>{t('libGlobalScope')}</p>}
@@ -48,7 +49,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
           {!memories.length && (
             <div className={styles.empty}>
               <LibraryIcon name="memory" />
-              <strong>{t('libMemoryEmptyTitle')}</strong>
+              <strong>{t(chatNotes ? 'libNotesEmpty' : 'libMemoryEmptyTitle')}</strong>
               <p>
                 {t(
                   scope.kind === 'folder'
@@ -66,7 +67,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
                 <li key={memory.id} className={styles.item}>
                   <button
                     className={styles.edit}
-                    aria-label={`${t('libMemoryEdit')} · ${memory.text}`}
+                    aria-label={`${t(chatNotes ? 'libNoteEdit' : 'libMemoryEdit')} · ${memory.text}`}
                     onClick={() => setAction({ kind: 'edit', memory })}
                   >
                     <span className={styles.memoryBody}>
@@ -81,7 +82,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
                   </button>
                   <button
                     className={styles.remove}
-                    aria-label={`${t('libMemoryDelete')} · ${memory.text}`}
+                    aria-label={`${t(chatNotes ? 'libNoteDelete' : 'libMemoryDelete')} · ${memory.text}`}
                     onClick={() => setAction({ kind: 'delete', memory })}
                   >
                     <IconTrashOutline16 />
@@ -92,7 +93,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
           )}
           <button className={styles.add} onClick={() => setAction({ kind: 'edit' })}>
             <span className={styles.plus} aria-hidden="true" />
-            {t('libMemoryAdd')}
+            {t(chatNotes ? 'libNoteAdd' : 'libMemoryAdd')}
           </button>
         </div>
       </section>
@@ -102,7 +103,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
             <MemoryEditor scope={scope} memory={action.memory} onClose={close} />
           ) : (
             <ConfirmationModal
-              title={t('libMemoryDeleteConfirm')}
+              title={t(chatNotes ? 'libNoteDeleteConfirm' : 'libMemoryDeleteConfirm')}
               onClose={close}
               footer={
                 <>
@@ -118,7 +119,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
                 </>
               }
             >
-              <p className={styles.deleteHint}>{t('libMemoryDeleteHint')}</p>
+              <p className={styles.deleteHint}>{t(chatNotes ? 'libNoteDeleteHint' : 'libMemoryDeleteHint')}</p>
               <blockquote className={styles.quote} dir="auto">
                 {action.memory.text}
               </blockquote>

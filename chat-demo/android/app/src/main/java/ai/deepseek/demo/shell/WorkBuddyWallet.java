@@ -79,6 +79,20 @@ final class WorkBuddyWallet {
         } finally { conn.disconnect(); }
     }
 
+    private static JSObject signedOut() {
+        JSObject s = new JSObject();
+        s.put("source", "signed-out");
+        s.put("state", "login-required");
+        s.put("balance", JSONObject.NULL);
+        s.put("observedAt", JSONObject.NULL);
+        s.put("checkIn", "unknown");
+        s.put("canAutoCheckIn", false);
+        s.put("autoCheckIn", false);
+        s.put("httpStatus", JSONObject.NULL);
+        s.put("detail", "");
+        return s;
+    }
+
     static JSObject run(Context ctx, boolean refresh, Boolean toggle, boolean scheduled) throws Exception {
         SharedPreferences store = prefs(ctx);
         if (scheduled && !store.getBoolean("auto", false)) return null;
@@ -87,7 +101,7 @@ final class WorkBuddyWallet {
             store.edit().clear().putString("owner", owner).commit();
             WorkBuddyCheckInJob.cancel(ctx);
         }
-        if (owner == null) return null;
+        if (owner == null) return scheduled ? null : signedOut();
         String today = day();
         if (toggle != null) {
             if (!store.edit().putBoolean("auto", toggle).commit()) throw new IOException("Preference unavailable");
@@ -101,11 +115,16 @@ final class WorkBuddyWallet {
             store.edit().putLong("attemptTime", System.currentTimeMillis()).apply();
             try {
                 JSONObject grant = WorkBuddySession.forContext(ctx).account();
-                if (!owner.equals(grant.optString("revision")) || !owner.equals(revision(ctx))) return null;
+                if (!owner.equals(grant.optString("revision")) || !owner.equals(revision(ctx))) return scheduled ? null : signedOut();
                 refresh(ctx, store, owner, grant, today);
-            } catch (Exception unavailable) { store.edit().putString("state", "unavailable").apply(); }
+            } catch (WorkBuddySession.Fault fault) {
+                store.edit().putString("state", fault.status == 401 || fault.status == 403 ? "access-denied" : "unavailable")
+                        .putInt("http", fault.status).apply();
+            } catch (Exception unavailable) {
+                store.edit().putString("state", "unavailable").remove("http").apply();
+            }
         }
-        if (!owner.equals(revision(ctx))) return null;
+        if (!owner.equals(revision(ctx))) return scheduled ? null : signedOut();
         JSObject s = new JSObject();
         s.put("source", "account");
         s.put("state", store.getString("state", "account-page"));
@@ -118,18 +137,37 @@ final class WorkBuddyWallet {
         s.put("httpStatus", store.contains("http") ? store.getInt("http", 0) : JSONObject.NULL);
         return s;
     }
-    private static void balance(SharedPreferences store, JSONObject grant) throws Exception {
-        Result r = post(grant, SUMMARY);
-        Double amount = r.ok() && r.data != null ? WorkBuddyMeter.balance(r.data) : null;
+    private static void balance(SharedPreferences store, JSONObject grant) {
         SharedPreferences.Editor edit = store.edit();
-        if (amount != null) edit.putString("balance", amount.toString()).putLong("observedAt", System.currentTimeMillis());
-        edit.putString("state", amount != null ? "account-page" : r.denied() ? "access-denied" : "unavailable").putInt("http", r.http).apply();
+        try {
+            Result r = post(grant, SUMMARY);
+            Double amount = r.ok() && r.data != null ? WorkBuddyMeter.balance(r.data) : null;
+            edit.putInt("http", r.http);
+            if (amount != null) {
+                edit.putString("state", "account-page").putString("balance", amount.toString())
+                        .putLong("observedAt", System.currentTimeMillis());
+            } else {
+                edit.putString("state", r.denied() ? "access-denied" : "unavailable");
+            }
+        } catch (Exception unavailable) {
+            edit.putString("state", "unavailable").remove("http");
+        }
+        edit.apply();
     }
+
+    private static String activityStatus(JSONObject grant) {
+        try {
+            Result status = post(grant, ACTIVITY);
+            if (status.denied()) return "ineligible";
+            if (status.http / 100 == 2) return WorkBuddyMeter.activity(status.code, status.data);
+        } catch (Exception unavailable) { /* Activity and balance are independent observations. */ }
+        return "unknown";
+    }
+
     private static void refresh(Context ctx, SharedPreferences store, String owner, JSONObject grant, String today) throws Exception {
-        try { balance(store, grant); } catch (Exception offline) { store.edit().putString("state", "unavailable").apply(); }
+        balance(store, grant);
         if (!owner.equals(revision(ctx))) return;
-        Result status = post(grant, ACTIVITY);
-        String activity = status.denied() ? "ineligible" : status.http / 100 == 2 ? WorkBuddyMeter.activity(status.code, status.data) : "unknown";
+        String activity = activityStatus(grant);
         if ("available".equals(activity) && store.getBoolean("auto", false)
                 && today.equals(day()) && owner.equals(revision(ctx))) {
             // Persist before POST. An interrupted response may still have granted the reward.

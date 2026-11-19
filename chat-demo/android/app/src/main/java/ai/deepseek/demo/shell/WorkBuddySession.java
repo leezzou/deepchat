@@ -14,7 +14,9 @@ import javax.net.ssl.HttpsURLConnection;
 
 /** User-initiated CN plugin authorization. The opaque state and all credentials stay native. */
 final class WorkBuddySession {
-    private static final String ORIGIN = "https://copilot.tencent.com";
+    static final String AUTH_HOST = "www.workbuddy.cn";
+    private static final String ORIGIN = "https://" + AUTH_HOST;
+    private static final String LEGACY_ORIGIN = "https://copilot.tencent.com";
     private static final String START = "/v2/plugin/auth/state?platform=deepchat";
     private static WorkBuddySession instance;
     private final ProfileVault vault;
@@ -32,10 +34,10 @@ final class WorkBuddySession {
         Fault(int status, int code) { super("HTTP " + status + (code == 0 ? "" : " · " + code)); this.status = status; this.code = code; }
     }
     private static JSONObject call(String path, boolean post, String bearer) throws Exception {
-        return call(path, post, bearer, null);
+        return call(ORIGIN, path, post, bearer, null);
     }
-    private static JSONObject call(String path, boolean post, String bearer, String refresh) throws Exception {
-        HttpsURLConnection conn = (HttpsURLConnection) new URL(ORIGIN + path).openConnection();
+    private static JSONObject call(String origin, String path, boolean post, String bearer, String refresh) throws Exception {
+        HttpsURLConnection conn = (HttpsURLConnection) new URL(origin + path).openConnection();
         try {
             conn.setInstanceFollowRedirects(false);
             conn.setUseCaches(false);
@@ -65,9 +67,12 @@ final class WorkBuddySession {
     }
 
     static boolean validApproval(String raw, String state) {
+        if (raw == null || state == null) return false;
         Uri url = Uri.parse(raw);
-        return "https".equals(url.getScheme()) && "copilot.tencent.com".equals(url.getEncodedAuthority())
-                && "/login".equals(url.getEncodedPath()) && url.getFragment() == null
+        String query = url.getEncodedQuery();
+        return "https".equals(url.getScheme()) && AUTH_HOST.equals(url.getEncodedAuthority())
+                && ("/login".equals(url.getEncodedPath()) || "/login/".equals(url.getEncodedPath()))
+                && url.getEncodedFragment() == null && query != null && query.split("&", -1).length == 2
                 && url.getQueryParameters("platform").equals(java.util.Collections.singletonList("deepchat"))
                 && url.getQueryParameters("state").equals(java.util.Collections.singletonList(state));
     }
@@ -103,7 +108,7 @@ final class WorkBuddySession {
             if ((!type.isEmpty() && !"personal".equalsIgnoreCase(type)) || !enterprise.isEmpty()) throw new IOException("personal_account_required");
             if (uid.isEmpty() || uid.equals("null") || uid.length() > 256 || !uid.matches("[!-~]+")) throw new IOException("account_missing");
             JSONObject record = new JSONObject().put("uid", uid).put("name", who.optString("nickname"))
-                    .put("access", pendingAccess).put("refresh", pendingRefresh).put("expiresAt", pendingExpiry)
+                    .put("issuer", AUTH_HOST).put("access", pendingAccess).put("refresh", pendingRefresh).put("expiresAt", pendingExpiry)
                     .put("refreshExpiresAt", pendingRefreshExpiry).put("revision", UUID.randomUUID().toString()).put("model", "deepseek-v4.1-flash");
             vault.write(record.toString()); cancel();
         } catch (Fault denied) {
@@ -138,7 +143,9 @@ final class WorkBuddySession {
         if (expiry > 0 && expiry <= System.currentTimeMillis() + 15000 && usableRefresh(saved)) {
             // Called inside the isolated native network context. Refresh at most once for concurrent readers.
             try {
-                JSONObject next = call("/v2/plugin/auth/token/refresh", true, null, saved.getString("refresh"));
+                // v1.0.48 and earlier obtained grants from the original Tencent issuer.
+                String issuer = AUTH_HOST.equals(saved.optString("issuer")) ? ORIGIN : LEGACY_ORIGIN;
+                JSONObject next = call(issuer, "/v2/plugin/auth/token/refresh", true, null, saved.getString("refresh"));
                 saved.put("access", credential(next.getString("accessToken"))).put("expiresAt", expiresAt(next, "expiresAt", "expiresIn"));
                 long refreshUntil = expiresAt(next, "refreshExpiresAt", "refreshExpiresIn");
                 if (refreshUntil > 0) saved.put("refreshExpiresAt", refreshUntil);
