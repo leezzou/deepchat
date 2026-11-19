@@ -106,7 +106,8 @@ final class OfflineHttps {
         }
 
         Connection await() throws InterruptedException {
-            assertTrue("Timed out waiting for " + this, received.await(15, TimeUnit.SECONDS));
+            long timeout = url.endsWith("/anthropic/v1/files") ? 90 : 15;
+            assertTrue("Timed out waiting for " + this, received.await(timeout, TimeUnit.SECONDS));
             return request;
         }
 
@@ -139,7 +140,22 @@ final class OfflineHttps {
         @Override public int getResponseCode() throws IOException { connect(); return response.status; }
         @Override public String getContentType() { return response.type; }
         @Override public InputStream getInputStream() throws IOException { connect(); return response.body; }
-        @Override public OutputStream getOutputStream() { return outgoing; }
+        private final java.security.MessageDigest fileDigest = sha256();
+        private static java.security.MessageDigest sha256() {
+            try { return java.security.MessageDigest.getInstance("SHA-256"); }
+            catch (java.security.NoSuchAlgorithmException e) { throw new AssertionError(e); }
+        }
+        byte[] uploadedDigest() { return fileDigest.digest(); }
+        @Override public InputStream getErrorStream() { return response == null ? null : response.body; }
+        @Override public OutputStream getOutputStream() {
+            if (getURL().getPath().equals("/anthropic/v1/files")) {
+                return new java.security.DigestOutputStream(new OutputStream() {
+                    @Override public void write(int ignored) { }
+                    @Override public void write(byte[] b, int off, int len) { }
+                }, fileDigest);
+            }
+            return outgoing;
+        }
         @Override public void disconnect() { }
         @Override public boolean usingProxy() { return false; }
         @Override public String getCipherSuite() { throw new UnsupportedOperationException(); }

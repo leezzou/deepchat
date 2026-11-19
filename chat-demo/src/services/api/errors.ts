@@ -58,6 +58,7 @@ export const isRetryableApiError = (error: unknown): boolean => {
   const condition = classifyApiError(error)
   return (
     !(error instanceof ApiError) ||
+    error.status === 408 ||
     condition === 'network' ||
     condition === 'rateLimited' ||
     condition === 'serverBusy'
@@ -81,6 +82,9 @@ const FILE_ERROR_PATTERNS: ReadonlyArray<readonly [FileErrorCode, RegExp]> = [
 export const getFileErrorCode = (error: unknown): FileErrorCode | null => {
   if (!(error instanceof ApiError) || error.status !== 400) {
     return null
+  }
+  if (error.localMessage?.key === 'uploadExpiredFile') {
+    return 'invalidFileId'
   }
   return FILE_ERROR_PATTERNS.find(([, pattern]) => pattern.test(error.message))?.[0] ?? null
 }

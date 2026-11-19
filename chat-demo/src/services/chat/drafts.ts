@@ -317,7 +317,7 @@ export const addDraftFiles = (
   if (files.length === 0) {
     return null
   }
-  const error = validateFiles(files, getDraft(sessionId).attachments.length)
+  const error = validateFiles(files, getDraft(sessionId).attachments.map((item) => item.file), access)
   if (error) {
     return error
   }

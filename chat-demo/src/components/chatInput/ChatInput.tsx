@@ -89,11 +89,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
       return
     }
-    // 附件靠 DeepSeek 的 Files API，OpenAI 兼容配置没有这条接口
-    if (apiProtocol !== 'deepseek') {
-      showToast({ key: 'apiAttachmentUnsupported' })
-      return
-    }
     const error = addDraftFiles(sessionId, files, requireChatAccess())
     if (error) {
       showToast(error)
@@ -148,8 +143,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
 
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
   const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
-  // 官方 App：输入框有文字时语音键变成蓝色实心发送键（UI-SPEC §4）
-  const typed = text.trim().length > 0
+  // 附件也可以单独发送。上传期间显示禁用的发送键，直到全部附件就绪。
+  const hasDraftContent = text.trim().length > 0 || attachments.length > 0
 
   const send = () => {
     if (
@@ -267,7 +262,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             }}
           />
           {/* 移动端有文字时语音键让位给发送键（官方交互） */}
-          {!isMobile || !typed || voice.status !== 'idle' ? (
+          {!isMobile || !hasDraftContent || voice.status !== 'idle' ? (
             <VoiceButton
               status={voice.status}
               disabled={!voice.available || apiProtocol !== 'deepseek'}
@@ -294,7 +289,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             >
               <IconStopFill16 />
             </button>
-          ) : isMobile && !typed ? null : (
+          ) : isMobile && !hasDraftContent ? null : (
             <button
               type="button"
               className={clsx(styles.sendButton, !canSend && styles.disabled)}

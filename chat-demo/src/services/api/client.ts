@@ -7,7 +7,6 @@ import { readServerSentEvents } from './sse.js'
 import type {
   ApiErrorBody,
   CreateMessageRequest,
-  FileObject,
   FilePurpose,
   MessageStreamEvent,
   StopReason,
@@ -50,10 +49,21 @@ const isErrorBody = (value: unknown): value is ApiErrorBody =>
   'error' in value &&
   typeof (value as ApiErrorBody).error?.message === 'string'
 
+const accountFileErrors = new Map<string, TranslationMessage['key']>([
+  ['DS_FILE_MESSAGE_REJECTED', 'uploadReplyRejected'],
+  ['DS_FILE_UPLOAD_REJECTED', 'uploadFileRejected'],
+  ['DS_FILE_REFERENCE_EXPIRED', 'uploadExpiredFile'],
+  ['DS_FILE_CONTEXT_LIMIT', 'replyContextFull'],
+  ['DS_FILE_DOCUMENT_COUNT', 'uploadDocCount'],
+  ['DS_FILE_TEXT_LIMIT', 'uploadTextLimit'],
+  ['DS_FILE_ENCRYPTED', 'uploadEncrypted'],
+])
+
 const readErrorResponse = async (
   response: Response,
   kind: 'http' | 'protocol' = 'http',
-  fallback = response.statusText
+  fallback = response.statusText,
+  account = false
 ): Promise<ApiError> => {
   const text = await response.text().catch(() => '')
   let message = text || fallback
@@ -65,7 +75,8 @@ const readErrorResponse = async (
   } catch {
     // 非 JSON 响应体直接展示原文
   }
-  return new ApiError(kind, message, response.status)
+  const key = account ? accountFileErrors.get(message) : undefined
+  return new ApiError(kind, key ? { key } : message, response.status)
 }
 
 export const request = async (url: string, init: RequestInit, access?: ChatAccess): Promise<Response> => {
@@ -84,7 +95,7 @@ export const request = async (url: string, init: RequestInit, access?: ChatAcces
       const key = response.status === 401 ? 'dshAccountExpired' : 'dshAccountInsufficient'
       throw new ApiError('http', { key }, response.status)
     }
-    throw await readErrorResponse(response)
+    throw await readErrorResponse(response, 'http', response.statusText, access?.source === 'account')
   }
   return response
 }
@@ -159,36 +170,43 @@ export const fetchModelIds = async (
   return [...new Set(ids)].sort()
 }
 
-/**
- * POST /anthropic/v1/files 上传附件（不设过期时间，会话里的历史附件一直可用）。
- * purpose 为 null 时不传该字段（图片）；purpose 必须排在 file 之前。
- */
+const isOpenAi = (access: ChatAccess): access is Extract<ChatAccess, { source: 'api' }> =>
+  access.source === 'api' && access.config.protocol === 'openai'
+
+const officialFiles = (origin: string) => new URL(origin).origin === 'https://api.deepseek.com'
+
+const filesEndpoint = (access: ChatAccess) => isOpenAi(access)
+  ? { url: `${access.config.origin}/files`, headers: { Authorization: `Bearer ${access.key}` } as Record<string, string> }
+  : { url: `${anthropicBaseUrl(access)}/files`, headers: anthropicHeaders(access, true) }
+
+/** Keep purpose before file: the parsing service reads multipart fields in order. */
 export const uploadFile = async (
   access: ChatAccess,
   file: File,
   purpose: FilePurpose | null,
   signal?: AbortSignal
-): Promise<FileObject> => {
+): Promise<{ id: string }> => {
   const form = new FormData()
-  if (purpose) {
-    form.append('purpose', purpose)
+  const selectedPurpose = isOpenAi(access)
+    ? (officialFiles(access.config.origin) ? purpose ?? 'user_data' : 'user_data')
+    : purpose
+  if (selectedPurpose) {
+    form.append('purpose', selectedPurpose)
   }
   form.append('file', file)
-  const response = await request(`${anthropicBaseUrl(access)}/files`, {
-    method: 'POST',
-    headers: anthropicHeaders(access, true),
-    body: form,
-    signal,
-  }, access)
-  return (await response.json()) as FileObject
+  const { url, headers } = filesEndpoint(access)
+  const response = await request(url, { method: 'POST', headers, body: form, signal }, access)
+  const uploaded: unknown = await response.json().catch(() => null)
+  if (!uploaded || typeof uploaded !== 'object' || !('id' in uploaded) ||
+      typeof uploaded.id !== 'string' || !uploaded.id.trim()) {
+    throw new ApiError('protocol', { key: 'uploadMissingId' })
+  }
+  return { id: uploaded.id }
 }
 
-/** DELETE /anthropic/v1/files/{file_id} */
 export const deleteFile = async (access: ChatAccess, fileId: string): Promise<void> => {
-  await request(`${anthropicBaseUrl(access)}/files/${encodeURIComponent(fileId)}`, {
-    method: 'DELETE',
-    headers: anthropicHeaders(access, true),
-  }, access)
+  const { url, headers } = filesEndpoint(access)
+  await request(`${url}/${encodeURIComponent(fileId)}`, { method: 'DELETE', headers }, access)
 }
 
 const hasFile = (body: CreateMessageRequest) =>
@@ -207,15 +225,25 @@ const OPENCODE_SESSION = (() => {
   }
 })()
 
-/** 把 Anthropic 风格的 messages 摊平成 OpenAI 兼容的纯文本消息（附件与扩展角色跳过） */
-const toOpenAiMessages = (body: CreateMessageRequest) => {
-  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = []
+type ChatPart = { type: 'text'; text: string } | { type: 'file'; file_id: string } |
+  { type: 'file'; file: { file_id: string } }
+
+const toOpenAiMessages = (body: CreateMessageRequest, deepseek: boolean) => {
+  const messages: { role: 'system' | 'user' | 'assistant'; content: string | ChatPart[] }[] = []
   if (body.system) {
     messages.push({ role: 'system', content: body.system })
   }
   for (const message of body.messages) {
-    // latest_reminder 是 DeepSeek 的扩展角色，OpenAI 兼容接口不认
     if (message.role === 'latest_reminder') {
+      continue
+    }
+    if (message.role === 'user' && Array.isArray(message.content)) {
+      const content = message.content.map((block): ChatPart => {
+        if (block.type === 'text') {return { type: 'text', text: block.text }}
+        const file_id = block.source.file_id
+        return deepseek ? { type: 'file', file_id } : { type: 'file', file: { file_id } }
+      })
+      if (content.length > 0) {messages.push({ role: 'user', content })}
       continue
     }
     const text =
@@ -253,7 +281,7 @@ async function* streamOpenAiChat(
     },
     body: JSON.stringify({
       model,
-      messages: toOpenAiMessages(body),
+      messages: toOpenAiMessages(body, officialFiles(origin)),
       stream: true,
     }),
     signal,

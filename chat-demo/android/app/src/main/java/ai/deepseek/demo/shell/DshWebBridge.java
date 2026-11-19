@@ -24,7 +24,8 @@ final class DshWebBridge {
                     if (!mainFrame || !"https://localhost".equals(origin.toString())
                             || message.getType() != androidx.webkit.WebMessageCompat.TYPE_STRING) return;
                     String text = message.getData();
-                    if (text == null || text.length() > 48 * 1024 * 1024) return;
+                    // The largest inline body is ASR (8 MiB + MIME). Upload chunks are 128 KiB of base64.
+                    if (text == null || text.length() > 12 * 1024 * 1024) return;
                     String id = "";
                     try {
                         JSONObject request = new JSONObject(text);
@@ -36,14 +37,20 @@ final class DshWebBridge {
                         id = request.getString("id");
                         if (!id.matches("[a-zA-Z0-9-]{1,64}")) return;
                         final String call = id;
-                        if (request.getString("op").equals("cancel")) { transport.cancel(id); return; }
-                        if (!request.getString("op").equals("request")) return;
-                        transport.start(id, request.getString("path"), request.getString("method"), request.optString("contentType"), request.optString("body"),
-                                frame -> web.post(() -> {
-                                    if (page != reply) { transport.cancel(call); return; }
-                                    if (frame.optInt("status") == 401) changed();
-                                    try { reply.postMessage(frame.put("id", call).toString()); } catch (Exception gone) { transport.cancel(call); }
-                                }));
+                        DshMessagesTransport.Reply sink = frame -> web.post(() -> {
+                            if (page != reply) { transport.cancel(call); return; }
+                            if (frame.optInt("status") == 401) changed();
+                            try { reply.postMessage(frame.put("id", call).toString()); } catch (Exception gone) { transport.cancel(call); }
+                        });
+                        switch (request.getString("op")) {
+                            case "cancel": transport.cancel(id); return;
+                            case "chunk": transport.chunk(id, request.getLong("offset"), request.getString("body")); return;
+                            case "upload":
+                                transport.startUpload(id, request.getString("path"), request.getString("method"), request.getString("contentType"), request.getLong("length"), sink);
+                                return;
+                            case "request":
+                                transport.start(id, request.getString("path"), request.getString("method"), request.optString("contentType"), request.optString("body"), sink);
+                        }
                     } catch (Exception invalid) {
                         try { reply.postMessage(new JSONObject().put("type", "error").put("id", id).put("message", "请求未能发送，请稍后重试。").toString()); } catch (Exception ignored) {}
                     }

@@ -72,7 +72,8 @@ const { getEffectiveContext, getContextRounds, toRequestMessages } = await impor
 const { buildMessageDeletion, previewMessageDeletion } = await import('./contextDeletion.ts')
 const { getVisibleMessages, appendBranch } = await import('./branches.ts')
 const { compactSession, contextWindowTokens, sessionContextTokens } = await import('./compact.ts')
-const { splitContextText, estimateRequestTokens } = await import('./contextBudget.ts')
+const { splitContextText, estimateRequestTokens, indexRequestFiles, requestFileLimit } =
+  await import('./contextBudget.ts')
 const { createContextBatcher } = await import('./contextStreamBatcher.ts')
 const { useContextPreferences } = await import('./contextPreferences.ts')
 const store = await import('./store.ts')
@@ -667,6 +668,129 @@ test('single deletion keeps referenced files and invalidates only affected check
   const later = buildMessageDeletion(value, 'u2', 'single')
   assert.equal(later.session.checkpoint, value.checkpoint)
   assert.deepEqual(later.removedFileIds, [])
+})
+
+const attachment = (id, name, size, image = false) => ({
+  id,
+  name,
+  size,
+  isImage: image,
+  serverId: `file-api-${id}`,
+  mimeType: '',
+})
+
+const lastReplyAfter = async (value, start) => {
+  mount(value)
+  start()
+  if (useChatStore.getState().streaming[value.id]) {
+    await new Promise((resolve) => {
+      const unsubscribe = useChatStore.subscribe((state) => {
+        if (state.streaming[value.id]) {
+          return
+        }
+        unsubscribe()
+        resolve()
+      })
+    })
+  }
+  return getVisibleMessages(useChatStore.getState().sessionCache[value.id]).at(-1)
+}
+
+test('send counts document references across selected rounds and accepts exactly 20', async () => {
+  fixture.config.protocol = 'deepseek'
+  const file = attachment('pdf', 'large.pdf', 90 * 1024 * 1024)
+  const old = { ...user('u1'), files: Array(20).fill(file) }
+  fixture.draft = { text: '', files: [file] }
+  const value = session([old, assistant('a1')])
+  const blocked = await lastReplyAfter(value, () => store.sendMessage(value.id))
+  assert.equal(blocked.error.localMessage.key, 'contextDocumentCount')
+  assert.deepEqual(blocked.error.localMessage.params, { count: 21, limit: 20 })
+  assert.equal(fixture.requests.length, 0)
+
+  fixture.draft = { text: '', files: Array(20).fill(file) }
+  const reduced = session([old, assistant('a1')], { excludedContextRoundIds: ['u1'] })
+  const sent = await lastReplyAfter(reduced, () => store.sendMessage(reduced.id))
+  assert.equal(sent.status, 'done')
+  const blocks = fixture.requests[0].messages.at(-1).content
+  assert.equal(blocks.length, 20)
+  assert.deepEqual(blocks[0], {
+    type: 'document',
+    source: { type: 'file', file_id: file.serverId },
+  })
+})
+
+test('DeepSeek file limits follow account and official API routing across protocols', async () => {
+  const { usesDeepSeekFileLimits } = await import('../attachmentLimits.ts')
+  const api = (protocol, origin) => ({
+    source: 'api',
+    key: 'fixture',
+    config: { protocol, origin },
+  })
+  assert.equal(usesDeepSeekFileLimits({ source: 'account' }), true)
+  assert.equal(usesDeepSeekFileLimits(api('openai', 'https://api.deepseek.com/v1')), true)
+  assert.equal(usesDeepSeekFileLimits(api('deepseek', 'https://proxy.invalid')), true)
+  assert.equal(usesDeepSeekFileLimits(api('openai', 'https://provider.invalid/v1')), false)
+})
+
+test('context budget reflects plain-text sizes and document-text limits count repeated references', () => {
+  const file = attachment('log', 'log.txt', 4 * 1024 * 1024)
+  const old = { ...user('u1'), files: [file] }
+  const latest = { ...user('u2'), files: [file] }
+  const round = [old, assistant('a1')]
+  const index = indexRequestFiles([old, latest])
+  const messages = toRequestMessages(round, latest)
+  assert.equal(requestFileLimit(messages, index), null)
+  assert.ok(sessionContextTokens(session([...round, latest])) > (file.size * 2) / 3)
+  const extra = { ...latest, files: [file, attachment('tiny', 'tiny.md', 1)] }
+  const over = toRequestMessages(round, extra)
+  assert.equal(
+    requestFileLimit(over, indexRequestFiles([old, extra]))?.key,
+    'contextDocumentTextLimit'
+  )
+  assert.ok(!JSON.stringify(messages).includes('size'))
+})
+
+test('image reference bytes count towards the 200 MiB limit independently of document limits', () => {
+  const image = attachment('img', 'img.png', 50 * 1024 * 1024, true)
+  const doc = attachment('sheet', 'report.xlsx', 32 * 1024 * 1024)
+  const latest = { ...user('u1'), files: [...Array(4).fill(image), doc] }
+  const index = indexRequestFiles([latest])
+  assert.equal(requestFileLimit(toRequestMessages([], latest), index), null)
+  assert.equal(
+    requestFileLimit(toRequestMessages([], { ...latest, files: [...latest.files, image] }), index)
+      ?.key,
+    'contextImageLimit'
+  )
+})
+
+test('regenerating a file-only question without its original gives a local actionable error', async () => {
+  const missing = { ...attachment('lost', 'lost.md', 1024), serverId: null }
+  const value = session([{ ...user('u', ''), files: [missing] }, assistant('a')])
+  const reply = await lastReplyAfter(value, () => store.regenerateReply(value.id))
+  assert.equal(reply.error.localMessage.key, 'contextAttachmentUnavailable')
+  assert.equal(fixture.requests.length, 0)
+})
+
+test('automatic summary batches respect the document cap even when repeated IDs fit the token window', async () => {
+  fixture.config.protocol = 'deepseek'
+  fixture.settings.apiProfiles[0].contextWindow = 1_000_000
+  const doc = attachment('pdf', 'report.pdf', 42 * 1024 * 1024)
+  const repeatedRound = (n) => [
+    { ...user(`u${n}`), files: Array(15).fill(doc) },
+    assistant(`a${n}`),
+  ]
+  const value = session([
+    ...repeatedRound(1),
+    ...repeatedRound(2),
+    user('leave', 'x'.repeat(500000)),
+    assistant('last'),
+  ])
+  mount(value)
+  assert.equal((await compactSession(value.id, { automatic: true })).ok, true)
+  assert.equal(fixture.requests.length, 2)
+  for (const request of fixture.requests) {
+    assert.equal(requestFileLimit(request.messages, indexRequestFiles(value.messages)), null)
+  }
 })
 
 test('history replacement waits for pending message saves before running its snapshot callback', async () => {

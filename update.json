@@ -1,8 +1,8 @@
 {
-  "version": "1.0.41",
-  "publishedAt": "2026-11-18",
-  "notes": "设置、账户、用量页和弹窗新增成对的进入与退出动画。每次返回只关闭当前一层，从用量页回到账户时保留钱包余额和滚动位置。支持系统减少动态效果设置。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.41",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.41/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.41/deepchat.apk"
+  "version": "1.0.42",
+  "publishedAt": "2026-11-19",
+  "notes": "修复 Android 账户模式上传大文件失败或卡住的问题。手机上只选附件也可以直接发送。发送前会检查当前消息和聊天记录中引用的附件，超出文档数量或文字大小限制时会提示如何处理。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.42",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.42/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.42/deepchat.apk"
 }

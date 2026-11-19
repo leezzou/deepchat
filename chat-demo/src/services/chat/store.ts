@@ -10,6 +10,7 @@ import {
   isContextOverflow,
 } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
+import { usesDeepSeekFileLimits } from '../attachmentLimits.js'
 import { useSettings } from '../settings.js'
 import { resolveLocale } from '../../i18n/index.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -23,7 +24,7 @@ import {
 } from './drafts.js'
 import { createLatestReminder } from './latestReminder.js'
 import { useContextPreferences } from './contextPreferences.js'
-import { estimateRequestTokens } from './contextBudget.js'
+import { estimateRequestTokens, indexRequestFiles, requestFileLimit } from './contextBudget.js'
 import { createContextBatcher } from './contextStreamBatcher.js'
 import { buildMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
 export { previewMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
@@ -1108,12 +1109,16 @@ const requestContext = (sessionId: string, request: Request) => {
  * - 历史轮次（仅进入上下文的）中没有 serverId 的附件，多为导入的图片：从最新的消息往前逐张补传，
  *   失败静默跳过，该附件不进入本次请求，下次发送时再试。
  */
-const prepareFiles = async (sessionId: string, request: Request, signal: AbortSignal) => {
+const prepareFiles = async (
+  access: ChatAccess,
+  sessionId: string,
+  request: Request,
+  signal: AbortSignal
+) => {
   const epoch = historyEpoch
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
-  const access = requireChatAccess()
   const serverIds = new Map<string, string>()
   // 停止生成立即生效；上传本身不取消（输入框与其他消息可能共用同一任务），完成后照常写回 serverId
   const aborted = new Promise<never>((_, reject) => {
@@ -1284,8 +1289,19 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       let preparing = true
       let receivedContent = false
       try {
-        const prepared = await prepareFiles(sessionId, request, controller.signal)
+        if (configuration() !== initialConfiguration) {
+          preparing = false
+          throw new ApiError('protocol', { key: 'contextSummaryChanged' })
+        }
+        const access = requireChatAccess()
+        const prepared = await prepareFiles(access, sessionId, request, controller.signal)
         preparing = false
+        if (
+          !prepared.question.content.trim() &&
+          !prepared.question.files.some((file) => file.serverId)
+        ) {
+          throw new ApiError('protocol', { key: 'contextAttachmentUnavailable' })
+        }
         if (configuration() !== initialConfiguration) {
           throw new ApiError('protocol', { key: 'contextSummaryChanged' })
         }
@@ -1313,11 +1329,24 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             session?.checkpoint?.coveredMessageIds
           )
         }
+        const files = indexRequestFiles([...prepared.history, prepared.question])
+        const assertFileLimits = (messages: ReturnType<typeof toRequestMessages>) => {
+          if (!usesDeepSeekFileLimits(access)) {
+            return
+          }
+          const issue = requestFileLimit(messages, files)
+          if (issue) {
+            throw new ApiError('protocol', issue)
+          }
+        }
         let messages = buildMessages()
+        let exceedsBudget = false
         if (useContextPreferences.getState().autoCompact) {
           const { compactSession, contextWindowTokens } = await import('./compact.js')
           const window = contextWindowTokens()
-          if (estimateRequestTokens(messages) >= window * 0.8) {
+          if (estimateRequestTokens(messages, files) >= window * 0.8) {
+            // Compaction cannot remove attachments from the current question.
+            assertFileLimits(toRequestMessages([], prepared.question))
             const result = await compactSession(sessionId, {
               history: prepared.history,
               signal: controller.signal,
@@ -1334,17 +1363,19 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             }
             messages = buildMessages()
             // 失败不降级为截断；仍超窗时保留问题和原文，交由用户选择轮次再重试。
-            if (estimateRequestTokens(messages) >= window * 0.95) {
-              throw new ApiError('protocol', { key: 'contextRequestTooLarge' })
-            }
+            exceedsBudget = estimateRequestTokens(messages, files) >= window * 0.95
           }
+        }
+        assertFileLimits(messages)
+        if (exceedsBudget) {
+          throw new ApiError('protocol', { key: 'contextRequestTooLarge' })
         }
         controller.signal.throwIfAborted()
         if (configuration() !== initialConfiguration) {
           throw new ApiError('protocol', { key: 'contextSummaryChanged' })
         }
         const events = streamMessage(
-          requireChatAccess(),
+          access,
           {
             model: initial.model ?? MODEL,
             system: SYSTEM_PROMPT,

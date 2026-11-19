@@ -47,7 +47,7 @@ const { initializeAccount } = await import('../../shell/account.ts')
 const deliver = (frame) => port.onmessage({ data: JSON.stringify(frame) })
 
 test('existing profile retains its endpoint, model and key across account login and source changes', async () => {
-  initializeAccount((accountSignedIn) => useSettings.setState({ accountSignedIn }))
+  initializeAccount(({ signedIn }) => useSettings.setState({ accountSignedIn: signedIn }))
   assert.deepEqual(frames.splice(0), [{ op: 'status' }])
   deliver({ type: 'account', signedIn: true })
   const original = getChatAccess()
@@ -85,4 +85,43 @@ test('existing profile retains its endpoint, model and key across account login 
   selectApiProfile(profile.id)
   assert.deepEqual(getChatAccess(), original)
   assert.equal(saved.get('chat-demo:chat-source'), 'api')
+})
+
+
+test('official and compatible Chat Completions retain the uploaded ID in file-only messages', async () => {
+  const { uploadFile } = await import('./client.ts')
+  const originalFetch = globalThis.fetch
+  try {
+    for (const [origin, deepseek] of [['https://api.deepseek.com', true], ['https://fixture.invalid/v1', false]]) {
+      const access = { source: 'api', key: 'fixture', config: { origin, protocol: 'openai', model: 'deepseek-flash' } }
+      const fileId = 'file-fixture-id'
+      globalThis.fetch = async (url, init) => {
+        assert.equal(url, `${origin}/files`)
+        assert.deepEqual([...init.body.keys()], ['purpose', 'file'])
+        assert.equal(init.body.get('purpose'), deepseek ? 'text_recognition' : 'user_data')
+        return Response.json({ id: fileId })
+      }
+      const { id } = await uploadFile(access, new File(['hello'], 'document.pdf'), 'text_recognition')
+      globalThis.fetch = async (url, init) => {
+        assert.equal(url, `${origin}/chat/completions`)
+        const expected = deepseek ? { type: 'file', file_id: id } : { type: 'file', file: { file_id: id } }
+        assert.deepEqual(JSON.parse(init.body).messages, [{ role: 'user', content: [expected] }])
+        return new Response('data: [DONE]\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+      }
+      const messages = [{ role: 'user', content: [{ type: 'document', source: { type: 'file', file_id: id } }] }]
+      for await (const event of streamMessage(access, { messages }, new AbortController().signal)) void event
+    }
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('picker distinguishes original document, image, and extracted text limits', async () => {
+  const { validateFiles } = await import('../attachments.ts')
+  const access = { source: 'account' }
+  const file = (name, mib, type = '') => ({ name, size: mib * 1024 ** 2, type })
+  assert.equal(validateFiles([file('large.pdf', 100)], [], access), null)
+  assert.equal(validateFiles([file('large.pdf', 100.1)], [], access)?.key, 'uploadMaxMBSize')
+  assert.equal(validateFiles([file('photo.jpg', 65, 'application/octet-stream')], [], access)?.params.size, 64)
+  assert.equal(validateFiles([file('text.txt', 8)], [], access), null)
+  assert.equal(validateFiles([file('more.txt', 1)], [file('text.txt', 8)], access)?.key, 'uploadTextLimit')
+  assert.equal(validateFiles([file('a.pdf', 1)], Array(20).fill(file('file.pdf', 0.1)), access)?.key, 'uploadDocCount')
 })

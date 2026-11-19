@@ -145,6 +145,44 @@ public class ChatSurfaceTest {
         dom("30-day range is selected", "document.querySelector('[data-usage-days=\\\"30\\\"]')?.getAttribute('aria-pressed')==='true'");
     }
 
+    @Test public void largeAttachmentReachesServerAndChatByReference() throws Exception {
+        final int mib = 1024 * 1024, pages = 41;
+        final String fileId = "file-api-test-large";
+        OfflineHttps.Exchange upload = net.json("POST", "https://api.deepseek.com/anthropic/v1/files", 200,
+            new JSONObject().put("id", fileId).toString());
+        assertTrue(js("(()=>{const input=document.querySelector('input[type=file][multiple]');if(!input)return false;"
+            + "const piece=new Uint8Array(1048576).fill(65);const dt=new DataTransfer();"
+            + "dt.items.add(new File(Array(41).fill(piece),'large.pdf',{type:'application/pdf'}));"
+            + "input.files=dt.files;input.dispatchEvent(new Event('change',{bubbles:true}));return true})()"));
+        OfflineHttps.Connection received = upload.await();
+        String boundary = received.getRequestProperty("Content-Type").split("boundary=", 2)[1];
+        java.security.MessageDigest expected = java.security.MessageDigest.getInstance("SHA-256");
+        String prefix = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\ntext_recognition\r\n--" + boundary
+            + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n";
+        expected.update(prefix.getBytes(StandardCharsets.UTF_8));
+        byte[] piece = new byte[mib];
+        java.util.Arrays.fill(piece, (byte)'A');
+        for (int i = 0; i < pages; i++) expected.update(piece);
+        expected.update(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        assertArrayEquals("Multipart length, order and file contents survive the WebView/native boundary", expected.digest(), received.uploadedDigest());
+        OfflineHttps.Exchange chat = net.json("POST", MESSAGES, 400, "{\"error\":{\"message\":\"document text exceeds 8 MiB: fixture-private\"}}");
+        clickDom("send uploaded file", SEND);
+        OfflineHttps.Connection request = chat.await();
+        assertEquals("files-api-2025-04-14", request.getRequestProperty("anthropic-beta"));
+        JSONArray messages = request.requestJson().getJSONArray("messages");
+        boolean referenced = false;
+        for (int i = 0; i < messages.length(); i++) {
+            JSONArray blocks = messages.getJSONObject(i).optJSONArray("content");
+            if (blocks == null) continue;
+            for (int j = 0; j < blocks.length(); j++) {
+                JSONObject block = blocks.getJSONObject(j);
+                if ("document".equals(block.optString("type")) && fileId.equals(block.getJSONObject("source").optString("file_id"))) referenced = true;
+            }
+        }
+        assertTrue("Chat carries the returned document file ID", referenced);
+        dom("actionable parsed-text limit", "document.body.innerText.includes('8 MiB') && !document.body.innerText.includes('fixture-private')");
+    }
+
     @Test public void phoneAccountShowsRoundedBalancesAndOpensUsageReport() throws Exception {
         org.junit.Assume.assumeTrue("Exercise the phone settings entry", js("innerWidth < 768"));
         OfflineHttps.Exchange wallet = net.json("GET", "https://platform.deepseek.com/api/v0/users/get_user_summary", 200,

@@ -2,11 +2,18 @@ import { streamMessage } from '../api/client.js'
 import { getApiConfig } from '../api/origin.js'
 import { getChatAccess } from '../api/access.js'
 import type { CreateMessageRequest, MessageParam } from '../api/types.js'
+import { usesDeepSeekFileLimits } from '../attachmentLimits.js'
 import { useSettings } from '../settings.js'
 import { getContextRounds, getEffectiveContext, getReplyText, toRequestMessages } from './reply.js'
 import { applyCompaction, useChatStore } from './store.js'
 import { getVisibleMessages } from './branches.js'
-import { estimateTokens, estimateRequestTokens, splitContextText } from './contextBudget.js'
+import {
+  estimateTokens,
+  estimateRequestTokens,
+  indexRequestFiles,
+  requestFileLimit,
+  splitContextText,
+} from './contextBudget.js'
 import { translate } from '../../i18n/index.js'
 import { recordCompaction } from './compactionIndex.js'
 import type { Message, Session } from './types.js'
@@ -79,7 +86,9 @@ export { estimateTokens } from './contextBudget.js'
 /** 当前选中 API 配置的窗口优先；不把默认 DeepSeek 窗口套到其他模型。 */
 export const contextWindowTokens = (): number => {
   const state = useSettings.getState()
-  if (state.chatSource === 'account') return 1_000_000
+  if (state.chatSource === 'account') {
+    return 1_000_000
+  }
   const active = state.apiProfiles.find((profile) => profile.id === state.activeProfileId)
   if (active?.contextWindow && Number.isFinite(active.contextWindow) && active.contextWindow > 0) {
     return active.contextWindow
@@ -97,7 +106,10 @@ export const sessionContext = (session: Session, history = getVisibleMessages(se
   )
 
 /** 与真实请求共用轮次、提醒快照、工具块、附件和摘要选择；只估算当前分支。 */
-export const sessionContextTokens = (session: Session, path = getVisibleMessages(session)): number => {
+export const sessionContextTokens = (
+  session: Session,
+  path = getVisibleMessages(session)
+): number => {
   const context = sessionContext(session, path)
   const rounds = context.rounds
   const last = rounds.at(-1)
@@ -130,7 +142,7 @@ export const sessionContextTokens = (session: Session, path = getVisibleMessages
   if (question?.role === 'user') {
     messages.push(...toRequestMessages([], question))
   }
-  return estimateRequestTokens(messages)
+  return estimateRequestTokens(messages, indexRequestFiles(path))
 }
 
 export const contextPressure = (session: Session): number =>
@@ -159,21 +171,23 @@ export type CompactOptions = {
 }
 
 const profileSignature = () =>
-  JSON.stringify([
-    getChatAccess(),
-    useSettings.getState().activeProfileId,
-    contextWindowTokens(),
-  ])
+  JSON.stringify([getChatAccess(), useSettings.getState().activeProfileId, contextWindowTokens()])
 
 /** 单轮超过窗口时逐段摘要所有文字；不截掉原文尾部，附件仍按原 file_id 传入。 */
 const roundFragments = (
   round: ReturnType<typeof getContextRounds>[number],
-  budget: number
+  budget: number,
+  files: ReturnType<typeof indexRequestFiles>,
+  applyFileLimits: boolean
 ): MessageParam[][] => {
   const [user, reply] = round
   const placeholder = { ...user, id: '__summary__', content: '', files: [] }
   const messages = toRequestMessages(round, placeholder).slice(0, -1)
-  if (estimateRequestTokens(messages) <= budget) {
+  const issue = applyFileLimits && requestFileLimit(messages, files)
+  if (issue) {
+    throw new Error(translate(issue.key, issue.params))
+  }
+  if (estimateRequestTokens(messages, files) <= budget) {
     return [messages]
   }
   const transcript = JSON.stringify({
@@ -185,7 +199,7 @@ const roundFragments = (
   })
   const attachmentMessages = toRequestMessages([], { ...user, content: '' })
   const attachmentCost = user.files.some((file) => file.serverId)
-    ? estimateRequestTokens(attachmentMessages)
+    ? estimateRequestTokens(attachmentMessages, files)
     : 0
   const textBudget = budget - attachmentCost - 512
   if (textBudget < 256) {
@@ -250,11 +264,16 @@ export const compactSession = async (
   }
   try {
     const window = contextWindowTokens()
+    const files = indexRequestFiles(history)
+    const roundCost = (round: (typeof rounds)[number]) => {
+      const placeholder = { ...round[0], content: '', files: [] }
+      return estimateRequestTokens(toRequestMessages(round, placeholder).slice(0, -1), files)
+    }
     // 至少保留最近一整轮，单轮历史可压缩；本轮问题从未进入 rounds。
     let keepFrom = rounds.length === 1 ? 1 : rounds.length - 1
-    let keptTokens = rounds.length > 1 ? estimateTokens(JSON.stringify(rounds.at(-1))) : 0
+    let keptTokens = rounds.length > 1 ? roundCost(rounds[rounds.length - 1]) : 0
     while (keepFrom > 1) {
-      const cost = estimateTokens(JSON.stringify(rounds[keepFrom - 1]))
+      const cost = roundCost(rounds[keepFrom - 1])
       if (keptTokens + cost > window * RETAIN_RATIO) {
         break
       }
@@ -268,17 +287,24 @@ export const compactSession = async (
     if (batchBudget < 512) {
       return failure(translate('contextSummaryWindowSmall'))
     }
-    const fragments = oldRounds.flatMap((round) => roundFragments(round, batchBudget))
+    const applyFileLimits = usesDeepSeekFileLimits(access)
+    const fragments = oldRounds.flatMap((round) =>
+      roundFragments(round, batchBudget, files, applyFileLimits)
+    )
     let checkpoint = context.checkpoint ?? ''
     let cursor = 0
     while (cursor < fragments.length) {
       unchanged()
       const messages: MessageParam[] = checkpoint ? [{ role: 'user', content: checkpoint }] : []
       const start = cursor
-      while (
-        cursor < fragments.length &&
-        estimateRequestTokens([...messages, ...fragments[cursor]]) + reserve < window * 0.8
-      ) {
+      while (cursor < fragments.length) {
+        const batch = [...messages, ...fragments[cursor]]
+        if (
+          (applyFileLimits && requestFileLimit(batch, files)) ||
+          estimateRequestTokens(batch, files) + reserve >= window * 0.8
+        ) {
+          break
+        }
         messages.push(...fragments[cursor++])
       }
       if (cursor === start) {
@@ -325,10 +351,7 @@ export const compactSession = async (
     ]
     const before =
       estimateTokens(context.checkpoint ?? '') +
-      oldRounds.reduce((sum, round) => {
-        const placeholder = { ...round[0], content: '', files: [] }
-        return sum + estimateRequestTokens(toRequestMessages(round, placeholder).slice(0, -1))
-      }, 0)
+      oldRounds.reduce((sum, round) => sum + roundCost(round), 0)
     if (estimateTokens(checkpoint) >= before) {
       return failure(translate('contextSummaryNotSmaller'))
     }

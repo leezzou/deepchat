@@ -127,7 +127,7 @@ export type TextBlockParam = { type: 'text'; text: string }
 
 /**
  * 文件块：引用经 Files API 上传的文件，图片用 image、其余用 document；
- * 图片请求需带 anthropic-beta: files-api-2025-04-14；扩展模式不支持 document，返回 400。
+ * 引用 file_id 需带 anthropic-beta: files-api-2025-04-14；文档数和解析文字量按整次请求计算。
  */
 export type FileBlockParam = {
   type: 'image' | 'document'

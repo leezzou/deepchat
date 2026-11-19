@@ -31,6 +31,8 @@ final class DshMessagesTransport {
     private static final String FILES_BETA = "files-api-2025-04-14";
     private static final int MIB = 1024 * 1024;
     private static final int ACTIVE_LIMIT = 4;
+    static final int UPLOAD_CHUNK = 96 * 1024;
+    private static final int UPLOAD_IDLE_MS = 10 * 60 * 1000;
     private static final Pattern DELETE_FILE = Pattern.compile("/anthropic/v1/files/[A-Za-z0-9_-]{1,192}");
     private static final Pattern MULTIPART_TYPE = Pattern.compile("multipart/form-data;\\s*boundary=(?:[A-Za-z0-9'()+_,./:=?-]{1,70}|\"[A-Za-z0-9'()+_,./:=?-]{1,70}\")", Pattern.CASE_INSENSITIVE);
     private static final Pattern JSON_TYPE = Pattern.compile("application/json(?:; *charset=UTF-8)?", Pattern.CASE_INSENSITIVE);
@@ -52,16 +54,26 @@ final class DshMessagesTransport {
     }
 
     void start(String id, String urlPath, String method, String contentType, String base64Body, Reply sink) {
+        start(id, urlPath, method, contentType, base64Body == null ? "" : base64Body, 0, sink);
+    }
+
+    void startUpload(String id, String path, String method, String media, long length, Reply sink) {
+        start(id, path, method, media, null, length, sink);
+    }
+
+    private void start(String id, String urlPath, String method, String contentType, String body, long length, Reply sink) {
         Route route = Route.resolve(urlPath, method);
-        if (route == null) { httpError(sink, 403, "此账户连接仅支持应用中的官方接口。"); return; }
+        boolean upload = body == null;
+        if (route == null || upload != (route == Route.FILE_UPLOAD)) { httpError(sink, 403, "此账户连接仅支持应用中的官方接口。"); return; }
         if (id == null || !id.matches("[A-Za-z0-9_-]{1,128}")) { httpError(sink, 400, "请求标识无效。"); return; }
-        String body = base64Body == null ? "" : base64Body;
         String media = contentType == null ? "" : contentType;
-        if (body.length() > 4L * ((route.requestLimit + 2) / 3)) { httpError(sink, 413, "请求超过本机传输大小限制。"); return; }
-        if (!route.accepts(media, body)) { httpError(sink, 415, "请求内容格式不受支持。"); return; }
+        if (upload ? length > route.requestLimit : body.length() > 4L * ((route.requestLimit + 2) / 3)) {
+            httpError(sink, 413, "请求超过本机传输大小限制。"); return;
+        }
+        if (!route.accepts(media, upload ? length > 0 : !body.isEmpty())) { httpError(sink, 415, "请求内容格式不受支持。"); return; }
         String token = account.token();
         if (token == null || token.isEmpty()) { httpError(sink, 401, "请先在手机上的账户页登录。"); return; }
-        Call call = new Call(id, token, sink);
+        Call call = new Call(token, sink, (int) length);
         synchronized (this) {
             if (closed) { error(sink, "账户连接已关闭。"); return; }
             if (calls.size() >= ACTIVE_LIMIT || calls.containsKey(id)) { httpError(sink, 429, "请等待正在进行的请求完成。"); return; }
@@ -83,6 +95,12 @@ final class DshMessagesTransport {
         }
     }
 
+    void chunk(String id, long offset, String body) {
+        Call call;
+        synchronized (this) { call = calls.get(id); }
+        if (call != null && !call.offerChunk(offset, body)) call.abort("文件传输状态无效。");
+    }
+
     void cancel(String id) {
         Call call;
         synchronized (this) { call = calls.get(id); }
@@ -101,7 +119,8 @@ final class DshMessagesTransport {
     }
 
     private enum Route {
-        MESSAGES(4 * MIB, 16 * MIB), FILE_UPLOAD(32 * MIB, MIB), FILE_DELETE(0, MIB),
+        // Attachment policy permits a 100 MiB file. Leave separate room for the MIME envelope.
+        MESSAGES(4 * MIB, 16 * MIB), FILE_UPLOAD(100 * MIB + 64 * 1024, MIB), FILE_DELETE(0, MIB),
         ASR(8 * MIB + 8192, MIB), TTS(MIB, 32 * MIB);
 
         final int requestLimit, responseLimit;
@@ -120,9 +139,9 @@ final class DshMessagesTransport {
             }
         }
 
-        boolean accepts(String type, String body) {
-            if (this == FILE_DELETE) return body.isEmpty();
-            if (body.isEmpty() || type.length() > 128 || type.indexOf('\r') >= 0 || type.indexOf('\n') >= 0) return false;
+        boolean accepts(String type, boolean hasBody) {
+            if (this == FILE_DELETE) return !hasBody;
+            if (!hasBody || type.length() > 128 || type.indexOf('\r') >= 0 || type.indexOf('\n') >= 0) return false;
             return (this == FILE_UPLOAD || this == ASR ? MULTIPART_TYPE : JSON_TYPE).matcher(type).matches();
         }
     }
@@ -177,18 +196,62 @@ final class DshMessagesTransport {
     }
 
     private final class Call {
-        final String id, token;
+        final String token;
         final Reply sink;
-        final long startedAt = android.os.SystemClock.elapsedRealtime();
+        final int uploadLength;
+        // One pull is outstanding at a time. Only the worker decodes and writes its reply.
+        private int expectedOffset = -1;
+        private String pendingChunk;
+        private volatile long lastProgress = android.os.SystemClock.elapsedRealtime();
         java.util.concurrent.ScheduledFuture<?> watchdog;
         private HttpsURLConnection connection;
         private boolean ended;
 
-        Call(String id, String token, Reply sink) { this.id = id; this.token = token; this.sink = sink; }
+        Call(String token, Reply sink, int uploadLength) {
+            this.token = token;
+            this.sink = sink;
+            this.uploadLength = uploadLength;
+        }
 
         void checkLifetime() {
             if (!token.equals(account.token())) abort("登录状态已变更，请重试。");
-            else if (android.os.SystemClock.elapsedRealtime() - startedAt >= 300000) abort("账户请求已超时。");
+            else if (android.os.SystemClock.elapsedRealtime() - lastProgress >= (uploadLength > 0 ? UPLOAD_IDLE_MS : 300000)) abort("账户请求已超时。");
+        }
+
+        synchronized boolean offerChunk(long offset, String encoded) {
+            if (ended || expectedOffset < 0 || offset != expectedOffset || pendingChunk != null) return false;
+            int size = Math.min(UPLOAD_CHUNK, uploadLength - expectedOffset);
+            if (encoded.length() != 4 * ((size + 2) / 3)) return false;
+            pendingChunk = encoded;
+            notifyAll();
+            return true;
+        }
+
+        private synchronized String pullChunk(int offset, int size) throws Exception {
+            checkActive();
+            expectedOffset = offset;
+            send(frame("pull", "offset", offset, "length", size), false);
+            while (pendingChunk == null) {
+                checkActive();
+                wait(); // cancel, account change and the inactivity watchdog all wake this worker
+            }
+            checkActive();
+            String encoded = pendingChunk;
+            pendingChunk = null;
+            expectedOffset = -1;
+            return encoded;
+        }
+
+        private void writeUpload(OutputStream out) throws Exception {
+            for (int offset = 0; offset < uploadLength;) {
+                int size = Math.min(UPLOAD_CHUNK, uploadLength - offset);
+                byte[] chunk = Base64.decode(pullChunk(offset, size), Base64.NO_WRAP);
+                if (chunk.length != size) throw new IOException();
+                checkActive();
+                out.write(chunk);
+                offset += size;
+                lastProgress = android.os.SystemClock.elapsedRealtime();
+            }
         }
 
         private synchronized void send(JSONObject data, boolean terminal) throws IOException {
@@ -202,6 +265,7 @@ final class DshMessagesTransport {
             synchronized (this) {
                 if (ended) return;
                 ended = true;
+                notifyAll();
                 active = connection;
                 try { error(sink, why); } catch (RuntimeException disposedBridge) { }
             }
@@ -229,23 +293,26 @@ final class DshMessagesTransport {
 
         void run(Route route, String path, String method, String media, String encoded) {
             try {
-                byte[] body;
-                try { body = Base64.decode(encoded, Base64.DEFAULT); }
-                catch (IllegalArgumentException invalid) { reject(400, "请求内容编码无效。"); return; }
-                if (body.length > route.requestLimit) { reject(413, "请求超过本机传输大小限制。"); return; }
+                byte[] body = null;
+                if (encoded != null) {
+                    try { body = Base64.decode(encoded, Base64.DEFAULT); }
+                    catch (IllegalArgumentException invalid) { reject(400, "请求内容编码无效。"); return; }
+                    if (body.length > route.requestLimit) { reject(413, "请求超过本机传输大小限制。"); return; }
+                }
+                boolean fileReferences = route == Route.MESSAGES && containsFileReference(body);
                 checkActive();
                 HttpsURLConnection http = (HttpsURLConnection)new URL(ORIGIN + path).openConnection(Proxy.NO_PROXY);
                 synchronized (this) { checkActive(); connection = http; }
                 http.setInstanceFollowRedirects(false);
                 http.setUseCaches(false);
                 http.setConnectTimeout(12000);
-                http.setReadTimeout(90000);
+                http.setReadTimeout(route == Route.FILE_UPLOAD ? UPLOAD_IDLE_MS : 90000);
                 http.setRequestMethod(method);
                 http.setRequestProperty("User-Agent", account.userAgent);
                 http.setRequestProperty("x-dsh-auth-token", token);
                 if (route == Route.MESSAGES || route == Route.FILE_UPLOAD || route == Route.FILE_DELETE) {
                     http.setRequestProperty("anthropic-version", "2023-06-01");
-                    if (route != Route.MESSAGES || containsFileReference(body)) {
+                    if (route != Route.MESSAGES || fileReferences) {
                         http.setRequestProperty("anthropic-beta", FILES_BETA);
                     }
                 }
@@ -253,12 +320,15 @@ final class DshMessagesTransport {
                 if (route != Route.FILE_DELETE) {
                     http.setRequestProperty("Content-Type", media);
                     http.setDoOutput(true);
-                    http.setFixedLengthStreamingMode(body.length);
+                    http.setFixedLengthStreamingMode(route == Route.FILE_UPLOAD ? uploadLength : body.length);
                     checkActive();
                     try (OutputStream out = http.getOutputStream()) {
-                        for (int offset = 0; offset < body.length; offset += 32768) {
-                            checkActive();
-                            out.write(body, offset, Math.min(32768, body.length - offset));
+                        if (route == Route.FILE_UPLOAD) writeUpload(out);
+                        else {
+                            for (int offset = 0; offset < body.length; offset += 32768) {
+                                checkActive();
+                                out.write(body, offset, Math.min(32768, body.length - offset));
+                            }
                         }
                     }
                 }
@@ -266,7 +336,7 @@ final class DshMessagesTransport {
                 int status = http.getResponseCode();
                 if (status < 200 || status >= 300) {
                     if (status >= 300 && status < 400) reject(502, "官方接口返回了重定向。");
-                    else if (status >= 400 && status <= 599) reject(status, httpDetail(status));
+                    else if (status >= 400 && status <= 599) reject(status, DshFileErrors.detail(http, status, path, fileReferences, httpDetail(status)));
                     else reject(502, "官方接口返回了无效状态。");
                     return;
                 }

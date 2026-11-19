@@ -4,6 +4,7 @@ import type { LinkedMessage, TranslationMessage } from '../i18n/index.js'
 import { ApiError, uploadFile } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
 import type { FilePurpose } from './api/types.js'
+import { knownPlainTextBytes, MAX_DOCUMENT_REFERENCES, MAX_DOCUMENT_TEXT_BYTES, MAX_IMAGE_TOTAL_BYTES, usesDeepSeekFileLimits } from './attachmentLimits.js'
 import { ACCEPT_FILE_EXTS } from './uploadExts.js'
 
 /** 允许上传的扩展名，按扩展名白名单过滤，清单见 uploadExts.ts */
@@ -48,24 +49,32 @@ export const getUploadPurpose = (
     : 'rich_layout_recognition'
 }
 
-/** 文件允许的最大体积（MB），按上传时的 purpose 区分 */
-const getMaxSizeMB = (file: File) =>
-  getUploadPurpose(file.name, isImage(resolveMimeType(file)), file.size) === 'user_data'
-    ? MAX_USER_DATA_SIZE_MB
-    : MAX_SIZE_MB
+/** The server caps originals, and separately caps extracted text across a message. */
+const MiB = 1024 * 1024
+const getMaxSizeMB = (file: File) => {
+  if (isImage(resolveMimeType(file))) {return 64}
+  return LAYOUT_RECOGNITION_EXTS.has(getFileExt(file.name)) ? MAX_SIZE_MB : MAX_USER_DATA_SIZE_MB
+}
 
-/** 添加前校验：格式 → 大小 → 数量，任一不满足即整批不添加 */
-export const validateFiles = (files: File[], currentCount: number): TranslationMessage | null => {
+export const validateFiles = (files: File[], existing: File[], access: ChatAccess): TranslationMessage | null => {
   if (files.some((file) => !isAcceptedExt(file.name))) {
     return { key: 'uploadUnsupportedFormat' }
   }
-  const oversized = files.find((file) => file.size > getMaxSizeMB(file) * 1024 * 1024)
+  const oversized = files.find((file) => file.size > getMaxSizeMB(file) * MiB)
   if (oversized) {
     return { key: 'uploadMaxMBSize', params: { size: getMaxSizeMB(oversized) } }
   }
-  if (currentCount + files.length > MAX_COUNT) {
+  const combined = [...existing, ...files]
+  if (combined.length > MAX_COUNT) {
     return { key: 'uploadMaxFiles', params: { count: MAX_COUNT } }
   }
+  if (!usesDeepSeekFileLimits(access)) {return null}
+  const docs = combined.filter((file) => !isImage(resolveMimeType(file)))
+  if (docs.length > MAX_DOCUMENT_REFERENCES) {return { key: 'uploadDocCount' }}
+  const textBytes = docs.reduce((total, file) => total + knownPlainTextBytes({ name: file.name, size: file.size, mimeType: resolveMimeType(file) }), 0)
+  if (textBytes > MAX_DOCUMENT_TEXT_BYTES) {return { key: 'uploadTextLimit' }}
+  const imageBytes = combined.reduce((total, file) => total + (isImage(resolveMimeType(file)) ? file.size : 0), 0)
+  if (imageBytes > MAX_IMAGE_TOTAL_BYTES) {return { key: 'uploadImageTotal' }}
   return null
 }
 
@@ -74,6 +83,13 @@ export const validateFiles = (files: File[], currentCount: number): TranslationM
  * 服务端原文多为英文且较长，不直接展示。
  */
 export const describeUploadError = (error: unknown): TranslationMessage => {
+  if (error instanceof ApiError) {
+    if (error.localMessage) {return error.localMessage}
+    if (error.status === 408) {return { key: 'uploadSlow' }}
+    if (error.status === 504) {return { key: 'uploadParseTimeout' }}
+  }
+  if (classifyApiError(error) === 'network') {return { key: 'commonNetworkErrorToast' }}
+  if (classifyApiError(error) === 'rateLimited') {return { key: 'replyRateLimited' }}
   if (classifyApiError(error) === 'serverBusy') {
     return { key: 'uploadServerBusy' }
   }
@@ -83,7 +99,7 @@ export const describeUploadError = (error: unknown): TranslationMessage => {
   if (classifyApiError(error) === 'tooLarge') {
     return { key: 'uploadServerTooLarge' }
   }
-  if (error instanceof ApiError && error.status === 400) {
+  if (error instanceof ApiError && (error.status === 400 || error.status === 422)) {
     return { key: 'uploadFileRejected' }
   }
   return { key: 'uploadFileStatusFailed' }
@@ -238,7 +254,8 @@ const MIME_BY_EXT: Record<string, string> = {
 }
 
 /** 取文件的 MIME：优先用浏览器给出的类型，缺失时按扩展名推断 */
-export const resolveMimeType = (file: File) => file.type || MIME_BY_EXT[getFileExt(file.name)] || ''
+export const resolveMimeType = (file: File) =>
+  file.type && file.type !== 'application/octet-stream' ? file.type : MIME_BY_EXT[getFileExt(file.name)] || file.type || ''
 
 export const isImage = (mimeType: string) => mimeType.startsWith('image/')
 

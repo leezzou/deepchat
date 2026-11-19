@@ -35,6 +35,13 @@ export const contextFeatureZh = {
   contextSummaryCancelled: '已取消摘要，原文和原摘要保持不变。',
   contextRequestTooLarge:
     '当前上下文仍超出模型预算。请在上下文面板选择较少轮次，或减少本轮问题、附件或续写内容后重试。',
+  contextDocumentCount:
+    '本次对话请求引用了 {count} 份文档，最多支持 {limit} 份。同一文档重复引用也会计数。请减少本轮文档，或在上下文面板排除含附件的旧轮次。',
+  contextDocumentTextLimit:
+    '本次请求中的纯文本文档合计超过 8 MiB。请拆分文档并分次提问，或在上下文面板排除含附件的旧轮次。',
+  contextImageLimit:
+    '本次请求中的图片超过上限（最多 600 张，共 200 MiB）。请减少或缩小图片，或在上下文面板排除含图片的旧轮次。',
+  contextAttachmentUnavailable: '找不到这条提问的附件原件。请重新添加文件后发送。',
   contextBackupRequested: '已请求下载备份，请在下载列表确认保存结果。',
   contextBackupShared: '已完成分享操作，请在目标位置确认备份已保存。',
 } as const
@@ -84,6 +91,14 @@ export const contextFeatureEn: Record<keyof typeof contextFeatureZh, string> = {
   contextSummaryCancelled: 'Summary cancelled. Originals and the previous summary are unchanged.',
   contextRequestTooLarge:
     'Context still exceeds the model budget. Select fewer rounds in the context panel, or reduce the current question, attachments, or continuation before retrying.',
+  contextDocumentCount:
+    'This request includes {count} document references. The limit is {limit}, and each repeat counts. Remove documents from this question or exclude older rounds with attachments in the context panel.',
+  contextDocumentTextLimit:
+    'The plain-text documents in this request exceed 8 MiB in total. Split the documents across separate requests or exclude older rounds with attachments in the context panel.',
+  contextImageLimit:
+    'The images in this request exceed the limit of 600 images or 200 MiB in total. Remove or resize images, or exclude older rounds with images in the context panel.',
+  contextAttachmentUnavailable:
+    'The original attachment for this question is unavailable. Attach the file again and resend.',
   contextBackupRequested: 'Backup download requested. Confirm it was saved in your downloads.',
   contextBackupShared: 'Sharing completed. Confirm the backup was saved at the destination.',
 }
