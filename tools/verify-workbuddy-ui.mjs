@@ -38,6 +38,26 @@ async function inspectPanel(page, fixture) {
   assert.equal(await panel.locator('[data-wb-auto]').isChecked(), false)
   if (fixture) {
     await page.waitForFunction(() => document.querySelector('[data-wb-balance] output')?.textContent === '0')
+    const quota = panel.locator('[data-wb-flash-quota]')
+    await quota.waitFor()
+    assert.match(await quota.innerText(), /has not reported the remaining allowance/)
+    assert.doesNotMatch(await quota.innerText(), /Recorded on this device today|Daily quota reached/)
+    // Seed a local observation for this test account only and simulate returning to the app.
+    await page.evaluate(() => {
+      const now = Date.now()
+      const day = 86_400_000
+      const offset = 8 * 3_600_000
+      const dayEnd = (Math.floor((now + offset) / day) + 1) * day - offset
+      localStorage.setItem('chat-demo:workbuddy-flash-meter:v1:00000000-0000-4000-8000-000000000001', JSON.stringify({
+        dayEnd, tokens: 432, limit: { at: now, resetAt: now + 3_600_000, localTime: null, daily: true },
+      }))
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await quota.getByText(/Daily quota reached/).waitFor()
+    assert.match(await quota.innerText(), /WorkBuddy reset time:/)
+    assert.match(await quota.innerText(), /Recorded on this device today:\s+432 tokens \(UTC\+8\)/)
+    assert.equal(await row.locator('output').innerText(), '0', 'Daily token usage must stay separate from credits')
+    console.log('PASS local Flash fixture: unknown allowance, 432 device-recorded tokens, daily limit and reset time')
     const refresh = row.getByRole('button', { name: 'Refresh credits' })
     await page.evaluate(() => { window.fixtureState.balance = 127.5 })
     await refresh.click()
@@ -75,7 +95,8 @@ function installWalletFixture(mode) {
     async nativePromise(plugin, method) {
       if (plugin !== 'WorkBuddyWallet' || !['status', 'refresh'].includes(method)) throw Error('Unexpected wallet fixture operation')
       const { balance } = window.fixtureState
-      return { source: signedIn ? 'account' : 'signed-out', state: !signedIn ? 'login-required' : balance === null ? 'unavailable' : 'account-page', balance, checkIn: 'unknown',
+      const metadata = signedIn ? { model: 'deepseek-v4.1-flash', revision: '00000000-0000-4000-8000-000000000001' } : {}
+      return { ...metadata, source: signedIn ? 'account' : 'signed-out', state: !signedIn ? 'login-required' : balance === null ? 'unavailable' : 'account-page', balance, checkIn: 'unknown',
         canAutoCheckIn: false, autoCheckIn: false, observedAt: balance === null ? null : Date.now() }
     },
   }

@@ -82,7 +82,9 @@ function FlashQuota({ revision, defaultModel }: { revision: string; defaultModel
   }, [next])
   // Account defaults and individual conversations can choose different models. Keep an
   // explicitly labelled Flash observation accessible even after leaving that conversation.
-  if (model !== FLASH_QUOTA_MODEL && tokens === null && !limit) return null
+  if (model !== FLASH_QUOTA_MODEL && tokens === null && !limit) {
+    return null
+  }
   const reset = limit?.resetAt
     ? new Date(limit.resetAt).toLocaleString(locale, { timeZoneName: 'short' })
     : limit?.localTime
@@ -163,7 +165,9 @@ function WalletSection() {
       return saved.source === 'account' ? refreshWorkBuddyWallet() : saved
     })
     const resume = () => {
-      if (!document.hidden) void perform(getWorkBuddyWallet)
+      if (!document.hidden) {
+        void perform(getWorkBuddyWallet)
+      }
     }
     document.addEventListener('visibilitychange', resume)
     return () => {

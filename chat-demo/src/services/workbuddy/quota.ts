@@ -20,10 +20,14 @@ const count = (n: unknown): n is number =>
 const stamp = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 export function readFlashMeter(route: Route, now = Date.now()): Meter {
   const meter: Meter = { dayEnd: nextUsageDay(now), tokens: null, limit: null }
-  if (route.model !== FLASH_QUOTA_MODEL || !route.revision) return meter
+  if (route.model !== FLASH_QUOTA_MODEL || !route.revision) {
+    return meter
+  }
   try {
     const data = JSON.parse(localStorage.getItem(key(route)) ?? 'null')
-    if (data?.dayEnd === meter.dayEnd && count(data.tokens)) meter.tokens = data.tokens
+    if (data?.dayEnd === meter.dayEnd && count(data.tokens)) {
+      meter.tokens = data.tokens
+    }
     const limit = data?.limit
     if (
       count(limit?.at) &&
@@ -56,21 +60,28 @@ export function observeFlashReply(
   startedAt: number,
   now = Date.now()
 ) {
-  if (route.model !== FLASH_QUOTA_MODEL || !route.revision) return
+  if (route.model !== FLASH_QUOTA_MODEL || !route.revision) {
+    return
+  }
   const meter = readFlashMeter(route, now)
   // A successful older request can complete after a newer refusal.
-  if (meter.limit && startedAt > meter.limit.at) meter.limit = null
+  if (meter.limit && startedAt > meter.limit.at) {
+    meter.limit = null
+  }
   if (count(total)) {
     const sum = (meter.tokens ?? 0) + total
-    if (count(sum)) meter.tokens = sum
+    if (count(sum)) {
+      meter.tokens = sum
+    }
   }
   save(route, meter)
 }
 const record = (v: unknown): Record<string, unknown> =>
   v && typeof v === 'object' ? (v as Record<string, unknown>) : {}
 export function observeFlashLimit(route: Route, body: unknown, status: number, now = Date.now()) {
-  if (route.model !== FLASH_QUOTA_MODEL || !route.revision || ![200, 400, 429].includes(status))
+  if (route.model !== FLASH_QUOTA_MODEL || !route.revision || ![200, 400, 429].includes(status)) {
     return
+  }
   const envelope = record(body)
   const details =
     envelope.error && typeof envelope.error === 'object' ? record(envelope.error) : envelope
@@ -82,8 +93,9 @@ export function observeFlashLimit(route: Route, body: unknown, status: number, n
     !/(?:用量|使用量|额度|配额|usage|quota).{0,15}(?:超|耗尽|已用完|exceed|exhaust|limit)|(?:超出|超过).{0,8}(?:限额|频率限制)/i.test(
       msg
     )
-  )
+  ) {
     return
+  }
   const limit: Limit = {
     at: now,
     resetAt: null,
@@ -99,11 +111,14 @@ export function observeFlashLimit(route: Route, body: unknown, status: number, n
     const local = `${date} ${clock}`
     const base = Date.parse(`${date}T${clock}Z`)
     if (Number.isFinite(base) && new Date(base).toISOString().slice(0, 19) === `${date}T${clock}`) {
-      if (!sign) limit.localTime = local
-      else if (Number(hours) <= 14 && Number(minutes ?? 0) < 60) {
+      if (!sign) {
+        limit.localTime = local
+      } else if (Number(hours) <= 14 && Number(minutes ?? 0) < 60) {
         const instant =
           base - (sign === '+' ? 1 : -1) * (Number(hours) * 60 + Number(minutes ?? 0)) * 60_000
-        if (instant <= now) return
+        if (instant <= now) {
+          return
+        }
         limit.resetAt = instant
       }
     }

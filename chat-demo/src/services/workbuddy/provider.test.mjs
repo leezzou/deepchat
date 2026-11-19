@@ -316,3 +316,29 @@ test('off switches omit search and send thinking false; provider omission is vis
   assert.equal(buildReplyView(result, false).answer.text, '文档已更新')
   assert.equal(missing.at(-1).type, 'message_stop')
 })
+
+test('wallet records the final usage once and surfaces real HTTP and SSE limit envelopes', async () => {
+  const { readFlashMeter } = await import('./quota.ts')
+  const route = { ...access, revision: '01234567-89ab-4cde-abcd-000011112222' }
+  const usage = 'data: {"choices":[],"usage":{"total_tokens":42}}\n\n'
+  respond(200, answer.replace('data: [DONE]', usage + usage + 'data: [DONE]'))
+  await drain(route)
+  assert.equal(readFlashMeter(route).tokens, 42)
+  const rejection = {
+    code: 6004,
+    msg: '您的使用量已超出频率限制，将在 2099-12-31 09:00:00 UTC+8 重置',
+  }
+  respond(429, JSON.stringify(rejection), 'application/json')
+  await assert.rejects(drain(route), /6004/)
+  assert.equal(readFlashMeter(route).limit.resetAt, Date.parse('2099-12-31T01:00:00Z'))
+  respond(
+    200,
+    'event: error\ndata: ' +
+      JSON.stringify({ ...rejection, msg: rejection.msg.replace('09:00:00 UTC+8', '14:00:00') }) +
+      '\n\n'
+  )
+  await assert.rejects(drain(route), /6004/)
+  assert.equal(readFlashMeter(route).limit.localTime, '2099-12-31 14:00:00')
+  assert.equal(readFlashMeter(route).tokens, 42)
+  assert.equal(readFlashMeter({ ...route, model: 'deepseek-v4-pro' }).limit, null)
+})
