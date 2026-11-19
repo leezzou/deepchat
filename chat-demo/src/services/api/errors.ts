@@ -80,7 +80,7 @@ const FILE_ERROR_PATTERNS: ReadonlyArray<readonly [FileErrorCode, RegExp]> = [
  * 其余错误（限流、余额、purpose 不合规等）不在这里处理，保持原有失败提示。
  */
 export const getFileErrorCode = (error: unknown): FileErrorCode | null => {
-  if (!(error instanceof ApiError) || error.status !== 400) {
+  if (!(error instanceof ApiError) || (error.status !== 400 && error.status !== 422)) {
     return null
   }
   if (error.localMessage?.key === 'uploadExpiredFile') {

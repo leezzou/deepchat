@@ -157,7 +157,7 @@ public class ChatSurfaceTest {
         OfflineHttps.Connection received = upload.await();
         String boundary = received.getRequestProperty("Content-Type").split("boundary=", 2)[1];
         java.security.MessageDigest expected = java.security.MessageDigest.getInstance("SHA-256");
-        String prefix = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\ntext_recognition\r\n--" + boundary
+        String prefix = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nrich_layout_recognition\r\n--" + boundary
             + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"large.pdf\"\r\nContent-Type: application/pdf\r\n\r\n";
         expected.update(prefix.getBytes(StandardCharsets.UTF_8));
         byte[] piece = new byte[mib];
@@ -165,21 +165,23 @@ public class ChatSurfaceTest {
         for (int i = 0; i < pages; i++) expected.update(piece);
         expected.update(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
         assertArrayEquals("Multipart length, order and file contents survive the WebView/native boundary", expected.digest(), received.uploadedDigest());
+        final String prompt = "请概括这份文档";
+        assertTrue(js("(()=>{const t=document.querySelector('main textarea');"
+            + "Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(t," + JSONObject.quote(prompt) + ");"
+            + "t.dispatchEvent(new Event('input',{bubbles:true}));return true})()"));
         OfflineHttps.Exchange chat = net.json("POST", MESSAGES, 400, "{\"error\":{\"message\":\"document text exceeds 8 MiB: fixture-private\"}}");
         clickDom("send uploaded file", SEND);
         OfflineHttps.Connection request = chat.await();
         assertEquals("files-api-2025-04-14", request.getRequestProperty("anthropic-beta"));
         JSONArray messages = request.requestJson().getJSONArray("messages");
-        boolean referenced = false;
-        for (int i = 0; i < messages.length(); i++) {
-            JSONArray blocks = messages.getJSONObject(i).optJSONArray("content");
-            if (blocks == null) continue;
-            for (int j = 0; j < blocks.length(); j++) {
-                JSONObject block = blocks.getJSONObject(j);
-                if ("document".equals(block.optString("type")) && fileId.equals(block.getJSONObject("source").optString("file_id"))) referenced = true;
-            }
-        }
-        assertTrue("Chat carries the returned document file ID", referenced);
+        JSONObject question = messages.getJSONObject(messages.length() - 1);
+        assertEquals("user", question.getString("role"));
+        JSONArray blocks = question.getJSONArray("content");
+        assertEquals(2, blocks.length());
+        assertEquals("document", blocks.getJSONObject(0).getString("type"));
+        assertEquals(fileId, blocks.getJSONObject(0).getJSONObject("source").getString("file_id"));
+        assertEquals("text", blocks.getJSONObject(1).getString("type"));
+        assertEquals(prompt, blocks.getJSONObject(1).getString("text"));
         dom("actionable parsed-text limit", "document.body.innerText.includes('8 MiB') && !document.body.innerText.includes('fixture-private')");
     }
 

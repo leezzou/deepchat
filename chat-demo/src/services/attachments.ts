@@ -15,8 +15,6 @@ export const ACCEPT = ACCEPTED_EXTS.map((ext) => `.${ext}`).join(',')
 export const MAX_SIZE_MB = 100
 /** 按 user_data 上传的文件（纯文本、代码、表格、电子书）原文件上限更小 */
 export const MAX_USER_DATA_SIZE_MB = 32
-/** 超过该体积的 PDF/Word/PPT 改用纯文本解析：更快，也避免版面图片挤占请求 */
-const LARGE_DOCUMENT_MB = 20
 export const MAX_COUNT = 50
 /** 同时上传的文件数 */
 const MAX_CONCURRENT = 3
@@ -32,21 +30,12 @@ export const isAcceptedExt = (name: string) => ACCEPTED_EXTS.includes(getFileExt
 /** 需要服务端做版面解析的文档；其余非图片文件（纯文本、代码、表格、电子书）无需解析 */
 const LAYOUT_RECOGNITION_EXTS = new Set(['pdf', 'doc', 'docx', 'ppt', 'pptx'])
 
-/** 上传时的 purpose：图片不传，PDF 与 Word、PPT 做版面解析，其余按 user_data 上传 */
-export const getUploadPurpose = (
-  name: string,
-  isImage: boolean,
-  sizeBytes = 0
-): FilePurpose | null => {
+/** 与官方示例一致。PDF、Word、PPT 的图表和正文一并解析，原件大小不改变解析方式。 */
+export const getUploadPurpose = (name: string, isImage: boolean): FilePurpose | null => {
   if (isImage) {
     return null
   }
-  if (!LAYOUT_RECOGNITION_EXTS.has(getFileExt(name))) {
-    return 'user_data'
-  }
-  return sizeBytes > LARGE_DOCUMENT_MB * 1024 * 1024
-    ? 'text_recognition'
-    : 'rich_layout_recognition'
+  return LAYOUT_RECOGNITION_EXTS.has(getFileExt(name)) ? 'rich_layout_recognition' : 'user_data'
 }
 
 /** The server caps originals, and separately caps extracted text across a message. */
@@ -166,7 +155,7 @@ const enqueueUpload = (
       }
       try {
         const body = file instanceof File ? file : new File([file], name, { type: file.type })
-        resolve((await uploadFile(access, body, getUploadPurpose(name, isImage, body.size), signal)).id)
+        resolve((await uploadFile(access, body, getUploadPurpose(name, isImage), signal)).id)
       } catch (error) {
         reject(error)
       }

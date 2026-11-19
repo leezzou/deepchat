@@ -57,7 +57,41 @@ const accountFileErrors = new Map<string, TranslationMessage['key']>([
   ['DS_FILE_DOCUMENT_COUNT', 'uploadDocCount'],
   ['DS_FILE_TEXT_LIMIT', 'uploadTextLimit'],
   ['DS_FILE_ENCRYPTED', 'uploadEncrypted'],
+  ['DS_FILE_PARSE_FAILED', 'uploadParseRejected'],
+  ['DS_FILE_PURPOSE', 'uploadFilePurpose'],
+  ['DS_FILE_MODEL', 'uploadFileModel'],
+  ['DS_FILE_BLOCK_TYPE', 'uploadFileBlock'],
+  ['DS_FILE_BETA', 'uploadFileBeta'],
+  ['DS_FILE_COUNT_LIMIT', 'uploadAccountQuota'],
+  ['DS_FILE_STORAGE_LIMIT', 'uploadAccountQuota'],
 ])
+
+const diagnosticFields = new Set(['purpose', 'file', 'file_id', 'model', 'messages', 'content', 'source', 'type',
+  'media_type', 'anthropic-beta', 'max_tokens', 'thinking', 'output_config', 'tools', 'tool_choice', 'role', 'system'])
+
+const accountFileMessage = (message: string, status: number, diagnostic: unknown): TranslationMessage | undefined => {
+  const key = accountFileErrors.get(message)
+  if (!key) {return undefined}
+  if ((key !== 'uploadReplyRejected' && key !== 'uploadFileRejected') || (status !== 400 && status !== 422)) {
+    return { key }
+  }
+  const upload = key === 'uploadFileRejected'
+  const details: string[] = []
+  if (diagnostic && typeof diagnostic === 'object') {
+    const d = diagnostic as Record<string, unknown>
+    if (d.stage === (upload ? 'upload' : 'messages') && d.status === status) {
+      if (d.type === 'invalid_request_error') {details.push(`type=${d.type}`)}
+      if (d.code === 'invalid_request_error' || d.code === 'context_length_exceeded') {details.push(`code=${d.code}`)}
+      if (typeof d.param === 'string' && diagnosticFields.has(d.param)) {details.push(`param=${d.param}`)}
+      if (typeof d.requestId === 'string' && d.requestId.length === 36 && /^[a-f\d]{8}(?:-[a-f\d]{4}){3}-[a-f\d]{12}$/i.test(d.requestId)) {
+        details.push(`x-request-id=${d.requestId}`)
+      } else if (typeof d.traceId === 'string' && d.traceId.length === 32 && /^[a-f\d]{32}$/i.test(d.traceId)) {
+        details.push(`x-ds-trace-id=${d.traceId}`)
+      }
+    }
+  }
+  return { key: upload ? 'uploadValidationDiagnostic' : 'replyValidationDiagnostic', params: { status, details: details.length ? ` · ${details.join(' · ')}` : '' } }
+}
 
 const readErrorResponse = async (
   response: Response,
@@ -67,16 +101,18 @@ const readErrorResponse = async (
 ): Promise<ApiError> => {
   const text = await response.text().catch(() => '')
   let message = text || fallback
+  let diagnostic: unknown
   try {
     const body: unknown = JSON.parse(text)
     if (isErrorBody(body)) {
       message = body.error.message
+      if ('diagnostic' in body.error) {diagnostic = body.error.diagnostic}
     }
   } catch {
     // 非 JSON 响应体直接展示原文
   }
-  const key = account ? accountFileErrors.get(message) : undefined
-  return new ApiError(kind, key ? { key } : message, response.status)
+  const local = account ? accountFileMessage(message, response.status, diagnostic) : undefined
+  return new ApiError(kind, local ?? message, response.status)
 }
 
 export const request = async (url: string, init: RequestInit, access?: ChatAccess): Promise<Response> => {
@@ -173,7 +209,22 @@ export const fetchModelIds = async (
 const isOpenAi = (access: ChatAccess): access is Extract<ChatAccess, { source: 'api' }> =>
   access.source === 'api' && access.config.protocol === 'openai'
 
-const officialFiles = (origin: string) => new URL(origin).origin === 'https://api.deepseek.com'
+const officialFiles = (origin: string): boolean => {
+  try {
+    return new URL(origin).origin === 'https://api.deepseek.com'
+  } catch {
+    // A relative development proxy need not implement the official Files API.
+    return false
+  }
+}
+
+// The official file-input model is Flash. Leave model selection to the user and let
+// compatible endpoints, aliases and future models advertise their own capabilities.
+function checkFileModel(access: ChatAccess, model: string) {
+  if (model === 'deepseek-v4-pro' && officialFiles(accessOrigin(access))) {
+    throw new ApiError('protocol', { key: 'uploadFileModel' })
+  }
+}
 
 const filesEndpoint = (access: ChatAccess) => isOpenAi(access)
   ? { url: `${access.config.origin}/files`, headers: { Authorization: `Bearer ${access.key}` } as Record<string, string> }
@@ -186,10 +237,14 @@ export const uploadFile = async (
   purpose: FilePurpose | null,
   signal?: AbortSignal
 ): Promise<{ id: string }> => {
+  const openAi = isOpenAi(access)
+  const official = officialFiles(accessOrigin(access))
+  if (openAi) {
+    // An official PDF/Office upload can already incur a parsing charge.
+    checkFileModel(access, access.config.model)
+  }
   const form = new FormData()
-  const selectedPurpose = isOpenAi(access)
-    ? (officialFiles(access.config.origin) ? purpose ?? 'user_data' : 'user_data')
-    : purpose
+  const selectedPurpose = openAi ? (official ? purpose ?? 'user_data' : 'user_data') : purpose
   if (selectedPurpose) {
     form.append('purpose', selectedPurpose)
   }
@@ -197,6 +252,8 @@ export const uploadFile = async (
   const { url, headers } = filesEndpoint(access)
   const response = await request(url, { method: 'POST', headers, body: form, signal }, access)
   const uploaded: unknown = await response.json().catch(() => null)
+  // Document parsing is synchronous. Both protocols return a ready ID. Neither
+  // exposes a parse status, extracted byte count or page count in a file object.
   if (!uploaded || typeof uploaded !== 'object' || !('id' in uploaded) ||
       typeof uploaded.id !== 'string' || !uploaded.id.trim()) {
     throw new ApiError('protocol', { key: 'uploadMissingId' })
@@ -350,14 +407,18 @@ export async function* streamMessage(
   body: CreateMessageRequest,
   signal: AbortSignal
 ): AsyncGenerator<MessageStreamEvent> {
-  if (access.source === 'api' && access.config.protocol === 'openai') {
+  const referencesFiles = hasFile(body)
+  if (referencesFiles) {
+    checkFileModel(access, isOpenAi(access) ? access.config.model : body.model)
+  }
+  if (isOpenAi(access)) {
     yield* streamOpenAiChat(access, body, signal)
     return
   }
   const response = await request(`${anthropicBaseUrl(access)}/messages`, {
     method: 'POST',
     headers: {
-      ...anthropicHeaders(access, hasFile(body)),
+      ...anthropicHeaders(access, referencesFiles),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },

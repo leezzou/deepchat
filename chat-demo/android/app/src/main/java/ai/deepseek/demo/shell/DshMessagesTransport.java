@@ -175,8 +175,12 @@ final class DshMessagesTransport {
     private static void error(Reply sink, String detail) { sink.send(frame("error", "message", detail)); }
 
     private static void httpError(Reply sink, int status, String detail) {
-        // Provider error bodies can echo user content or credentials. Emit a local, status-specific diagnostic.
-        byte[] payload = ("{\"error\":{\"message\":" + JSONObject.quote(detail) + "}}").getBytes(StandardCharsets.UTF_8);
+        try { httpError(sink, status, new JSONObject().put("message", detail)); }
+        catch (JSONException impossible) { throw new AssertionError(impossible); }
+    }
+
+    private static void httpError(Reply sink, int status, JSONObject safeError) {
+        byte[] payload = ("{\"error\":" + safeError + "}").getBytes(StandardCharsets.UTF_8);
         sink.send(frame("headers", "status", status, "contentType", "application/json"));
         sink.send(frame("data", "base64", Base64.encodeToString(payload, Base64.NO_WRAP)));
         sink.send(frame("end"));
@@ -283,7 +287,11 @@ final class DshMessagesTransport {
             if (ended || !token.equals(account.token())) throw new IOException();
         }
 
-        private synchronized void reject(int status, String detail) {
+        private void reject(int status, String detail) throws JSONException {
+            reject(status, new JSONObject().put("message", detail));
+        }
+
+        private synchronized void reject(int status, JSONObject detail) {
             if (ended) return;
             ended = true;
             // Claim the response before expiry notification can replace this request's 401.
@@ -336,7 +344,11 @@ final class DshMessagesTransport {
                 int status = http.getResponseCode();
                 if (status < 200 || status >= 300) {
                     if (status >= 300 && status < 400) reject(502, "官方接口返回了重定向。");
-                    else if (status >= 400 && status <= 599) reject(status, DshFileErrors.detail(http, status, path, fileReferences, httpDetail(status)));
+                    else if (status >= 400 && status <= 599) {
+                        JSONObject fileError = DshFileErrors.detail(http, status, path, fileReferences, token);
+                        if (fileError != null) reject(status, fileError);
+                        else reject(status, httpDetail(status));
+                    }
                     else reject(502, "官方接口返回了无效状态。");
                     return;
                 }
