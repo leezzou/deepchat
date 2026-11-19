@@ -22,6 +22,8 @@ import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleEventObserver;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.webkit.ProfileStore;
+import androidx.webkit.UserAgentMetadata;
+import androidx.webkit.WebSettingsCompat;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 import java.io.ByteArrayInputStream;
@@ -47,7 +49,15 @@ final class WorkBuddyDesktopBrowser {
     private final LifecycleEventObserver observer;
     private boolean released;
 
-    static boolean supported() { return WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE); }
+    static boolean supported() {
+        return WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+                && WebViewFeature.isFeatureSupported(WebViewFeature.USER_AGENT_METADATA);
+    }
+
+    static UserAgentMetadata desktopMetadata(UserAgentMetadata engine) {
+        return new UserAgentMetadata.Builder(engine).setMobile(false).setPlatform("Linux")
+                .setPlatformVersion("").setModel("").build();
+    }
 
     static boolean resourceAllowed(Uri url) {
         return url != null && "https".equals(url.getScheme()) && RESOURCE_HOSTS.contains(url.getEncodedAuthority());
@@ -112,7 +122,9 @@ final class WorkBuddyDesktopBrowser {
             for (String name : store.getAllProfileNames()) if (name.startsWith(PREFIX)) deleteProfile(name);
             WebViewCompat.setProfile(browser, profile);
             WebSettings settings = browser.getSettings();
+            UserAgentMetadata hints = desktopMetadata(WebSettingsCompat.getUserAgentMetadata(settings));
             settings.setUserAgentString(desktopUserAgent(settings.getUserAgentString()));
+            WebSettingsCompat.setUserAgentMetadata(settings, hints);
             settings.setUseWideViewPort(true);
             settings.setLoadWithOverviewMode(true);
             settings.setSupportZoom(true);

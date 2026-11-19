@@ -59,6 +59,11 @@ public final class WorkBuddyAuthTest {
     }
     @Test public void desktopPresentationCannotOpenMiniProgramsOrReplaceThePendingRequest() {
         String ua = WorkBuddyDesktopBrowser.desktopUserAgent("Mozilla/5.0 (Linux; Android 14; wv) AppleWebKit/537.36 Version/4.0 Chrome/159.0.0.0 Mobile Safari/537.36");
+        androidx.webkit.UserAgentMetadata hints = WorkBuddyDesktopBrowser.desktopMetadata(
+                new androidx.webkit.UserAgentMetadata.Builder().setPlatform("Android").setModel("Pixel").setMobile(true).build());
+        assertFalse(hints.isMobile());
+        assertEquals("Linux", hints.getPlatform());
+        assertEquals("", hints.getModel());
         assertTrue(ua.contains("Chrome/159.0.0.0"));
         assertFalse(ua.matches(".*(Android|Mobile|; wv).*"));
         assertTrue(WorkBuddyDesktopBrowser.documentAllowed(Uri.parse(PAGE), true, STATE));
@@ -104,6 +109,30 @@ public final class WorkBuddyAuthTest {
         assertFalse(account.has("refresh"));
         session.forget();
         assertFalse(session.status().has("revision"));
+    }
+    private static java.io.InputStream timeout() {
+        return new java.io.InputStream() {
+            @Override public int read() throws java.io.IOException { throw new java.net.SocketTimeoutException(); }
+        };
+    }
+    @Test public void transientReadTimeoutKeepsOriginalGrantButRefusalAndMalformedResponseEndIt() throws Exception {
+        String token = HOST + "/v2/plugin/auth/token?state=" + STATE;
+        start();
+        net.expect("GET", token, 200, "application/json", timeout());
+        session.poll();
+        assertTrue(session.status().getBoolean("pending"));
+        assertFalse(session.status().has("revision"));
+        // Remove only the time throttle so the next call can exercise the same state immediately.
+        java.lang.reflect.Field throttle = WorkBuddySession.class.getDeclaredField("nextPoll");
+        throttle.setAccessible(true);
+        throttle.setLong(session, 0L);
+        net.expect("GET", token, 403, "application/json", timeout());
+        try { session.poll(); fail(); } catch (WorkBuddySession.Fault denied) { assertEquals(403, denied.status); }
+        assertFalse(session.status().getBoolean("pending"));
+        start();
+        net.json("GET", token, 200, "{}");
+        try { session.poll(); fail(); } catch (WorkBuddySession.Fault malformed) { assertEquals(-1, malformed.code); }
+        assertFalse(session.status().getBoolean("pending"));
     }
     @Test public void waitingAndRefusedAuthorizationNeverPublishAccount() throws Exception {
         start();

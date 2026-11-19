@@ -60,6 +60,10 @@ final class WorkBuddySession {
                     bytes.write(chunk, 0, n);
                 }
                 try { env = new JSONObject(bytes.toString("UTF-8")); } catch (Exception invalid) { /* status below */ }
+            } catch (IOException incomplete) {
+                // A refusal is terminal even when its error body never arrives.
+                if (status != 200) throw new Fault(status, -1);
+                throw incomplete;
             }
             if (status != 200 || env.optInt("code", -1) != 0) throw new Fault(status, env.optInt("code", -1));
             return env.getJSONObject("data");
@@ -114,6 +118,10 @@ final class WorkBuddySession {
         } catch (Fault denied) {
             if (denied.status == 200 && ((denied.code == 11217 && pendingAccess == null) || (denied.code == 12151 && pendingAccess != null))) return;
             cancel(); throw denied;
+        } catch (java.net.SocketTimeoutException | java.net.SocketException | java.net.UnknownHostException interrupted) {
+            // A dropped connection says nothing about consent. Keep polling the same state until its original deadline.
+            if (!pending()) { cancel(); throw new IOException("login_expired"); }
+            nextPoll = SystemClock.elapsedRealtime() + 2500;
         } catch (Exception e) { cancel(); throw e; }
     }
     private static String credential(String value) throws IOException {
