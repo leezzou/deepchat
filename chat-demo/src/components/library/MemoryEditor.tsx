@@ -1,7 +1,13 @@
 import { useId, useState } from 'react'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
-import { addMemory, editMemory, MEMORY_LIMIT, type Memory } from '../../services/library/index.js'
+import {
+  addMemory,
+  editMemory,
+  MEMORY_LIMIT,
+  type Memory,
+  type MemoryScope,
+} from '../../services/library/index.js'
 import { Button } from '../base/Button.js'
 import { Modal } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
@@ -10,10 +16,10 @@ import styles from './MemorySettings.module.css'
 export function MemoryEditor({
   memory,
   message,
-  sessionId,
+  scope,
   onClose,
 }: {
-  sessionId: string | null
+  scope: MemoryScope
   memory?: Memory
   message?: string
   onClose: () => void
@@ -25,13 +31,18 @@ export function MemoryEditor({
   const [failed, setFailed] = useState(false)
   const text = value.trim()
   const tooLong = text.length > MEMORY_LIMIT
-  const owner = memory ? memory.sessionId : sessionId
+  const folderOwned = memory ? memory.folderId !== null : scope.kind === 'folder'
+  const chatOwned = memory ? memory.sessionId !== null : scope.kind === 'chat'
   const save = () => {
     try {
       if (memory) {
-        editMemory(memory.id, text)
+        editMemory(memory.id, text, scope)
       } else {
-        addMemory(text, sessionId)
+        addMemory(
+          text,
+          scope.kind === 'chat' ? scope.id : null,
+          scope.kind === 'folder' ? scope.id : null
+        )
       }
       showToast({ key: 'libMemorySaved' })
       onClose()
@@ -77,7 +88,13 @@ export function MemoryEditor({
       <div className={styles.fieldMeta} id={`${field}-limit`}>
         <span>
           {t(
-            tooLong ? 'libMemoryShorten' : owner === null ? 'memorySaveGeneral' : 'memorySaveToChat'
+            tooLong
+              ? 'libMemoryShorten'
+              : folderOwned
+                ? 'libSaveToFolder'
+                : chatOwned
+                  ? 'memorySaveToChat'
+                  : 'memorySaveGeneral'
           )}
         </span>
         <span className={styles.count}>

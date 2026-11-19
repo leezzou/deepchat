@@ -17,6 +17,8 @@ import { getSessionMemoryTexts } from '../../services/library/index.js'
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import { useSettings } from '../../services/settings.js'
+import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
+import { WORKBUDDY_PROFILE, WORKBUDDY_MODELS } from '../../services/workbuddy/models.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { Select } from '../base/Select.js'
 import { IconChevronDownOutline14 } from '../base/icons.js'
@@ -49,6 +51,7 @@ export function ConversationControls({
   useSettings((s) => s.apiProfiles)
   useSettings((s) => s.activeProfileId)
   useSettings((s) => s.chatSource)
+  useWorkBuddyState((s) => s.metadata)
   const en = useEnglish()
   const route = getConversationRoute(sessionId)
   const template = allTemplates().find((t) => t.id === getConversationMode(sessionId).templateId)
@@ -89,6 +92,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
   useLibrarySnapshot()
   useConversationModes()
   const profiles = useSettings((s) => s.apiProfiles)
+  const workBuddy = useWorkBuddyState((s) => s.metadata)
   const busy = useChatStore(
     (s) =>
       s.importingHistory ||
@@ -236,6 +240,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                           },
                         ]
                       : []),
+                    ...(workBuddy && !(route.missing && choice.profileId === WORKBUDDY_PROFILE) ? [{ value: WORKBUDDY_PROFILE, label: 'WorkBuddy' }] : []),
                     ...profiles.map((p) => ({ value: p.id, label: p.name })),
                   ]}
                   onChange={(value) =>
@@ -245,7 +250,11 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
               </div>
               <div className="conversation-mode-row">
                 <span>{en ? 'Model' : '模型'}</span>
-                {route.protocol === 'deepseek' ? (
+                {route.profileId === WORKBUDDY_PROFILE ? (
+                  <Select className="conversation-choice" ariaLabel={en ? 'Model' : '模型'} value={route.model}
+                    options={WORKBUDDY_MODELS.map(value => ({ value, label: value }))}
+                    onChange={(model) => setChoice({ ...choice, model })} />
+                ) : route.protocol === 'deepseek' ? (
                   <Select
                     className="conversation-choice"
                     ariaLabel={en ? 'Model' : '模型'}
@@ -277,7 +286,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
               </p>
             )}
             <p className="conversation-mode-hint">
-              {route.protocol === 'openai'
+              {route.profileId === WORKBUDDY_PROFILE ? (en ? 'Text only. Model availability depends on your WorkBuddy account.' : '仅支持文字。可用模型以腾讯账号权限为准。') : route.protocol === 'openai'
                 ? en
                   ? 'Search and thinking switches are unavailable. Attachments require a provider that supports the Files API and file references.'
                   : '此协议无法使用联网搜索与深度思考开关。发送附件需服务商支持文件上传接口及文件引用。'

@@ -7,7 +7,7 @@ import { IconButton } from '../base/IconButton.js'
 import { IconCloseOutline16 } from '../base/icons.js'
 import { showToast } from '../base/toastState.js'
 import { locateHistoryMessage } from '../historySearch/historySearchState.js'
-import { visitChatFromDrawer } from '../sider/mobileSiderState.js'
+import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
 import './library.css'
 
 export const Favorites = ({ visible }: { visible: boolean }) => {
@@ -29,6 +29,7 @@ export const Favorites = ({ visible }: { visible: boolean }) => {
     if (pending.current || importing) {
       return
     }
+    const origin = captureChatOrigin()
     const navigation = new AbortController()
     pending.current = navigation
     setBusy(true)
@@ -51,7 +52,7 @@ export const Favorites = ({ visible }: { visible: boolean }) => {
         )
         return
       }
-      visitChatFromDrawer(sessionId)
+      rememberChat(origin)
       locateHistoryMessage({
         sessionId,
         messageId,

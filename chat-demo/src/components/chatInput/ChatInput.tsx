@@ -15,6 +15,7 @@ import {
   getConversationMode,
   setConversationMode,
 } from '../../services/conversationMode/storage.js'
+import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { getConversationRoute, requireChatAccess } from '../../services/api/access.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
@@ -87,6 +88,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   useSettings((state) => state.apiProfiles)
   useSettings((state) => state.activeProfileId)
   useSettings((state) => state.chatSource)
+  useWorkBuddyState((state) => state.metadata)
   useConversationModes()
   const route = getConversationRoute(sessionId)
   const fileInputRef = useRef<HTMLInputElement>(null)

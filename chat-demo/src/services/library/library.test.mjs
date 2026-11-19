@@ -40,7 +40,13 @@ test('a legacy chat needs no migration; deleting a folder preserves pin, memory 
   lib.renameFolder(id, 'Research')
   lib.deleteFolder(id)
   assert.deepEqual(lib.readLibrary().sessions, [
-    { sessionId: 'legacy', folderId: null, pinned: true, memoryEnabled: true },
+    {
+      sessionId: 'legacy',
+      folderId: null,
+      pinned: true,
+      memoryEnabled: true,
+      chatMemoryEnabled: false,
+    },
   ])
   assert.equal(lib.isFavorite('legacy', 'reply'), true)
   lib.removeLibrarySession('legacy')
@@ -75,7 +81,7 @@ test('strict backup roundtrip includes only known fields, refuses duplicates, da
   assert.doesNotMatch(JSON.stringify(snapshot), /SECRET_SENTINEL/)
   for (const bad of [
     { ...snapshot, apiKey: 'private' },
-    { ...snapshot, version: 3 },
+    { ...snapshot, version: 4 },
     { ...snapshot, folders: [{ ...snapshot.folders[0], token: 'private' }] },
     { ...snapshot, sessions: [{ ...snapshot.sessions[0], cookie: 'private' }] },
     { ...snapshot, favorites: [{ ...snapshot.favorites[0], credential: 'private' }] },
@@ -132,10 +138,10 @@ test('old storage and backups migrate once with the ordinary removable guide fol
   ])
   disk.set(key, JSON.stringify(old))
   const migrated = lib.exportLibrarySnapshot()
-  assert.equal(migrated.version, 2)
+  assert.equal(migrated.version, 3)
   assert.deepEqual(migrated.folders, [{ ...old.folders[0], shareMemory: false }, ...empty.folders])
-  assert.deepEqual(migrated.memories, [{ ...old.memories[0], sessionId: null }])
-  assert.deepEqual(migrated.sessions, old.sessions)
+  assert.deepEqual(migrated.memories, [{ ...old.memories[0], sessionId: null, folderId: null }])
+  assert.deepEqual(migrated.sessions, [{ ...old.sessions[0], chatMemoryEnabled: true }])
   assert.deepEqual(migrated.favorites, old.favorites)
   assert.deepEqual(JSON.parse(disk.get(key)), migrated)
   assert.deepEqual(lib.getSessionMemoryTexts('a'), ['global preference'])
@@ -166,6 +172,8 @@ test('folder sharing follows current membership while personal and global memori
   lib.setMemoryEnabled('a', true)
   assert.deepEqual(lib.getSessionMemoryTexts('a'), ['b', 'a', 'global'])
   lib.updateFolder(work, 'Project', false)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['global'])
+  lib.setChatMemoryEnabled('a', true)
   assert.deepEqual(lib.getSessionMemoryTexts('a'), ['a', 'global'])
   assert.deepEqual(lib.getSessionMemoryTexts('b'), [])
   assert.deepEqual(visibleTexts('b'), ['b', 'global'])
@@ -306,5 +314,96 @@ test('folder deletion commits once and can retry after a failed storage write', 
     assert.deepEqual(lib.exportLibrarySnapshot(), empty)
   } finally {
     stop()
+  }
+})
+
+test('v2 migration keeps private and global consent; changing either one stays independent after reload', async () => {
+  const key = 'deepseek.local-library.v1'
+  disk.set(
+    key,
+    JSON.stringify({
+      version: 2,
+      folders: [],
+      favorites: [],
+      sessions: [{ sessionId: 'on', folderId: null, pinned: false, memoryEnabled: true }],
+      memories: [
+        { id: 'm1', text: 'personal', sessionId: 'on' },
+        { id: 'm2', text: 'global', sessionId: null },
+        { id: 'm3', text: 'old private', sessionId: 'off' },
+      ],
+    })
+  )
+  assert.deepEqual(lib.getSessionMemoryTexts('on'), ['personal', 'global'])
+  assert.deepEqual(lib.getSessionMemoryTexts('off'), [])
+  lib.setMemoryEnabled('on', false)
+  lib.setMemoryEnabled('off', true)
+  const reopened = await import('./index.ts?reopen-v3')
+  assert.deepEqual(reopened.getSessionMemoryTexts('on'), ['personal'])
+  assert.deepEqual(reopened.getSessionMemoryTexts('off'), ['global'])
+  assert.deepEqual(
+    reopened.getManagedMemories({ kind: 'global' }).map((m) => m.text),
+    ['global']
+  )
+  assert.equal(JSON.parse(disk.get(key)).version, 3)
+})
+
+test('an empty folder can own notes, stale managers cannot edit moved notes, deletion stays bounded', () => {
+  const folder = lib.createFolder('Notes')
+  const other = lib.createFolder('Other')
+  const scope = { kind: 'folder', id: folder }
+  lib.addMemory('global')
+  lib.addMemory('other', null, other)
+  lib.addMemory('folder', null, folder)
+  const [owned] = lib.getManagedMemories(scope)
+  assert.equal(owned.text, 'folder')
+  assert.throws(() => lib.editMemory(owned.id, 'cross-scope', { kind: 'global' }))
+  assert.throws(() => lib.deleteMemory(owned.id, { kind: 'folder', id: other }))
+  assert.throws(() => lib.addMemory('ambiguous', 'chat', folder))
+  assert.throws(() => lib.addMemory('orphan', null, 'missing'))
+  lib.editMemory(owned.id, 'edited folder', scope)
+  lib.setDraftFolder(folder)
+  assert.deepEqual(lib.getSessionMemoryTexts(null), [])
+  lib.setFolderSharing(folder, true)
+  assert.deepEqual(lib.getSessionMemoryTexts(null), ['edited folder'])
+  lib.moveSessionToFolder('member', folder)
+  lib.addMemory('member note', 'member')
+  const [member] = lib.getManagedMemories(scope)
+  assert.equal(member.text, 'member note')
+  const before = lib.getFolderDeletionImpact(folder)
+  assert.equal(before.memoryCount, 2)
+  lib.moveSessionToFolder('member', other)
+  assert.throws(() => lib.editMemory(member.id, 'moved', scope))
+  assert.equal(lib.deleteFolder(folder, before.token), false)
+  assert.equal(lib.deleteFolder(folder, lib.getFolderDeletionImpact(folder).token), true)
+  assert.deepEqual(
+    lib.exportLibrarySnapshot().memories.map((m) => m.text),
+    ['member note', 'other', 'global']
+  )
+})
+
+test('welcome memory settings belong to this tab, survive a reload, and promote only once', async () => {
+  const tab = new Map()
+  globalThis.window = {
+    sessionStorage: {
+      getItem: (key) => tab.get(key) ?? null,
+      setItem: (key, value) => tab.set(key, value),
+      removeItem: (key) => tab.delete(key),
+    },
+  }
+  try {
+    const folder = lib.createFolder('Folder', undefined, true)
+    lib.addMemory('general')
+    lib.addMemory('in folder', null, folder)
+    lib.setDraftFolder(folder)
+    lib.setMemoryEnabled(null, true)
+    const reload = await import('./index.ts?reopen-draft')
+    assert.deepEqual(reload.getSessionMemoryTexts(null), ['in folder', 'general'])
+    reload.promoteLibraryDraft('created')
+    const next = await import('./index.ts?reopen-consumed')
+    assert.deepEqual(next.getSessionMemoryTexts('created'), ['in folder', 'general'])
+    assert.deepEqual(next.getSessionMemoryTexts(null), [])
+    assert.equal(tab.size, 0)
+  } finally {
+    delete globalThis.window
   }
 })

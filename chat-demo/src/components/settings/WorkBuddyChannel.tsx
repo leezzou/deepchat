@@ -1,0 +1,166 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { resolveLocale } from '../../i18n/index.js'
+import { useSettings } from '../../services/settings.js'
+import {
+  activateWorkBuddy,
+  cancelWorkBuddySignIn,
+  completeWorkBuddy,
+  disconnectWorkBuddy,
+  hasWorkBuddyBridge,
+  refreshWorkBuddy,
+  selectWorkBuddyModel,
+  signInWorkBuddy,
+  useWorkBuddyState,
+  WORKBUDDY_MODELS,
+} from '../../services/workbuddy/provider.js'
+import { Button } from '../base/Button.js'
+import { Select } from '../base/Select.js'
+
+export function WorkBuddyChannel() {
+  const en = useSettings((s) => resolveLocale(s.locale) !== 'zh-CN')
+  const active = useSettings((s) => s.chatSource === 'workbuddy')
+  const { metadata, name, pending } = useWorkBuddyState()
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const mounted = useRef(false),
+    running = useRef(false)
+  const run = useCallback(async (op: () => Promise<void>) => {
+    if (running.current) {
+      return
+    }
+    running.current = true
+    setError('')
+    setBusy(true)
+    try {
+      await op()
+    } catch (e) {
+      if (mounted.current) {
+        setError(e instanceof Error ? e.message : String(e))
+      }
+    } finally {
+      running.current = false
+      if (mounted.current) {
+        setBusy(false)
+      }
+    }
+  }, [])
+  useEffect(() => {
+    mounted.current = true
+    if (hasWorkBuddyBridge) {
+      void run(refreshWorkBuddy)
+    }
+    return () => {
+      mounted.current = false
+    }
+  }, [run])
+  useEffect(() => {
+    if (!pending || error) {
+      return
+    }
+    const poll = () => {
+      if (!document.hidden) {
+        void run(completeWorkBuddy)
+      }
+    }
+    const timer = window.setInterval(poll, 3000)
+    document.addEventListener('visibilitychange', poll)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
+    }
+  }, [pending, error, run])
+  return (
+    <section className="wb-group" aria-labelledby="wb-channel-heading">
+      <h3 id="wb-channel-heading" className="wb-group-title">
+        {en ? 'DeepSeek chat' : 'DeepSeek 对话'}
+      </h3>
+      <div className="wb-card">
+        <div className="wb-row">
+          <span className="wb-label">
+            {en ? 'Chat account' : '对话账号'}
+            <small className="wb-caption">
+              {metadata
+                ? name || (en ? 'Signed in' : '已登录')
+                : pending
+                  ? en
+                    ? 'Waiting for Tencent approval'
+                    : '等待腾讯授权'
+                  : en
+                    ? 'Signed out'
+                    : '未登录'}
+            </small>
+          </span>
+          <Button
+            variant="outlined"
+            size="s"
+            disabled={busy || !hasWorkBuddyBridge}
+            onClick={() =>
+              void run(
+                metadata ? disconnectWorkBuddy : pending ? cancelWorkBuddySignIn : signInWorkBuddy
+              )
+            }
+          >
+            {metadata
+              ? en
+                ? 'Sign out'
+                : '退出登录'
+              : pending
+                ? en
+                  ? 'Cancel'
+                  : '取消'
+                : en
+                  ? 'Sign in'
+                  : '授权登录'}
+          </Button>
+        </div>
+        {metadata && (
+          <>
+            <div className="wb-row">
+              <span className="wb-label">{en ? 'Default model' : '默认模型'}</span>
+              <Select
+                disabled={busy}
+                ariaLabel={en ? 'WorkBuddy model' : 'WorkBuddy 模型'}
+                value={metadata.model}
+                options={WORKBUDDY_MODELS.map((value) => ({ value, label: value }))}
+                onChange={(model) => void run(() => selectWorkBuddyModel(model))}
+              />
+            </div>
+            <label className="wb-row">
+              <span className="wb-label">{en ? 'Use for new chats' : '用作默认对话通道'}</span>
+              <input
+                className="dc-local-switch"
+                type="checkbox"
+                role="switch"
+                checked={active}
+                disabled={busy}
+                onChange={(e) => activateWorkBuddy(e.currentTarget.checked)}
+              />
+            </label>
+          </>
+        )}
+      </div>
+      {error && (
+        <p className="wb-status" role="alert">
+          {error}
+        </p>
+      )}
+      {!hasWorkBuddyBridge ? (
+        <p className="wb-status">
+          {en ? 'Sign in from the Android app.' : '请在 Android 应用内授权登录。'}
+        </p>
+      ) : pending ? (
+        <p className="wb-status">
+          {en
+            ? 'Return here after approving access on Tencent’s page.'
+            : '在腾讯页面完成授权后，返回此处即可。'}
+        </p>
+      ) : !metadata ? (
+        <p className="wb-status">
+          {en
+            ? 'Sign in with your personal account on Tencent’s page to use its DeepSeek models.'
+            : '在腾讯授权页登录个人账号，使用该账号可用的 DeepSeek 模型。'}
+        </p>
+      ) : null}
+    </section>
+  )
+}

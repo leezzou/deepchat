@@ -10,25 +10,23 @@ import clsx from 'clsx'
 import { memo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { IconEditOutline16, IconEllipsisOutline16, IconTrashOutline16 } from '../base/icons.js'
-import { renameSession, selectSession } from '../../services/chat/store.js'
+import { renameSession, selectSession, useChatStore } from '../../services/chat/store.js'
 import type { SessionSummary } from '../../services/chat/types.js'
 import { IconButton } from '../base/IconButton.js'
 import { Menu } from '../base/Menu.js'
-import { visitChatFromDrawer } from './mobileSiderState.js'
+import { rememberChat, useMobileSider } from './mobileSiderState.js'
 import styles from './SessionItem.module.css'
 
 export const SessionItem = memo(function SessionItem({
   session,
   active,
   attributes,
-  sharesFolderMemory,
   onMove,
   onDelete,
 }: {
   session: SessionSummary
   active: boolean
   attributes?: SessionAttributes
-  sharesFolderMemory: boolean
   onMove: () => void
   onDelete: () => void
 }) {
@@ -77,7 +75,8 @@ export const SessionItem = memo(function SessionItem({
         className={styles.title}
         aria-current={active ? 'page' : undefined}
         onClick={() => {
-          visitChatFromDrawer(session.id)
+          if (useChatStore.getState().importingHistory) return
+          if (!active || useMobileSider.getState().open) rememberChat()
           selectSession(session.id)
         }}
       >
@@ -100,9 +99,7 @@ export const SessionItem = memo(function SessionItem({
             },
             {
               key: 'memory',
-              label: sharesFolderMemory
-                ? t(attributes?.memoryEnabled ? 'libUsePersonalOff' : 'libUsePersonalOn')
-                : t(attributes?.memoryEnabled ? 'libMemoryOff' : 'libMemoryOn'),
+              label: t(attributes?.memoryEnabled ? 'libUsePersonalOff' : 'libUsePersonalOn'),
               icon: <LibraryIcon name="memory" />,
               onSelect: () =>
                 modify(() => setMemoryEnabled(session.id, !attributes?.memoryEnabled)),

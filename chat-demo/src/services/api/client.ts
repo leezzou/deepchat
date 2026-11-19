@@ -4,6 +4,7 @@ import { accessOrigin, type ChatAccess } from './access.js'
 import { accountFetch } from '../../shell/account.js'
 import { readMessageEvent } from './parseEvent.js'
 import { readServerSentEvents } from './sse.js'
+import { streamWorkBuddy } from '../workbuddy/chat.js'
 import type {
   ApiErrorBody,
   CreateMessageRequest,
@@ -116,6 +117,7 @@ const readErrorResponse = async (
 }
 
 export const request = async (url: string, init: RequestInit, access?: ChatAccess): Promise<Response> => {
+  if (access?.source === 'workbuddy') throw new ApiError('protocol', 'WorkBuddy · 此功能仅支持文字聊天')
   let response: Response
   try {
     response = access?.source === 'account' ? await accountFetch(url, init) : await fetch(url, init)
@@ -408,6 +410,10 @@ export async function* streamMessage(
   signal: AbortSignal,
   onDispatch?: () => void
 ): AsyncGenerator<MessageStreamEvent> {
+  if (access.source === 'workbuddy') {
+    yield* streamWorkBuddy(access, body, signal, onDispatch)
+    return
+  }
   const referencesFiles = hasFile(body)
   if (referencesFiles) {
     checkFileModel(access, isOpenAi(access) ? access.config.model : body.model)

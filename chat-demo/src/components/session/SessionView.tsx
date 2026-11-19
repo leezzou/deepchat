@@ -1,3 +1,4 @@
+import { ConversationMemoryControls } from '../library/ScopedMemoryControls.js'
 import clsx from 'clsx'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
@@ -39,6 +40,7 @@ export const SessionView = ({
         streaming={streaming}
         footer={
           <div className={styles.inputContainer}>
+            <ConversationMemoryControls key={session.id} sessionId={session.id} />
             <ContextBanner session={session} />
             <ChatInput sessionId={session.id} />
             <div className={styles.caveat}>{t('contentCaveat')}</div>

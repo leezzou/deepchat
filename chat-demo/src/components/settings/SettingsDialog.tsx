@@ -70,7 +70,10 @@ import { forgetCompaction, listCompactions, type CompactionRecord } from '../../
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { DataSettings, type MobileDataProps } from './DataSettings.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
-import { closeSettings, openSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import { closeSettings, coverSettings, finishSettingsExit, openSettings, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
+import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
+import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
+import { WorkBuddyPanel, WorkBuddyVersion } from './WorkBuddyPanel.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
 import styles from './Settings.module.css'
@@ -80,23 +83,26 @@ import styles from './Settings.module.css'
  * 「通用设置」含主题、语言、朗读音色、位置；「数据管理」含 API Key、导入、导出、清空数据。
  */
 export const SettingsDialog = () => {
-  const open = useSettingsDialog((state) => state.open)
+  const visits = useSettingsDialog((state) => state.visits)
   const isSettingsMobile = useIsSettingsMobile()
   const theme = useSettings((state) => state.themePreference)
   const locale = useSettings((state) => state.locale)
-  useEffect(() => syncLockAppearance(theme, locale), [theme, locale, open])
+  useEffect(() => syncLockAppearance(theme, locale), [theme, locale, visits.length])
   const historyImport = useHistoryImport()
-  const [retained, setRetained] = useState(false)
-  useLayoutEffect(() => {
-    if (!isSettingsMobile) setRetained(false)
-    else if (open) setRetained(true)
-  }, [isSettingsMobile, open])
-  if (isSettingsMobile) {
-    return open || retained ? (
-      <MobileSettings open={open} onExited={() => setRetained(false)} historyImport={historyImport} />
-    ) : null
-  }
-  return <ModalPresence>{open ? <SettingsContent historyImport={historyImport} /> : null}</ModalPresence>
+  return <>{visits.map((visit) => (
+    <SettingsVisitView key={visit.id} visit={visit} mobile={isSettingsMobile} historyImport={historyImport} />
+  ))}</>
+}
+
+const SettingsVisitView = ({ visit, mobile, historyImport }: ImportProps & { visit: SettingsVisit; mobile: boolean }) => {
+  // Resizing with a child open must not replace the page stack the user will return to.
+  const mobileAtEntry = useRef(mobile).current
+  if (mobileAtEntry) return <MobileSettings visit={visit} historyImport={historyImport} />
+  return (
+    <ModalPresence onExited={() => finishSettingsExit(visit.id)}>
+      {visit.status === 'open' && <SettingsContent initialSection={visit.section} historyImport={historyImport} />}
+    </ModalPresence>
+  )
 }
 
 const sections: { value: SettingsSection; label: TranslationKey; icon: SettingsIconName }[] = [
@@ -109,10 +115,11 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: SettingsI
 
 type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
 
-const SettingsContent = ({ historyImport }: ImportProps) => {
+const SettingsContent = ({ historyImport, initialSection }: ImportProps & { initialSection: SettingsSection }) => {
   const t = useTranslate()
-  // 打开时按调用方指定的分组选中，之后在弹窗内切换
-  const [section, setSection] = useState(() => useSettingsDialog.getState().section)
+  const [section, setSection] = useState<SettingsSection>(initialSection === 'apiKey' ? 'data' : initialSection)
+  const [workBuddyOpen, setWorkBuddyOpen] = useState(false)
+  const version = readAppVersion()
   // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
   const historyDelete = useHistoryDelete()
@@ -183,8 +190,14 @@ const SettingsContent = ({ historyImport }: ImportProps) => {
               />
             </>
           )}
+          {version && <WorkBuddyVersion version={version} onOpen={() => setWorkBuddyOpen(true)} />}
         </div>
       </Modal>
+      <ModalPresence>{workBuddyOpen && (
+        <Modal title={t('workbuddyTitle')} closable onClose={() => setWorkBuddyOpen(false)}>
+          <WorkBuddyPanel />
+        </Modal>
+      )}</ModalPresence>
       <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
       <ModalPresence>{historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}</ModalPresence>
     </>
@@ -206,13 +219,14 @@ type MobilePage =
   | 'personalize'
   | 'profile'
   | 'location'
+  | 'workbuddy'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
-  profile: 'settingsProfile', location: 'settingsLocation',
+  profile: 'settingsProfile', location: 'settingsLocation', workbuddy: 'workbuddyTitle',
 }
 
 /** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
@@ -261,16 +275,10 @@ type Route = {
   animateEntry?: boolean
 }
 
-const initialRoutes = (): Route[] => {
-  const routes: Route[] = [{ page: 'root' }]
-  const section = useSettingsDialog.getState().section
-  if (section === 'security' || section === 'webdav' || section === 'memory') {
-    routes.push({ page: section })
-  } else if (section === 'data') {
-    const hasData = useSettings.getState().apiKey || useBackupState.getState().latest
-    routes.push({ page: hasData ? 'data' : 'apiKey' })
-  }
-  return routes
+// A direct link has exactly one entry. Only a real tap inside Settings pushes a parent.
+const entryPage = (section: SettingsSection): MobilePage => {
+  if (section === 'general') return 'root'
+  return section
 }
 
 /** Each route owns its scroll container and stays mounted until its pop has finished. */
@@ -288,21 +296,24 @@ const RoutePage = ({ route, position, active, title, onBack, onExited, children 
   )
 }
 
-const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open: boolean; onExited: () => void }) => {
+const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: SettingsVisit }) => {
+  const open = visit.status === 'open'
+  const covered = visit.status === 'covered'
   const t = useTranslate()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const backupBusy = useBackupState((state) => state.operation !== null)
   const historyBusy = historyImport.busy || historyDelete.busy || replacingHistory || backupBusy
-  const [routes, setRoutes] = useState(initialRoutes)
+  const [routes, setRoutes] = useState<Route[]>(() => [{ page: entryPage(visit.section) }])
   const [popping, setPopping] = useState(false)
   const currentRoute = useRef(routes.at(-1))
   currentRoute.current = routes.at(-1)
   const closing = useRef(false)
   const restoreFocus = useRef<HTMLElement | undefined>(undefined)
-  const shell = useRouteMotion<HTMLDivElement>(true, !open, onExited)
+  const shell = useRouteMotion<HTMLDivElement>(true, visit.status === 'closing', () => finishSettingsExit(visit.id))
   const caller = useRef(document.activeElement)
   useLayoutEffect(() => {
+    if (covered) return
     const app = document.getElementById('root')
     const wasInert = app?.inert ?? false
     const previous = caller.current
@@ -311,14 +322,15 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
       if (app) app.inert = wasInert
       if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
     }
-  }, [])
+  }, [covered])
   useLayoutEffect(() => {
+    if (covered) return
     const page = shell.current?.lastElementChild
     const trigger = restoreFocus.current
     restoreFocus.current = undefined
     if (trigger?.isConnected && page?.contains(trigger)) trigger.focus({ preventScroll: true })
     else if (page instanceof HTMLElement) page.focus({ preventScroll: true })
-  }, [routes, shell])
+  }, [routes, shell, covered])
 
   const push = (page: Route['page'], editor?: Route['editor']) => {
     if (!open || closing.current || routes.at(-1)?.page === page) return
@@ -329,12 +341,12 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
     isNew: profile === 'new', profile: profile === 'new' ? createApiProfile() : profile,
   })
   const goBack = () => {
-    if (closing.current || !useSettingsDialog.getState().open || historyDelete.busy) return
+    if (closing.current || !open || historyDelete.busy) return
     if (routes.length === 1) { closeSettings(); return }
     closing.current = true
     setPopping(true)
   }
-  useRouteBack(goBack)
+  useRouteBack(goBack, !covered)
   const finishPop = () => {
     restoreFocus.current = routes.at(-1)?.opener
     closing.current = false
@@ -343,7 +355,7 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
   }
 
   return createPortal(
-    <div className={styles.routeViewport} role="dialog" aria-modal="true" aria-label={t('settings')}>
+    <div hidden={covered} className={styles.routeViewport} role="dialog" aria-modal="true" aria-label={t('settings')}>
       <div ref={shell} className={styles.page} data-settings-shell="" data-route-position={open ? 'front' : 'leaving'} data-popping={popping || undefined}>
         {routes.map((route, index) => {
           const { page, editor } = route
@@ -364,7 +376,15 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
               {page === 'security' && <SecuritySettings />}
               {page === 'webdav' && <WebDavSettings />}
               {page === 'memory' && <MemorySettings />}
-              {page === 'compacted' && <MobileCompactedContent />}
+              {page === 'compacted' && <MobileCompactedContent onOpenChat={(sessionId) => {
+                const { sessions, importingHistory } = useChatStore.getState()
+                if (importingHistory || !sessions.some((session) => session.id === sessionId)) return
+                const trigger = document.activeElement
+                if (trigger instanceof HTMLElement) restoreFocus.current = trigger
+                rememberChat({ ...captureChatOrigin(), resume: coverSettings(visit.id) })
+                selectSession(sessionId)
+              }} />}
+              {page === 'workbuddy' && <WorkBuddyPanel />}
               {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
               {page === 'personalize' && <MobilePersonalizeContent />}
@@ -374,8 +394,8 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
           )
         })}
       </div>
-      <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
-      <ModalPresence>{historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}</ModalPresence>
+      <ModalPresence>{open && historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
+      <ModalPresence>{open && historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}</ModalPresence>
     </div>, document.body
   )
 }
@@ -455,11 +475,13 @@ const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
   const signedIn = useSettings((state) => state.accountSignedIn)
   const hasKey = useSettings((state) => Boolean(state.apiKey))
   const source = useSettings((state) => state.chatSource)
+  const workBuddy = useWorkBuddyState(s => s.metadata)
   const options = [
     { value: 'account', label: t('dshAccountBalance') },
     { value: 'api', label: 'API Key' },
+    ...(workBuddy || source === 'workbuddy' ? [{ value: 'workbuddy' as const, label: 'WorkBuddy' }] : []),
   ] as const
-  const showChoice = source === 'account' ? hasKey : signedIn
+  const showChoice = Boolean(workBuddy || source === 'workbuddy' || (source === 'account' ? hasKey : signedIn))
   const picker = (
     <Select
       ariaLabel={t('dshChatUses')}
@@ -492,7 +514,7 @@ const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
         <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
       </button>
       {showChoice ? (
-        <MobileSelectRow icon={<SettingsIcon name="source" />} label={t('dshChatUses')} value={source === 'api' ? 'API Key' : t('dshAccountBalance')}>
+        <MobileSelectRow icon={<SettingsIcon name="source" />} label={t('dshChatUses')} value={source === 'workbuddy' ? 'WorkBuddy' : source === 'api' ? 'API Key' : t('dshAccountBalance')}>
           {picker}
         </MobileSelectRow>
       ) : null}
@@ -711,7 +733,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           </span>
         </button>
       </MobileGroup>}
-      {version ? <div className={styles.meta}>{t('settingsVersion', { version })}</div> : null}
+      {version && <WorkBuddyVersion version={version} onOpen={() => onOpenPage('workbuddy')} />}
       <ModalPresence>{voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
@@ -1268,7 +1290,7 @@ const MobileApiProfileForm = ({
 }
 
 /** 已压缩的对话：查看摘要、回看原文、恢复完整上下文 */
-const MobileCompactedContent = () => {
+const MobileCompactedContent = ({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) => {
   const t = useTranslate()
   const [records, setRecords] = useState<CompactionRecord[]>(() => listCompactions())
   const [expanded, setExpanded] = useState<string | null>(null)
@@ -1318,10 +1340,7 @@ const MobileCompactedContent = () => {
                 <button
                   type="button"
                   className={styles.fetchButton}
-                  onClick={() => {
-                    selectSession(record.sessionId)
-                    closeSettings()
-                  }}
+                  onClick={() => onOpenChat(record.sessionId)}
                 >
                   {t('compactedOpen')}
                 </button>
@@ -1991,7 +2010,7 @@ const ExportHistory = DataSettings
 export const BackupReminder = () => {
   const t = useTranslate()
   const latest = useBackupState((state) => state.latest)
-  const settingsOpen = useSettingsDialog((state) => state.open)
+  const settingsOpen = useSettingsDialog((state) => state.visits.some((visit) => visit.status === 'open'))
   const [dismissed, setDismissed] = useState<string | null>(null)
   if (settingsOpen || !latest || latest.reason !== 'automatic' || latest.saveStatus === 'confirmed' || latest.id === dismissed) {return null}
   return <aside className={styles.backupReminder} aria-label={t('backupTitle')}>

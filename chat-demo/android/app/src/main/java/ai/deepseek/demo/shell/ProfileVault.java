@@ -24,19 +24,25 @@ final class ProfileVault {
     private static final String ALIAS = "deepchat-api-profiles-v1";
     private static final int MAX_BYTES = 2 * 1024 * 1024;
     private final AtomicFile file;
+    private final String alias;
 
-    ProfileVault(Context context) {
-        file = new AtomicFile(new File(context.getNoBackupFilesDir(), ALIAS));
+    ProfileVault(Context context) { this(context, ALIAS); }
+
+    static ProfileVault workBuddy(Context context) { return new ProfileVault(context, "deepchat-workbuddy-account-v1"); }
+
+    private ProfileVault(Context context, String alias) {
+        this.alias = alias;
+        file = new AtomicFile(new File(context.getNoBackupFilesDir(), alias));
     }
 
     private SecretKey key(boolean create) throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore");
         store.load(null);
-        SecretKey existing = (SecretKey) store.getKey(ALIAS, null);
+        SecretKey existing = (SecretKey) store.getKey(alias, null);
         if (existing != null) return existing;
         if (!create) throw new IOException("Key unavailable");
         KeyGenerator generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-        generator.init(new KeyGenParameterSpec.Builder(ALIAS,
+        generator.init(new KeyGenParameterSpec.Builder(alias,
                 KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build());

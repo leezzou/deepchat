@@ -9,7 +9,8 @@ import { newChat, useChatStore } from '../../services/chat/store.js'
 import { setAutoRead, useSettings } from '../../services/settings.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
-import { openMobileSider, rememberChat } from '../sider/mobileSiderState.js'
+import { openMobileSider, rememberChat, useMobileSider } from '../sider/mobileSiderState.js'
+import { closeTopLayer } from '../../shell/backLayers.js'
 import { ConversationControls } from './ConversationControls.js'
 import styles from './MobileHeader.module.css'
 
@@ -18,9 +19,14 @@ export const MobileHeader = ({ title }: { title?: string }) => {
   const activeId = useChatStore((state) => state.activeId)
   const autoRead = useSettings((state) => state.autoRead)
   const hasUpdate = useUpdateNotice((state) => state.available !== null)
+  const hasParent = useMobileSider((state) => state.parents.length > 0)
   return (
     <header className={styles.header}>
       <span className={styles.menuWrap}>
+        {hasParent && <IconButton size="xl" tone="primary" aria-label={t('settingsBack')}
+          onClick={closeTopLayer} icon={<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20 12H4m7-7-7 7 7 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>} />}
         <IconButton
           size="xl"
           tone="primary"
@@ -63,7 +69,7 @@ export const MobileHeader = ({ title }: { title?: string }) => {
               return
             }
             if (activeId) {
-              rememberChat(activeId)
+              rememberChat()
               newChat()
             } else {
               document.querySelector<HTMLTextAreaElement>('textarea[rows="2"]')?.focus({ preventScroll: true })

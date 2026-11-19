@@ -145,8 +145,10 @@ export async function verifyPortable(browser, temporary) {
           sessionCache: { [id]: session },
           ready: true,
         })
-        m.library.createFolder(id, id, true)
+        const folder = m.library.createFolder(id, id, true)
+        m.library.addMemory('folder note ' + id, null, folder)
         m.library.addMemory('memory ' + id, id)
+        m.library.setMemoryEnabled(id, true)
         m.library.toggleFavorite(id, 'answer', 'reply ' + id)
         const template = m.modes.savePromptTemplate('template ' + id, 'instruction ' + id)
         m.modes.setConversationMode(id, { templateId: template, profileId: 'local-profile-id' })
@@ -207,6 +209,11 @@ export async function verifyPortable(browser, temporary) {
     assert.equal(restored.library.favorites[0].messageId, 'answer')
     assert.equal(restored.library.memories[0].text, 'memory source')
     assert.equal(restored.library.memories[0].sessionId, 'source')
+    const folderNote = restored.library.memories.find((note) => note.text === 'folder note source')
+    assert.equal(folderNote.folderId, restored.library.folders.find((row) => row.name === 'source').id)
+    assert.equal(folderNote.sessionId, null)
+    assert.equal(restored.library.sessions[0].memoryEnabled, true)
+    assert.equal(restored.library.sessions[0].chatMemoryEnabled, false)
     assert.equal(
       restored.library.folders.find((folder) => folder.name === 'source').shareMemory,
       true
@@ -221,6 +228,11 @@ export async function verifyPortable(browser, temporary) {
       'answer'
     )
     assert.deepEqual(restored.drafts, [])
+    await clean.evaluate(() => testModules.backup.clearHistory())
+    const cleared = await clean.evaluate(() => inspect())
+    assert.deepEqual(cleared.history, [])
+    assert.deepEqual(cleared.library.sessions, [])
+    assert.deepEqual(cleared.library.memories, [folderNote])
     const dest = await device()
     await dest.evaluate(() => seed('original'))
     const before = await dest.evaluate(() => inspect())

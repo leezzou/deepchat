@@ -9,7 +9,7 @@ import { useBackLayer, useSurfacePresence } from '../../shell/navigationMotion.j
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { IconCloseOutline16, IconSearchOutline16 } from '../base/icons.js'
-import { visitChatFromDrawer } from '../sider/mobileSiderState.js'
+import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
 import { SearchHighlight } from './SearchHighlight.js'
 import {
   clearHistoryLocation,
@@ -176,6 +176,7 @@ const SearchDialog = ({ open }: { open: boolean }) => {
     if (openingRef.current || importing) {
       return
     }
+    const origin = { ...captureChatOrigin(), search: query }
     openingRef.current = true
     const key = JSON.stringify([result.sessionId, result.messageId])
     setOpening(key)
@@ -187,7 +188,7 @@ const SearchDialog = ({ open }: { open: boolean }) => {
           return
         }
         clearHistoryLocation()
-        visitChatFromDrawer(result.sessionId, query)
+        rememberChat(origin)
         selectSession(result.sessionId)
         closeHistorySearch()
         return
@@ -211,7 +212,7 @@ const SearchDialog = ({ open }: { open: boolean }) => {
         return
       }
       resultToFocus.current = result.messageId
-      visitChatFromDrawer(result.sessionId, query)
+      rememberChat(origin)
       locateHistoryMessage({
         sessionId: result.sessionId,
         messageId: result.messageId,

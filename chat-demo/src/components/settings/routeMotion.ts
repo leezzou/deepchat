@@ -1,14 +1,9 @@
 import { useLayoutEffect, useRef } from 'react'
-import { popLayer, pushLayer } from '../../shell/backLayers.js'
+import { useBackLayer } from '../../shell/navigationMotion.js'
 
-/** Keep a layer in its original stack position, including while its visual page is leaving. */
-export function useRouteBack(back: () => void) {
-  const latest = useRef(back)
-  latest.current = back
-  useLayoutEffect(() => {
-    const layer = pushLayer(() => latest.current())
-    return () => popLayer(layer)
-  }, [])
+/** Covered visits yield to their child. Leaving visits consume Back until their final frame. */
+export function useRouteBack(back: () => void, enabled = true) {
+  useBackLayer(enabled, back)
 }
 
 /** CSS transitions can reverse an entry from its actual on-screen position on a quick Back. */

@@ -1,8 +1,9 @@
 import { IconPanelLeftOutline16, IconSearchOutline16, NewChatIcon } from '../base/icons.js'
 import { openHistorySearch } from '../historySearch/historySearchState.js'
+import { rememberChat } from './mobileSiderState.js'
 import { useTranslate } from '../../i18n/index.js'
 import { setSiderCollapsed } from '../../services/settings.js'
-import { newChat } from '../../services/chat/store.js'
+import { newChat, useChatStore } from '../../services/chat/store.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
 import styles from './Sider.module.css'
@@ -33,7 +34,12 @@ export const CollapsedSider = () => {
           tone="primary"
           icon={<NewChatIcon />}
           tooltip={t('newChat')}
-          onClick={() => newChat()}
+          onClick={() => {
+              const { activeId, importingHistory } = useChatStore.getState()
+              if (importingHistory) return
+              if (activeId) rememberChat()
+              newChat()
+            }}
         />
         <IconButton
           size="m"

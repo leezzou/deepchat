@@ -35,8 +35,7 @@ import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
 import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
-import { closeMobileSider, openMobileSider, useMobileSider, takePreviousChat } from '../components/sider/mobileSiderState.js'
-import { restoreHistorySearch } from '../components/historySearch/historySearchState.js'
+import { backFromChat, closeMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
 import { useBackLayer } from '../shell/navigationMotion.js'
 import { isNative, useNativeShell } from '../shell/native.js'
 import { useEdgeSwipe } from './edgeSwipe.js'
@@ -44,20 +43,6 @@ import { useUpdateWatcher } from '../services/updateWatcher.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import styles from './App.module.css'
 
-// Only explicit visits from the drawer create a parent for a conversation.
-const ConversationBack = ({ id }: { id: string | null }) => {
-  const origin = useMobileSider((state) => state.chatOrigin)
-  const previous = useMobileSider((state) => state.previousChats.at(-1))
-  useBackLayer(Boolean(previous), () => {
-    const target = takePreviousChat()
-    if (target) selectSession(target)
-  }, -21)
-  useBackLayer(Boolean(id && origin?.sessionId === id), () => {
-    openMobileSider()
-    if (origin?.search !== undefined) restoreHistorySearch(origin.search)
-  }, -20)
-  return null
-}
 
 export const App = () => {
   const t = useTranslate()
@@ -90,6 +75,8 @@ export const App = () => {
   )
   const activeId = useChatStore((state) => state.activeId)
 
+  const hasChatParent = useMobileSider((state) => state.parents.length > 0)
+  useBackLayer(hasChatParent, backFromChat, -20)
   useNativeShell()
   // App 启动、回前台及运行期间每 60 秒检查新版本，用红点提示
   useUpdateWatcher()
@@ -149,7 +136,7 @@ export const App = () => {
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
-        {isMobile ? <><MobileSider /><ConversationBack id={activeId} /></> : siderCollapsed ? null : <Sider />}
+        {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
         <main className={styles.main}>
           {saveError ? (
             <div className={styles.saveError} role="alert">

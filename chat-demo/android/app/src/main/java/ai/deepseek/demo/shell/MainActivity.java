@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     private DshLocalProxy proxy;
     private AccountScreen screen;
     private DshWebBridge accountBridge;
+    private WorkBuddyChat workBuddy;
 
     @Override
     protected void load() {
@@ -28,6 +29,7 @@ public class MainActivity extends BridgeActivity {
         web.addJavascriptInterface(new Updater(this), "AndroidUpdater");
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
                 && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            workBuddy = new WorkBuddyChat(this, web);
             account = new DshAccountHost(this);
             proxy = new DshLocalProxy(account);
             screen = new AccountScreen(this, account, proxy, systemBars, () -> web.evaluateJavascript(
@@ -67,6 +69,7 @@ public class MainActivity extends BridgeActivity {
         if (security != null) security.close();
         if (screen != null) screen.dismiss();
         if (accountBridge != null) accountBridge.close();
+        if (workBuddy != null) workBuddy.close();
         if (proxy != null) proxy.stop();
         if (account != null) account.close();
         super.onDestroy();
@@ -76,6 +79,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         IncomingSharePlugin.restoreLaunch(this, savedInstanceState);
         registerPlugin(IncomingSharePlugin.class);
+        registerPlugin(WorkBuddyWalletPlugin.class);
         registerPlugin(WebDavPlugin.class);
         super.onCreate(savedInstanceState);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {

@@ -1,3 +1,4 @@
+import { FolderMemoryButton } from '../library/ScopedMemoryControls.js'
 import { useBackLayer, useSurfacePresence } from '../../shell/navigationMotion.js'
 import clsx from 'clsx'
 import { memo, useEffect, useMemo, useRef, useState } from 'react'
@@ -20,7 +21,7 @@ import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
 import { hasAccountBridge, openAccount } from '../../shell/account.js'
-import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
+import { closeMobileSider, rememberChat, setSidebarView, useMobileSider } from './mobileSiderState.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SessionItem } from './SessionItem.js'
 import { openHistorySearch } from '../historySearch/historySearchState.js'
@@ -61,21 +62,18 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
   const library = useLibrarySnapshot()
-  const [filter, setFilter] = useState<string>()
+  const view = useMobileSider((state) => state.view)
   const [foldersOpen, setFoldersOpen] = useState(false)
   const [moving, setMoving] = useState<string | null>(null)
-  const [favoritesOpen, setFavoritesOpen] = useState(false)
+  const favoritesOpen = view.favorites
+  const setFavoritesOpen = (favorites: boolean) => setSidebarView({ ...view, favorites })
   const drawerOpen = useMobileSider((state) => state.open)
   useBackLayer(mobile && drawerOpen && favoritesOpen, () => setFavoritesOpen(false), -9)
-  const folder = library.folders.find((item) => item.id === filter)
+  const folder = library.folders.find((item) => item.id === view.folder)
   const selected = folder?.id
   const attributes = useMemo(
     () => new Map(library.sessions.map((row) => [row.sessionId, row])),
     [library.sessions]
-  )
-  const sharedFolders = useMemo(
-    () => new Set(library.folders.filter((item) => item.shareMemory).map((item) => item.id)),
-    [library.folders]
   )
   const groups = useMemo(() => {
     const visible = sessions.filter(
@@ -128,8 +126,10 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
               icon={<IconNewChatOutline20 />}
               aria-label={t('newChat')}
               onClick={() => {
-                newChat(folder?.id)
-                closeMobileSider()
+                if (!useChatStore.getState().importingHistory) {
+                  rememberChat()
+                  newChat(folder?.id)
+                }
               }}
             />
             <IconButton
@@ -166,8 +166,9 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             type="button"
             className={styles.newChat}
             onClick={() => {
+              if (useChatStore.getState().importingHistory) return
+              if (activeId) rememberChat()
               newChat(folder?.id)
-              closeMobileSider()
             }}
           >
             <span className={styles.newChatIcon}>
@@ -207,6 +208,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
           <IconChevronDownOutline14 />
         </button>
       </nav>
+      {folder && !favoritesOpen && <FolderMemoryButton key={folder.id} folder={folder} />}
       <div className={styles.listWrap}>
         <div className={styles.list}>
           {favoritesOpen ? (
@@ -232,7 +234,6 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
                     session={session}
                     active={session.id === activeId}
                     attributes={attributes.get(session.id)}
-                    sharesFolderMemory={sharedFolders.has(attributes.get(session.id)?.folderId ?? '')}
                     onMove={() => setMoving(session.id)}
                     onDelete={() => setDeleting(session)}
                   />
@@ -285,8 +286,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             current={selected}
             onClose={() => setFoldersOpen(false)}
             onPick={(value) => {
-              setFilter(value)
-              setFavoritesOpen(false)
+              setSidebarView({ folder: value, favorites: false })
             }}
           />
         )}

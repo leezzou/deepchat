@@ -74,7 +74,7 @@ type Settings = {
   autoCollapseThinking: boolean
 }
 
-export type ChatSource = 'account' | 'api'
+export type ChatSource = 'account' | 'api' | 'workbuddy'
 
 const KEYS = {
   chatSource: 'chat-demo:chat-source',
@@ -185,7 +185,7 @@ setApiConfig({
 
 const savedSource = read(KEYS.chatSource)
 const initialSource: ChatSource =
-  hasAccountBridge && (savedSource === 'account' || (!initialActive && savedSource !== 'api'))
+  savedSource === 'workbuddy' ? 'workbuddy' : hasAccountBridge && (savedSource === 'account' || (!initialActive && savedSource !== 'api'))
     ? 'account'
     : 'api'
 

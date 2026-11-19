@@ -2,6 +2,7 @@ import type { ChatAccess } from './api/access.js'
 
 /** A generic Chat Completions endpoint can define different file limits. */
 export function usesDeepSeekFileLimits(access: ChatAccess): boolean {
+  if (access.source === 'workbuddy') return false
   if (access.source === 'account' || access.config.protocol === 'deepseek') {
     return true
   }

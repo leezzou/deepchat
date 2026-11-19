@@ -1,8 +1,8 @@
 {
-  "version": "1.0.47",
+  "version": "1.0.48",
   "publishedAt": "2026-11-19",
-  "notes": "统一消息删除、会话、记忆、模板和设置中的确认界面。删除文件夹要两次确认，并显示对话数和记忆数。聊天记录保留在「全部对话」，文件夹成员手动保存的记忆会一起删除。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.47",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.47/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.47/deepchat.apk"
+  "notes": "从历史、搜索和文件夹进入子页后返回原处。聊天页可直接设置「本对话使用全局记忆」，在文件夹内管理共享记忆。Android 新增 WorkBuddy 个人账号登录和 DeepSeek 文字对话通道，积分与可选自动签到按账号权限与活动状态提供。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.48",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.48/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.48/deepchat.apk"
 }

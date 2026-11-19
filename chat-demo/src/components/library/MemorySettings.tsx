@@ -1,13 +1,10 @@
-import { useId, useState } from 'react'
+import { useState } from 'react'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
-import { useChatStore } from '../../services/chat/store.js'
 import {
   deleteMemory,
-  getMemoryEnabled,
-  getSessionFolderId,
-  getVisibleMemories,
-  setMemoryEnabled,
+  getManagedMemories,
+  type MemoryScope,
   type Memory,
 } from '../../services/library/index.js'
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
@@ -22,18 +19,13 @@ import './localSwitch.css'
 
 type Action = { kind: 'edit'; memory?: Memory } | { kind: 'delete'; memory: Memory }
 
-export const MemorySettings = () => {
+export const MemorySettings = () => <MemoryList scope={{ kind: 'global' }} />
+
+export function MemoryList({ scope }: { scope: MemoryScope }) {
   const t = useTranslate()
   const mobile = useIsSettingsMobile()
-  const { folders } = useLibrarySnapshot()
-  const activeId = useChatStore((state) => state.activeId)
-  const memories = getVisibleMemories(activeId)
-  const folder = folders.find((item) => item.id === getSessionFolderId(activeId))
-  const folderDraft = Boolean(folder && !activeId)
-  const title = useChatStore(
-    (state) => state.sessions.find((session) => session.id === activeId)?.title
-  )
-  const description = useId()
+  useLibrarySnapshot()
+  const memories = getManagedMemories(scope)
   const [action, setAction] = useState<Action | null>(null)
   const close = () => setAction(null)
   const save = (change: () => void) => {
@@ -45,43 +37,27 @@ export const MemorySettings = () => {
     }
   }
   return (
-    <div className={styles.page} data-mobile={mobile || undefined}>
-      <section>
-        <h3 className={styles.heading}>{t('libMemoryChat')}</h3>
-        <label className={styles.switchRow}>
-          <span className={styles.chatText}>
-            <span>{t(folder?.shareMemory ? 'memoryIncludeGlobal' : 'libMemoryUse')}</span>
-            <small>{title || t(activeId ? 'untitledChat' : 'libNewChat')}</small>
-          </span>
-          <input
-            className="dc-local-switch"
-            type="checkbox"
-            role="switch"
-            aria-label={t(folder?.shareMemory ? 'memoryIncludeGlobal' : 'libMemoryUse')}
-            aria-describedby={description}
-            checked={getMemoryEnabled(activeId)}
-            onChange={({ currentTarget }) =>
-              save(() => setMemoryEnabled(activeId, currentTarget.checked))
-            }
-          />
-        </label>
-        <p id={description} className={styles.scope}>
-          {folder?.shareMemory
-            ? t('memoryFolderScope', { name: folder.name })
-            : t('memoryPrivateScope')}
-        </p>
-      </section>
+    <div className={styles.page} data-mobile={(mobile && scope.kind === 'global') || undefined}>
       <section>
         <h3 className={styles.heading}>
-          {t('libMemories')}
+          {t(scope.kind === 'global' ? 'libGlobalMemories' : 'libMemories')}
           {memories.length > 0 && <span className={styles.total}>{memories.length}</span>}
         </h3>
+        {scope.kind === 'global' && <p className={styles.scope}>{t('libGlobalScope')}</p>}
         <div className={styles.group}>
           {!memories.length && (
             <div className={styles.empty}>
               <LibraryIcon name="memory" />
               <strong>{t('libMemoryEmptyTitle')}</strong>
-              <p>{t('libMemoryEmpty')}</p>
+              <p>
+                {t(
+                  scope.kind === 'folder'
+                    ? 'libFolderMemoryEmpty'
+                    : scope.kind === 'global'
+                      ? 'libGlobalMemoryEmpty'
+                      : 'libMemoryEmpty'
+                )}
+              </p>
             </div>
           )}
           {memories.length > 0 && (
@@ -97,15 +73,9 @@ export const MemorySettings = () => {
                       <span className={styles.excerpt} dir="auto">
                         {memory.text}
                       </span>
-                      <small>
-                        {t(
-                          memory.sessionId === null
-                            ? 'memoryGlobal'
-                            : memory.sessionId === activeId
-                              ? 'memoryThisChat'
-                              : 'memoryFromFolder'
-                        )}
-                      </small>
+                      {scope.kind === 'folder' && (
+                        <small>{t(memory.folderId ? 'libFolderMemory' : 'memoryFromFolder')}</small>
+                      )}
                     </span>
                     <IconChevronRightOutline14 />
                   </button>
@@ -120,21 +90,16 @@ export const MemorySettings = () => {
               ))}
             </ul>
           )}
-          <button
-            className={styles.add}
-            disabled={folderDraft}
-            onClick={() => setAction({ kind: 'edit' })}
-          >
+          <button className={styles.add} onClick={() => setAction({ kind: 'edit' })}>
             <span className={styles.plus} aria-hidden="true" />
             {t('libMemoryAdd')}
           </button>
         </div>
-        {folderDraft && <p className={styles.scope}>{t('memoryFolderDraft')}</p>}
       </section>
       <ModalPresence>
         {action &&
           (action.kind === 'edit' ? (
-            <MemoryEditor sessionId={activeId} memory={action.memory} onClose={close} />
+            <MemoryEditor scope={scope} memory={action.memory} onClose={close} />
           ) : (
             <ConfirmationModal
               title={t('libMemoryDeleteConfirm')}
@@ -146,7 +111,7 @@ export const MemorySettings = () => {
                   </Button>
                   <Button
                     variant="danger"
-                    onClick={() => save(() => deleteMemory(action.memory.id))}
+                    onClick={() => save(() => deleteMemory(action.memory.id, scope))}
                   >
                     {t('delete')}
                   </Button>

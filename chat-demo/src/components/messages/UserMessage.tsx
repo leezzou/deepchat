@@ -49,7 +49,7 @@ export const UserMessage = memo(function UserMessage({
   const t = useTranslate()
   const [editing, setEditing] = useState(false)
   usePendingEdit(editing)
-  useBackLayer(editing, () => setEditing(false))
+  useBackLayer(editing, () => setEditing(false), -11)
   const [draft, setDraft] = useState(message.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isMobile = useIsMobile()

@@ -138,7 +138,8 @@ export function useMessageTools(sessionId: string, messages: Message[]) {
       }
       return next
     })
-  useBackLayer(selecting, () => setSelected(null), -1)
+  // A drawer opened over the conversation is the first Back destination.
+  useBackLayer(selecting, () => setSelected(null), -11)
   const lastFocus = useRef<HTMLElement | null>(null)
   useEffect(() => {
     if (!selecting) {
@@ -261,7 +262,7 @@ export function useMessageTools(sessionId: string, messages: Message[]) {
           </div>
         </Modal>
       ) : memory !== null ? (
-        <MemoryEditor key="memory" sessionId={sessionId} message={memory} onClose={() => setMemory(null)} />
+        <MemoryEditor key="memory" scope={{ kind: 'chat', id: sessionId }} message={memory} onClose={() => setMemory(null)} />
       ) : preview ? (
         <SharePreview key="preview" messages={preview} onClose={() => setPreview(null)} />
       ) : null}
