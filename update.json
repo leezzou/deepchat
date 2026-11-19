@@ -1,8 +1,8 @@
 {
-  "version": "1.0.44",
+  "version": "1.0.45",
   "publishedAt": "2026-11-19",
-  "notes": "PDF、Word 和 PowerPoint 现在统一使用图文版面解析，超过 20 MiB 的文件也会保留图表。账号模式发送附件遇到服务校验错误时，应用会显示具体原因，或给出 HTTP 状态和服务返回的诊断编号。可直接覆盖安装。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.44",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.44/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.44/deepchat.apk"
+  "notes": "点击侧栏头像或名字即可打开 DeepSeek 账号，齿轮进入设置。账号页打开更平稳，退出登录会保留 API Key 和聊天记录。修复对话列表透底，统一设置图标、分组和深浅色，重新整理历史备份、恢复与记忆管理。支持覆盖安装。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.45",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.45/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.45/deepchat.apk"
 }

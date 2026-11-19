@@ -31,7 +31,7 @@ const fixture = (globalThis.__contextTest = {
 const mocks = new Map(
   Object.entries({
     '/services/settings.ts': `export const useSettings = { getState: () => globalThis.__contextTest.settings }`,
-    '/services/api/origin.ts': `export const getApiConfig = () => globalThis.__contextTest.config`,
+    '/services/api/origin.ts': `export const defaultApiModel="deepseek-flash", defaultApiOrigin="https://api.deepseek.com"; export const getApiConfig = () => globalThis.__contextTest.config`,
     '/services/api/client.ts': `export class ApiError extends Error { constructor(kind,message,status) { super(typeof message === 'string' ? message : message.key); this.kind=kind; this.status=status; this.localMessage=typeof message==='object'?message:undefined } } export const streamMessage = (...args) => globalThis.__contextTest.stream(...args)`,
     '/services/api/errors.ts': `export const extractFileIds=()=>[]; export const getFileErrorCode=()=>null; export const isRetryableApiError=()=>false; export const isContextOverflow=()=>false`,
     '/services/attachments.ts': `export const cancelUpload=()=>{}; export const describeUploadError=()=>({key:'upload'}); export const uploadAttachment=async()=>null; export const useUploads={getState:()=>({tasks:{}})}`,
@@ -408,7 +408,7 @@ test('automatic compaction retains current question and flushes the final reply 
   useContextPreferences.setState({ autoCompact: true })
   fixture.draft = { text: 'CURRENT_QUESTION', files: [] }
   fixture.stream = async function* (...args) {
-    if (args[1].tools.length === 0) {
+    if (args[1].messages.at(-1)?.content.includes('compaction engine')) {
       yield* summaryStream(...args)
       return
     }

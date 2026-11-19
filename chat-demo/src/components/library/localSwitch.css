@@ -1,0 +1,56 @@
+/* Native focus, label, and keyboard behavior with a visible two-position control. */
+input.dc-local-switch {
+  appearance: none;
+  display: inline-grid;
+  align-items: center;
+  box-sizing: border-box;
+  flex: none;
+  width: 42px;
+  height: 26px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--dc-secondary);
+  border-radius: 999px;
+  background: var(--dc-subtle);
+  cursor: pointer;
+}
+input.dc-local-switch::before {
+  content: '';
+  display: block;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--dc-secondary);
+}
+input.dc-local-switch:checked {
+  background: var(--dc-accent);
+  border-color: var(--dc-accent);
+}
+input.dc-local-switch:checked::before {
+  transform: translateX(16px);
+  background: var(--dc-on-accent);
+}
+input.dc-local-switch:focus-visible {
+  outline: 2px solid var(--dc-accent);
+  outline-offset: 3px;
+}
+input.dc-local-switch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+@media (prefers-reduced-motion: no-preference) {
+  input.dc-local-switch,
+  input.dc-local-switch::before {
+    transition:
+      transform 160ms ease-out,
+      background-color 160ms ease-out;
+  }
+}
+@media (forced-colors: active) {
+  input.dc-local-switch {
+    appearance: auto;
+  }
+  input.dc-local-switch::before {
+    display: none;
+  }
+}

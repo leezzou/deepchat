@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.44/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.45/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
   <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
 </p>
@@ -143,7 +143,7 @@ DeepSeek 专用接口还接入了深度思考、联网搜索、链接阅读与�
 <details>
 <summary><b>聊天和 API Key 保存在哪里？</b></summary>
 
-API 配置及偏好保存在手机的 localStorage；聊天及已保存的附件存放在 IndexedDB。Key 当前使用本地字符串存储，未接入 Android Keystore。
+当前工作区的 Android 预览版用 Android Keystore 管理加密密钥，将 API 配置加密保存在应用私有目录。升级时会先读回校验，再清理旧版的明文配置。聊天与已保存的附件仍在本机 IndexedDB。可在 **设置 → 安全与应用锁** 开启系统身份验证。
 
 聊天请求会发往当前配置的 API 服务；附件选入输入框后可能立即上传。应用还会访问 GitHub 检查或下载更新。本地保存记录不意味着模型请求在离线环境运行。
 

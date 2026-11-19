@@ -20,6 +20,7 @@ import {
 import { getVisibleMessages } from '../../services/chat/branches.js'
 import { getContextRounds, getReplyText } from '../../services/chat/reply.js'
 import { setAutoCompact, useContextPreferences } from '../../services/chat/contextPreferences.js'
+import { useConversationModes } from '../../services/conversationMode/storage.js'
 import { useSettings } from '../../services/settings.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import { saveBlob } from '../../shell/saveFile.js'
@@ -47,6 +48,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   const autoCompact = useContextPreferences((state) => state.autoCompact)
   const [visibleRounds, setVisibleRounds] = useState(20)
   // API 配置切换后立即重新计算窗口和百分比。
+  useConversationModes((state) => state.data)
   useSettings((state) => state.apiProfiles)
   useSettings((state) => state.activeProfileId)
   useSettings((state) => state.chatSource)
@@ -89,7 +91,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
     }
   }
   const tokens = budgetCache.current?.tokens ?? 0
-  const pressure = tokens / contextWindowTokens()
+  const pressure = tokens / contextWindowTokens(session.id)
   const percent = Math.min(100, Math.round(pressure * 100))
   const warn = pressure >= MIN_COMPACT_RATIO
   // While a reply streams, the ring needs its budget but not the management panel's rounds.
@@ -344,7 +346,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
             <p className={styles.panelHint}>
               {t('contextEstimateHint', {
                 tokens: tokens.toLocaleString(),
-                window: contextWindowTokens().toLocaleString(),
+                window: contextWindowTokens(session.id).toLocaleString(),
               })}
             </p>
             <div className={styles.presets}>

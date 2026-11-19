@@ -30,6 +30,8 @@ export type DraftAttachment = {
   file: File
   isImage: boolean
   previewUrl: string | null
+  /** Incoming shares stay on device until the user sends the draft. */
+  localOnly?: boolean
 }
 
 export type Draft = { text: string; attachments: DraftAttachment[] }
@@ -198,8 +200,12 @@ export const initDrafts = (): Promise<void> =>
           id: item.id,
           file,
           isImage: item.isImage,
+          localOnly: item.id.startsWith('incoming:'),
           previewUrl: item.isImage ? URL.createObjectURL(file) : null,
         })
+        if (item.id.startsWith('incoming:')) {
+          continue
+        }
         // Never silently upload recovered files to a possibly changed API account.
         restoredTasks[item.id] = {
           status: 'error',
@@ -297,6 +303,35 @@ const updateDraft = (sessionId: string | null, update: (draft: Draft) => Draft) 
 export const setDraftText = (sessionId: string | null, text: string) =>
   updateDraft(sessionId, (draft) => ({ ...draft, text }))
 
+/** Local-only intake. Refuse to replace even whitespace or a lone attachment. */
+export const putIncomingDraft = (
+  sessionId: string | null,
+  shareId: string,
+  text: string,
+  file?: File
+) => {
+  if (!useDrafts.getState().ready || (!text.trim() && !file)) {
+    return false
+  }
+  const current = getDraft(sessionId)
+  if (current.text || current.attachments.length) {
+    return false
+  }
+  const attachments: DraftAttachment[] = file
+    ? [
+        {
+          id: `incoming:${shareId}:0`,
+          file,
+          isImage: true,
+          localOnly: true,
+          previewUrl: URL.createObjectURL(file),
+        },
+      ]
+    : []
+  updateDraft(sessionId, () => ({ text, attachments }))
+  return true
+}
+
 const upload = (attachment: DraftAttachment, access: ChatAccess) => {
   // 上传任务负责记录错误，输入框的附件卡片展示失败及重试入口。
   void uploadAttachment(
@@ -317,7 +352,11 @@ export const addDraftFiles = (
   if (files.length === 0) {
     return null
   }
-  const error = validateFiles(files, getDraft(sessionId).attachments.map((item) => item.file), access)
+  const error = validateFiles(
+    files,
+    getDraft(sessionId).attachments.map((item) => item.file),
+    access
+  )
   if (error) {
     return error
   }
@@ -341,7 +380,7 @@ export const retryDraftAttachment = (
   access: ChatAccess
 ) => {
   const attachment = getDraft(sessionId).attachments.find((item) => item.id === attachmentId)
-  if (attachment) {
+  if (attachment && !attachment.localOnly) {
     upload(attachment, access)
   }
 }
@@ -352,15 +391,16 @@ export const prepareDraftMessage = (draft: Draft, tasks: Record<string, UploadTa
   if (!text && draft.attachments.length === 0) {
     return null
   }
-  const files: (FileAttachment & { serverId: string; blob: Blob })[] = []
+  const files: (FileAttachment & { blob: Blob })[] = []
   for (const attachment of draft.attachments) {
     const task = tasks[attachment.id]
-    if (task?.status !== 'done' || !task.serverId) {
+    const serverId = task?.status === 'done' ? task.serverId : null
+    if (!attachment.localOnly && !serverId) {
       return null
     }
     files.push({
       id: attachment.id,
-      serverId: task.serverId,
+      serverId,
       name: attachment.file.name,
       size: attachment.file.size,
       isImage: attachment.isImage,
@@ -432,14 +472,18 @@ export const restoreDrafts = async (records: StoredDraft[]) => {
         type: item.type,
         lastModified: item.lastModified,
       })
-      tasks[item.id] = {
-        status: 'error',
-        retryable: true,
-        error: { key: 'draftAttachmentRestored' },
+      const localOnly = item.id.startsWith('incoming:')
+      if (!localOnly) {
+        tasks[item.id] = {
+          status: 'error',
+          retryable: true,
+          error: { key: 'draftAttachmentRestored' },
+        }
       }
       return {
         id: item.id,
         file,
+        localOnly,
         isImage: item.isImage,
         previewUrl: item.isImage ? URL.createObjectURL(file) : null,
       }

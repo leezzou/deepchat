@@ -1,9 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <!-- A vendor device transfer can ignore allowBackup. Legacy WebView storage may still be migrating. -->
+        <exclude domain="root" path="app_webview" />
+        <exclude domain="sharedpref" path="deepchat-app-lock.xml" />
         <exclude domain="sharedpref" path="dsh-account-v1.xml" />
     </cloud-backup>
     <device-transfer>
+        <!-- A vendor device transfer can ignore allowBackup. Legacy WebView storage may still be migrating. -->
+        <exclude domain="root" path="app_webview" />
+        <exclude domain="sharedpref" path="deepchat-app-lock.xml" />
         <exclude domain="sharedpref" path="dsh-account-v1.xml" />
     </device-transfer>
 </data-extraction-rules>

@@ -184,7 +184,9 @@ const setTask = (id: string, task: UploadTask | null) =>
       : Object.fromEntries(Object.entries(state.tasks).filter(([key]) => key !== id)),
   }))
 
-const pending = new Map<string, { promise: Promise<string>; controller: AbortController }>()
+type UploadJob = { promise: Promise<string>; controller: AbortController }
+// A local original may appear in two imported conversations using different credentials.
+const pending = new Map<string, Map<string, UploadJob>>()
 
 /** 开始（或复用进行中的）上传，返回服务端 file_id；失败时任务记为 error 并抛出原错误 */
 export const uploadAttachment = (
@@ -194,7 +196,9 @@ export const uploadAttachment = (
   name: string,
   isImage: boolean
 ): Promise<string> => {
-  const current = pending.get(id)
+  const jobs = pending.get(id) ?? new Map<string, UploadJob>()
+  const scope = JSON.stringify(access)
+  const current = jobs.get(scope)
   if (current) {
     return current.promise
   }
@@ -202,13 +206,12 @@ export const uploadAttachment = (
   setTask(id, { status: 'uploading' })
   const promise = enqueueUpload(access, blob, name, isImage, controller.signal)
     .then((serverId) => {
+      if (controller.signal.aborted) {throw controller.signal.reason}
       setTask(id, { status: 'done', serverId })
       return serverId
     })
     .catch((error: unknown) => {
-      if (controller.signal.aborted) {
-        setTask(id, null)
-      } else {
+      if (!controller.signal.aborted) {
         setTask(id, {
           status: 'error',
           error: describeUploadError(error),
@@ -223,13 +226,18 @@ export const uploadAttachment = (
       }
       throw error
     })
-    .finally(() => pending.delete(id))
-  pending.set(id, { promise, controller })
+    .finally(() => {
+      jobs.delete(scope)
+      if (!jobs.size && pending.get(id) === jobs) {pending.delete(id)}
+    })
+  jobs.set(scope, { promise, controller })
+  pending.set(id, jobs)
   return promise
 }
 
 export const cancelUpload = (id: string) => {
-  pending.get(id)?.controller.abort()
+  for (const job of pending.get(id)?.values() ?? []) {job.controller.abort()}
+  pending.delete(id)
   setTask(id, null)
 }
 

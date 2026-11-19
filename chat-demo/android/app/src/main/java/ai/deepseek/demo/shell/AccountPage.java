@@ -94,7 +94,7 @@ final class AccountPage extends LinearLayout {
         setBackgroundColor(paper);
         barTitle.setTextColor(ink);
         back.setColorFilter(ink);
-        back.setBackground(new InsetDrawable(ripple(dark ? 0xff3c3c3d : 0xffededed, 20), dp(8)));
+        back.setBackground(new InsetDrawable(ripple(dark ? 0xff3c3c3d : 0xffededed, 20), dp(4)));
         // This non-floating window fits system bars. Old releases only draw white system icons.
         window.setStatusBarColor(!dark && Build.VERSION.SDK_INT < 23 ? 0xff28344e : paper);
         window.setNavigationBarColor(!dark && Build.VERSION.SDK_INT < 26 ? 0xff28344e : paper);

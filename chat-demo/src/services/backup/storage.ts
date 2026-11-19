@@ -2,6 +2,7 @@ import { openDB, type DBSchema, type IDBPDatabase, type IDBPTransaction } from '
 import type { StoredFile } from '../chat/db.js'
 import type { Session } from '../chat/types.js'
 import type { StoredDraft } from '../chat/draftStorage.js'
+import type { PortableMetadata } from './portableMetadata.js'
 
 export type BackupSaveStatus = 'generated' | 'download-requested' | 'shared' | 'confirmed'
 export type BackupMetadata = {
@@ -26,7 +27,7 @@ export type BackupPreferences = {
   recentRoundIds: string[]
 }
 
-export type SnapshotPart = { session?: Session; files?: StoredFile[]; draft?: StoredDraft }
+export type SnapshotPart = { session?: Session; files?: StoredFile[]; draft?: StoredDraft; metadata?: PortableMetadata }
 type SnapshotPointer = BackupMetadata & { parts: number }
 type SnapshotRecord = SafetySnapshot | SnapshotPointer
 type SnapshotSlot = 'latest' | 'previous'

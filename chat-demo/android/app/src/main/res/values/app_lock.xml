@@ -1,0 +1,12 @@
+<resources>
+    <color name="lock_ink">#17191D</color>
+    <color name="lock_secondary">#60646D</color>
+    <color name="lock_action">#426EFE</color>
+    <color name="lock_on_action">#FFFFFF</color>
+    <string name="app_lock_title">DeepChat is locked</string>
+    <string name="app_lock_hint">Verify your identity on this device to continue.</string>
+    <string name="app_lock_action">Unlock DeepChat</string>
+    <string name="app_lock_cancelled">Verification was cancelled. Unlock to try again.</string>
+    <string name="app_lock_unavailable">Set a screen lock in your device settings to continue.</string>
+    <string name="app_lock_prompt">Verify your identity for DeepChat</string>
+</resources>

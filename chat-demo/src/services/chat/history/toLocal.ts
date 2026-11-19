@@ -223,9 +223,14 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
   return {
     id,
     role: 'assistant',
-    ...(message.deepchat_context_user_id === undefined ? {} : {
-      contextUserId: message.deepchat_context_user_id === null ? null : String(message.deepchat_context_user_id),
-    }),
+    ...(message.deepchat_context_user_id === undefined
+      ? {}
+      : {
+          contextUserId:
+            message.deepchat_context_user_id === null
+              ? null
+              : String(message.deepchat_context_user_id),
+        }),
     createdAt: time(message.inserted_at),
     model: null,
     thinking: message.thinking_enabled,
@@ -256,10 +261,9 @@ const buildTree = (file: SessionFile): Pick<Session, 'messages' | 'rootMessageId
     if (
       byId.has(id) ||
       (parent_id !== null && !parent) ||
-      (!file.deepchat_context && (
-        (parent_id === null && message.role !== 'USER') ||
-        (parent && parent.role === (message.role === 'USER' ? 'user' : 'assistant'))
-      ))
+      (!file.deepchat_context &&
+        ((parent_id === null && message.role !== 'USER') ||
+          (parent && parent.role === (message.role === 'USER' ? 'user' : 'assistant'))))
     ) {
       fail('backupInvalidBranches')
     }
@@ -294,22 +298,74 @@ export const toLocalSession = (file: SessionFile): LocalSession => {
     createdAt: time(file.inserted_at),
     updatedAt: time(file.updated_at),
     ...buildTree(file),
-    ...(file.deepchat_context?.excluded_round_ids === undefined ? {} : {
-      excludedContextRoundIds: file.deepchat_context.excluded_round_ids.map(String),
-    }),
-    ...(file.deepchat_context?.compacted_through === undefined ? {} : {
-      compactedThrough: String(file.deepchat_context.compacted_through),
-    }),
-    ...(file.deepchat_context?.checkpoint === undefined ? {} : {
-      checkpoint: {
-        text: file.deepchat_context.checkpoint.text,
-        createdAt: file.deepchat_context.checkpoint.created_at,
-        coveredMessages: file.deepchat_context.checkpoint.covered_messages,
-        ...(file.deepchat_context.checkpoint.covered_message_ids === undefined ? {} : {
-          coveredMessageIds: file.deepchat_context.checkpoint.covered_message_ids.map(String),
+    ...(file.deepchat_context?.excluded_round_ids === undefined
+      ? {}
+      : {
+          excludedContextRoundIds: file.deepchat_context.excluded_round_ids.map(String),
         }),
-      },
-    }),
+    ...(file.deepchat_context?.compacted_through === undefined
+      ? {}
+      : {
+          compactedThrough: String(file.deepchat_context.compacted_through),
+        }),
+    ...(file.deepchat_context?.checkpoint === undefined
+      ? {}
+      : {
+          checkpoint: {
+            text: file.deepchat_context.checkpoint.text,
+            createdAt: file.deepchat_context.checkpoint.created_at,
+            coveredMessages: file.deepchat_context.checkpoint.covered_messages,
+            ...(file.deepchat_context.checkpoint.covered_message_ids === undefined
+              ? {}
+              : {
+                  coveredMessageIds:
+                    file.deepchat_context.checkpoint.covered_message_ids.map(String),
+                }),
+          },
+        }),
+  }
+  // Build and validate all numeric branches first, then translate every reference together.
+  if (file.messages.some((row) => row.deepchat_local_id !== undefined)) {
+    const ids = new Map<string, string>()
+    const seen = new Set<string>()
+    for (const row of file.messages) {
+      const local = row.deepchat_local_id
+      if (
+        !local ||
+        local.length > 1024 ||
+        seen.has(local) ||
+        Object.hasOwn(Object.prototype, local)
+      ) {
+        return fail('backupInvalidBranches')
+      }
+      ids.set(String(row.id), local)
+      seen.add(local)
+    }
+    const stable = (id: string) => ids.get(id) ?? fail('backupInvalidBranches')
+    for (const row of session.messages) {
+      row.id = stable(row.id)
+      if (row.parentId) {
+        row.parentId = stable(row.parentId)
+      }
+      if (row.selectedChildId) {
+        row.selectedChildId = stable(row.selectedChildId)
+      }
+      if (row.role === 'assistant' && row.contextUserId) {
+        row.contextUserId = stable(row.contextUserId)
+      }
+    }
+    if (session.rootMessageId) {
+      session.rootMessageId = stable(session.rootMessageId)
+    }
+    if (session.compactedThrough) {
+      session.compactedThrough = stable(session.compactedThrough)
+    }
+    if (session.excludedContextRoundIds) {
+      session.excludedContextRoundIds = session.excludedContextRoundIds.map(stable)
+    }
+    if (session.checkpoint?.coveredMessageIds) {
+      session.checkpoint.coveredMessageIds = session.checkpoint.coveredMessageIds.map(stable)
+    }
   }
   const images = new Map<string, string>()
   for (const message of file.messages) {

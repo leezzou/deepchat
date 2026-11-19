@@ -49,7 +49,7 @@ export async function verifySnapshotScale() {
   console.info('Starting overwrite of 36 uncached sessions with 144 MiB of synthetic text')
   check(await backup.importHistory(replacement) === 1, '144 MiB old text history replaced under a 96 MiB V8 old-space limit')
   const latest = await storage.readSnapshotRecord()
-  check(!('sessions' in latest) && latest.parts === count + 1 && JSON.stringify(latest).length < 512, `${latest.parts} snapshot parts and a ${JSON.stringify(latest).length}-character latest pointer`)
+  check(!('sessions' in latest) && latest.parts === count + 2 && JSON.stringify(latest).length < 512, `${latest.parts} snapshot parts and a ${JSON.stringify(latest).length}-character latest pointer`)
   const raw = await request(indexedDB.open('chat-demo-backups'))
   const get = (store, key) => request(raw.transaction(store).objectStore(store).get(key))
   const footprint = async () => JSON.stringify([

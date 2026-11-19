@@ -10,29 +10,39 @@ import { setAutoRead, useSettings } from '../../services/settings.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
 import { openMobileSider, rememberChat } from '../sider/mobileSiderState.js'
+import { ConversationControls } from './ConversationControls.js'
 import styles from './MobileHeader.module.css'
 
-/**
- * 移动端顶栏（官方 56dp，无标题无分隔线）：
- * 左「双横线」开抽屉；右「自动朗读」开关 + 「开启新对话」；会话页在菜单图标右侧显示标题。
- */
 export const MobileHeader = ({ title }: { title?: string }) => {
   const t = useTranslate()
+  const activeId = useChatStore((state) => state.activeId)
   const autoRead = useSettings((state) => state.autoRead)
   const hasUpdate = useUpdateNotice((state) => state.available !== null)
   return (
-    <div className={styles.header}>
+    <header className={styles.header}>
       <span className={styles.menuWrap}>
         <IconButton
           size="xl"
           tone="primary"
           icon={<IconMenuDouble24 />}
-          aria-label={hasUpdate ? `${t('expandSiderbarButton')}，${t('updateBadge')}` : t('expandSiderbarButton')}
+          aria-label={
+            hasUpdate
+              ? `${t('expandSiderbarButton')}，${t('updateBadge')}`
+              : t('expandSiderbarButton')
+          }
           onClick={openMobileSider}
         />
         {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
       </span>
-      {title === undefined ? null : <div className={styles.title}>{title}</div>}
+      <div className={styles.title} data-home={!activeId || undefined}>
+        <ConversationControls key={activeId} sessionId={activeId} heading={title || t('newChat')} />
+        {!activeId && (
+          <svg className={styles.modeIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+            <path d="M3 7h7m4 0h7M3 17h11m4 0h3" />
+            <circle cx="12" cy="7" r="2.1" /><circle cx="16" cy="17" r="2.1" />
+          </svg>
+        )}
+      </div>
       <div className={styles.right}>
         <IconButton
           size="xl"
@@ -49,11 +59,18 @@ export const MobileHeader = ({ title }: { title?: string }) => {
           aria-label={t('newChat')}
           onClick={() => {
             const { activeId, importingHistory } = useChatStore.getState()
-            if (activeId && !importingHistory) rememberChat(activeId)
-            newChat()
+            if (importingHistory) {
+              return
+            }
+            if (activeId) {
+              rememberChat(activeId)
+              newChat()
+            } else {
+              document.querySelector<HTMLTextAreaElement>('textarea[rows="2"]')?.focus({ preventScroll: true })
+            }
           }}
         />
       </div>
-    </div>
+    </header>
   )
 }

@@ -59,8 +59,7 @@
   user-select: none;
 }
 
-@media not all and (min-width: 768px) {
-  /* 移动端：卡片左右 12dp，免责声明紧贴卡片下方 5dp（UI-SPEC §4/§5） */
+@media (max-width: 767px) {
   .inputContainer {
     position: relative;
     bottom: auto;
@@ -68,21 +67,13 @@
     width: 100%;
     max-width: none;
     margin: 0;
-    padding: 0 12px 16px;
-    /* 上下文圆环贴在输入卡片上方，容器本身不要白色块 */
+    padding: 0 12px 6px;
     background: transparent;
   }
-
   .caveat {
     padding: 5px 0 0;
     font-size: 11px;
     line-height: 16px;
-    color: #dddddd;
-  }
-}
-
-@media not all and (min-width: 768px) {
-  [data-ds-dark-theme] .caveat {
-    color: #4a4a4a;
+    color: var(--dc-secondary, var(--dsw-alias-label-secondary));
   }
 }

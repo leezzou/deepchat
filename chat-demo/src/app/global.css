@@ -42,6 +42,24 @@ body.dark {
   color-scheme: dark;
 }
 
+.dc-startup {
+  display: flex;
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--full-viewport-height);
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: max(24px, env(safe-area-inset-top)) var(--dc-gutter) max(24px, env(safe-area-inset-bottom));
+  text-align: center;
+}
+.dc-startup img { width: 56px; height: auto; }
+.dc-startup h1 { margin: 18px 0 8px; color: var(--dc-ink); font-size: 1.35rem; line-height: 1.35; }
+.dc-startup p { margin: 0; color: var(--dc-secondary); font-size: .9375rem; line-height: 1.6; }
+.dc-startup-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.dc-startup-actions button { min-height: var(--dc-touch); min-width: 96px; }
+
 body[data-ds-dark-theme] {
   --scroll-color: rgba(255, 255, 255, 0.15);
   --scroll-color-hover: rgba(255, 255, 255, 0.24);

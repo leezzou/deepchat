@@ -4,30 +4,16 @@ import { createPortal } from 'react-dom'
 import {
   IconCheckOutline16,
   IconChevronRightOutline14,
+  IconRightUpOutline14,
   IconEllipsisOutline16,
-  IconPlusCircle24,
   IconDarkOutline16,
-  IconDataOutline16,
-  IconDownloadOutline16,
   IconFollowsystemOutline16,
-  IconGlobeLanguageOutline14,
   IconLightOutline16,
-  IconPlayMediaOutline16,
-  IconSettingsOutline16,
-  IconTrashOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
 import {
-  BackupError,
   SnapshotError,
   clearHistory,
-  confirmBackupSaved,
-  exportHistory,
-  loadBackupState,
-  restoreSafetySnapshot,
-  saveLatestBackup,
-  saveSafetySnapshot,
-  setAutomaticBackup,
   useBackupState,
 } from '../../services/chat/backup.js'
 import { useIsSettingsMobile } from '../../app/viewport.js'
@@ -39,7 +25,6 @@ import {
   removeApiProfile,
   saveApiProfile,
   selectApiProfile,
-  clearApiProfiles,
   setAutoCollapseThinking,
   setChatSource,
   setAvatar,
@@ -59,7 +44,7 @@ import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { requestUpdateInstall } from '../../services/updateSafety.js'
-import { hasAccountBridge, openAccount } from '../../shell/account.js'
+import { hasAccountBridge, openAccount, requestAccountLogout } from '../../shell/account.js'
 import { openExternal } from '../../shell/native.js'
 import {
   resolveLocale,
@@ -72,12 +57,18 @@ import { IconButton } from '../base/IconButton.js'
 import { Modal, ModalPresence } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
+import { syncLockAppearance } from '../../services/security/bridge.js'
+import { SecuritySettings } from './SecuritySettings.js'
+import { SettingsIcon, type SettingsIconName } from './SettingsIcon.js'
+import { WebDavSettings } from './WebDavSettings.js'
+import { MemorySettings } from '../library/MemorySettings.js'
 import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { openApiUsage } from './ApiUsage.js'
 import { MobileSettingsHeader as MobileHeader } from './MobileSettingsHeader.js'
 import { useRouteBack, useRouteMotion } from './routeMotion.js'
 import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
+import { DataSettings, type MobileDataProps } from './DataSettings.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
 import { closeSettings, openSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
@@ -91,6 +82,9 @@ import styles from './Settings.module.css'
 export const SettingsDialog = () => {
   const open = useSettingsDialog((state) => state.open)
   const isSettingsMobile = useIsSettingsMobile()
+  const theme = useSettings((state) => state.themePreference)
+  const locale = useSettings((state) => state.locale)
+  useEffect(() => syncLockAppearance(theme, locale), [theme, locale, open])
   const historyImport = useHistoryImport()
   const [retained, setRetained] = useState(false)
   useLayoutEffect(() => {
@@ -105,13 +99,12 @@ export const SettingsDialog = () => {
   return <ModalPresence>{open ? <SettingsContent historyImport={historyImport} /> : null}</ModalPresence>
 }
 
-const sections: { value: SettingsSection; label: TranslationKey; icon: ReactNode }[] = [
-  {
-    value: 'general',
-    label: 'settingDialogAsideGeneralOptionLabel',
-    icon: <IconSettingsOutline16 />,
-  },
-  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: <IconDataOutline16 /> },
+const sections: { value: SettingsSection; label: TranslationKey; icon: SettingsIconName }[] = [
+  { value: 'general', label: 'settingDialogAsideGeneralOptionLabel', icon: 'general' },
+  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: 'data' },
+  { value: 'memory', label: 'libMemory', icon: 'memory' },
+  { value: 'security', label: 'previewSecurity', icon: 'lock' },
+  { value: 'webdav', label: 'previewWebDav', icon: 'cloud' },
 ]
 
 type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
@@ -149,13 +142,13 @@ const SettingsContent = ({ historyImport }: ImportProps) => {
               className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
               onClick={() => setSection(item.value)}
             >
-              {item.icon}
+              <SettingsIcon name={item.icon} compact />
               {t(item.label)}
             </button>
           ))}
         </div>
         <div role="tabpanel" className={styles.content}>
-          {section === 'general' ? (
+          {section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
               {hasAccountBridge ? <AccountSettings /> : null}
               <ThemeSetting />
@@ -205,6 +198,9 @@ type MobilePage =
   | 'guide'
   | 'data'
   | 'compacted'
+  | 'memory'
+  | 'security'
+  | 'webdav'
   | 'appearance'
   | 'fontSize'
   | 'personalize'
@@ -212,16 +208,11 @@ type MobilePage =
   | 'location'
 
 /** 二级页标题（根页统一用「设置」） */
-const mobilePageTitles: Record<Exclude<MobilePage, 'root'>, string> = {
-  apiKey: 'API Key 管理',
-  guide: '申请官方 API Key',
-  data: '数据管理',
-  compacted: '已压缩的对话',
-  appearance: '外观',
-  fontSize: '字体大小',
-  personalize: '个性化',
-  profile: '账号资料',
-  location: '位置信息',
+const mobilePageTitles: Record<MobilePage, TranslationKey> = {
+  root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
+  compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
+  appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
+  profile: 'settingsProfile', location: 'settingsLocation',
 }
 
 /** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
@@ -259,13 +250,6 @@ const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
   dark: 'avatarMenuSettingsDialogThemeSelectDarkOption',
 }
 
-/** 帮助与反馈内容：只描述应用里真实存在的能力 */
-const helpText = [
-  '在「账户 → API Key 管理」中填写 DeepSeek API Key 后即可开始对话。',
-  '「数据管理」可以导入或导出全部历史对话，导出的 ZIP 文件也能再次导入。',
-  '如果遇到问题，请联系 leezzou@mail.ustc.edu.cn。',
-].join('\n')
-
 /** 版本号来自构建时注入的 <meta name="application-version">，拿不到就不展示 */
 const readAppVersion = () =>
   document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
@@ -279,7 +263,10 @@ type Route = {
 
 const initialRoutes = (): Route[] => {
   const routes: Route[] = [{ page: 'root' }]
-  if (useSettingsDialog.getState().section === 'data') {
+  const section = useSettingsDialog.getState().section
+  if (section === 'security' || section === 'webdav' || section === 'memory') {
+    routes.push({ page: section })
+  } else if (section === 'data') {
     const hasData = useSettings.getState().apiKey || useBackupState.getState().latest
     routes.push({ page: hasData ? 'data' : 'apiKey' })
   }
@@ -362,8 +349,7 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
           const { page, editor } = route
           const top = index === routes.length - 1
           const position = top && popping ? 'leaving' : index === routes.length - (popping ? 2 : 1) ? 'front' : 'covered'
-          const title = page === 'root' ? t('settings') : page === 'data' ? t('settingDialogAsideDataOptionLabel')
-            : page === 'apiEdit' ? t(editor?.isNew ? 'apiProfileAdd' : 'apiProfileEdit') : mobilePageTitles[page]
+          const title = page === 'apiEdit' ? t(editor?.isNew ? 'apiProfileAdd' : 'apiProfileEdit') : t(mobilePageTitles[page])
           return (
             <RoutePage key={page} route={route} position={position} active={top && open && !popping}
               title={title} onBack={goBack} onExited={finishPop}>
@@ -374,7 +360,10 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
               }} />}
               {page === 'guide' && <MobileApiKeyGuide onFillKey={() => edit('new')} />}
               {page === 'data' && <MobileDataContent historyImport={historyImport} disabled={historyBusy}
-                onOpenCompacted={() => push('compacted')} onDeleteAll={historyDelete.open} />}
+                onOpenWebDav={() => push('webdav')} onOpenCompacted={() => push('compacted')} onDeleteAll={historyDelete.open} />}
+              {page === 'security' && <SecuritySettings />}
+              {page === 'webdav' && <WebDavSettings />}
+              {page === 'memory' && <MemorySettings />}
               {page === 'compacted' && <MobileCompactedContent />}
               {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
@@ -391,95 +380,6 @@ const MobileSettings = ({ historyImport, open, onExited }: ImportProps & { open:
   )
 }
 
-const IconUsage = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" strokeWidth="1.6" />
-    <path d="M7.5 16v-4m4.5 4V7.5m4.5 8.5v-6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-  </svg>
-)
-
-/** 字体大小图标：Aa */
-const IconFontSize = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M4 19 9.2 6h1.6L16 19" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M6.1 15h7.8" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    <path d="M16.4 19 19.3 12h1.2L23 19" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-/** 个性化图标：调色盘 */
-const IconPersonalize = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path
-      d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-.9-.7-1.5-.7-2.3 0-.9.7-1.5 1.6-1.5H16a5 5 0 0 0 5-5c0-4.1-4-7.5-9-7.5Z"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-    <circle cx="7.8" cy="9.4" r="1.1" fill="currentColor" />
-    <circle cx="12" cy="7" r="1.1" fill="currentColor" />
-    <circle cx="16.2" cy="9.4" r="1.1" fill="currentColor" />
-  </svg>
-)
-
-/** 退出登录图标：门 + 箭头 */
-const IconSignOut = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M9.5 8 5.5 12l4 4M5.8 12H15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-)
-
-/** 账户图标：钥匙 */
-const IconKey = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="8.2" cy="8.2" r="4.4" stroke="currentColor" strokeWidth="1.6" />
-    <path
-      d="m11.4 11.4 8.1 8.1M16 16.1l2-2M18.6 18.7l2-2"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-    />
-  </svg>
-)
-
-/** 关于图标：圆形信息 */
-const IconInfo = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="8.4" stroke="currentColor" strokeWidth="1.6" />
-    <path d="M12 11.2v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    <circle cx="12" cy="7.9" r="1" fill="currentColor" />
-  </svg>
-)
-
-/** 帮助与反馈图标：圆形问号 */
-const IconHelp = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <circle cx="12" cy="12" r="8.4" stroke="currentColor" strokeWidth="1.6" />
-    <path
-      d="M9.6 9.4a2.5 2.5 0 0 1 4.9.6c0 1.7-2.4 1.8-2.4 3.4v.4"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-    <circle cx="12" cy="16.8" r="1" fill="currentColor" />
-  </svg>
-)
-
-/** 位置图标：定位针 */
-const IconLocation = () => (
-  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path
-      d="M12 21s6.5-5.5 6.5-11a6.5 6.5 0 1 0-13 0C5.5 15.5 12 21 12 21Z"
-      stroke="currentColor"
-      strokeWidth="1.6"
-      strokeLinejoin="round"
-    />
-    <circle cx="12" cy="10" r="2.4" stroke="currentColor" strokeWidth="1.6" />
-  </svg>
-)
-
 /** 分组：标题 + 单独一张圆角卡片 */
 const MobileGroup = ({
   title,
@@ -492,7 +392,7 @@ const MobileGroup = ({
   children: ReactNode
 }) => (
   <div className={clsx(styles.group, wide && styles.groupWide)}>
-    {title ? <div className={styles.groupTitle}>{title}</div> : null}
+    {title ? <h2 className={styles.groupTitle}>{title}</h2> : null}
     <div className={styles.card}>{children}</div>
   </div>
 )
@@ -503,21 +403,23 @@ const MobileRow = ({
   value,
   onClick,
   disabled = false,
+  external = false,
   ...attributes
 }: {
-  icon?: ReactNode
+  icon: ReactNode
   label: string
   value?: string
   onClick: () => void
   disabled?: boolean
+  external?: boolean
   'data-api-usage-entry'?: boolean
 }) => (
   <button {...attributes} type="button" className={styles.row} disabled={disabled} onClick={onClick}>
-    {icon ? <span className={styles.rowIcon}>{icon}</span> : null}
+    <span className={styles.rowIcon} aria-hidden="true">{icon}</span>
     <span className={styles.rowLabel}>{label}</span>
     {value ? <span className={styles.rowValue}>{value}</span> : null}
-    <span className={styles.rowChevron}>
-      <IconChevronRightOutline14 />
+    <span className={styles.rowChevron} aria-hidden="true">
+      {external ? <IconRightUpOutline14 /> : <IconChevronRightOutline14 />}
     </span>
   </button>
 )
@@ -530,14 +432,14 @@ const MobileSelectRow = ({
   muted = false,
   children,
 }: {
-  icon?: ReactNode
+  icon: ReactNode
   label: string
   value: string
   muted?: boolean
   children: ReactNode
 }) => (
   <div className={clsx(styles.row, muted && styles.rowMuted)}>
-    {icon ? <span className={styles.rowIcon}>{icon}</span> : null}
+    <span className={styles.rowIcon} aria-hidden="true">{icon}</span>
     <span className={styles.rowLabel}>{label}</span>
     <span className={styles.rowValue}>{value}</span>
     <span className={styles.rowChevron}>
@@ -584,13 +486,13 @@ const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
   return (
     <>
       <button data-dsh-account type="button" className={styles.row} onClick={openAccount}>
-        <span className={styles.rowIcon}><IconPersonalize /></span>
+        <span className={styles.rowIcon}><SettingsIcon name="account" /></span>
         <span className={styles.rowLabel}>{label}</span>
         {signedIn ? <span className={styles.rowValue}>{t('dshAccountManage')}</span> : null}
         <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
       </button>
       {showChoice ? (
-        <MobileSelectRow label={t('dshChatUses')} value={source === 'api' ? 'API Key' : t('dshAccountBalance')}>
+        <MobileSelectRow icon={<SettingsIcon name="source" />} label={t('dshChatUses')} value={source === 'api' ? 'API Key' : t('dshAccountBalance')}>
           {picker}
         </MobileSelectRow>
       ) : null}
@@ -606,8 +508,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   const locale = useSettings((state) => state.locale)
   const themePreference = useSettings((state) => state.themePreference)
   const ttsVoice = useSettings((state) => state.ttsVoice)
+  const fontScale = useSettings((state) => state.fontScale)
   const [helpOpen, setHelpOpen] = useState(false)
-  const [signOutOpen, setSignOutOpen] = useState(false)
+  const signedIn = useSettings((state) => state.accountSignedIn)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [updateOpen, setUpdateOpen] = useState(false)
   const [update, setUpdate] = useState<
@@ -645,35 +548,39 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   }
   return (
     <>
-      <MobileGroup title="账户">
+      <MobileGroup title={t('settingsAccountGroup')}>
         {hasAccountBridge ? <AccountSettings mobile /> : null}
         <MobileRow
-          icon={<IconKey />}
-          label="API Key 管理"
-          value={apiKey ? '已设置' : '未设置'}
+          icon={<SettingsIcon name="key" />}
+          label={t('settingsKeysTitle')}
+          value={t(apiKey ? 'settingsConfigured' : 'settingsNotSet')}
           onClick={() => onOpenPage('apiKey')}
         />
         <MobileRow
-          icon={<IconPersonalize />}
+          icon={<SettingsIcon name="profile" />}
           label={t('settingsProfile')}
-          value={displayName}
+          value={displayName === 'DeepSeek 用户' ? t('settingsDefaultUser') : displayName}
           onClick={() => onOpenPage('profile')}
         />
+      </MobileGroup>
+      <MobileGroup title={t('settingsPrivacyGroup')}>
         <MobileRow
-          icon={<IconDataOutline16 />}
+          icon={<SettingsIcon name="data" />}
           label={t('settingDialogAsideDataOptionLabel')}
           onClick={() => onOpenPage('data')}
         />
+        <MobileRow icon={<SettingsIcon name="lock" />} label={t('previewSecurity')} onClick={() => onOpenPage('security')} />
+        <MobileRow icon={<SettingsIcon name="memory" />} label={t('libMemory')} onClick={() => onOpenPage('memory')} />
       </MobileGroup>
-      <MobileGroup title="应用">
+      <MobileGroup title={t('settingsAppGroup')}>
         <MobileSelectRow
-          icon={<IconGlobeLanguageOutline14 />}
+          icon={<SettingsIcon name="language" />}
           label={t('settingsLocalePreference')}
           value={
             locale === 'system'
               ? t('settingsLocaleSystem')
               : locale === 'zh-CN'
-                ? '中文 (简体中文)'
+                ? t('settingsLocaleZhCN')
                 : t('settingsLocaleEnUS')
           }
         >
@@ -690,36 +597,36 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           />
         </MobileSelectRow>
         <MobileRow
-          icon={<IconLightOutline16 />}
-          label="外观"
+          icon={<SettingsIcon name="appearance" />}
+          label={t('settingsAppearance')}
           value={t(themeLabelKeys[themePreference])}
           onClick={() => onOpenPage('appearance')}
         />
         <MobileRow
-          icon={<IconFontSize />}
+          icon={<SettingsIcon name="fontSize" />}
           label={t('settingsFontSize')}
-          value={t(fontSizeLabelKeys[nearestFontLevel(useSettings.getState().fontScale)])}
+          value={t(fontSizeLabelKeys[nearestFontLevel(fontScale)])}
           onClick={() => onOpenPage('fontSize')}
         />
         <MobileRow
-          icon={<IconPersonalize />}
+          icon={<SettingsIcon name="personalize" />}
           label={t('settingsPersonalize')}
           onClick={() => onOpenPage('personalize')}
         />
       </MobileGroup>
-      <MobileGroup title="语音">
+      <MobileGroup title={t('settingsVoiceGroup')}>
         <MobileRow
-          icon={<IconPlayMediaOutline16 />}
+          icon={<SettingsIcon name="voice" />}
           label={t('settingsTtsVoice')}
           value={t(ttsVoice === 'stella' ? 'settingsTtsVoiceStella' : 'settingsTtsVoiceTide')}
           onClick={() => setVoiceOpen(true)}
         />
       </MobileGroup>
       {version ? (
-        <MobileGroup title="关于">
+        <MobileGroup title={t('settingsAboutGroup')}>
           <button type="button" className={styles.row} onClick={() => void runUpdateCheck()}>
             <span className={styles.rowIcon}>
-              <IconInfo />
+              <SettingsIcon name="info" />
             </span>
             <span className={styles.rowLabel}>{t('checkUpdate')}</span>
             <span className={styles.rowValue}>
@@ -784,26 +691,26 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       <MobileGroup wide>
         <button type="button" className={styles.row} onClick={() => setHelpOpen(true)}>
           <span className={styles.rowIcon}>
-            <IconHelp />
+            <SettingsIcon name="help" />
           </span>
-          <span className={styles.rowLabel}>帮助与反馈</span>
+          <span className={styles.rowLabel}>{t('settingsHelp')}</span>
           <span className={styles.rowChevron}>
             <IconChevronRightOutline14 />
           </span>
         </button>
       </MobileGroup>
-      <MobileGroup wide>
-        <button type="button" className={styles.row} onClick={() => setSignOutOpen(true)}>
+      {hasAccountBridge && signedIn && <MobileGroup wide>
+        <button data-dsh-logout type="button" className={styles.row} onClick={requestAccountLogout}>
           <span className={styles.rowIcon}>
-            <IconSignOut />
+            <SettingsIcon name="signOut" />
           </span>
           <span className={styles.rowLabel}>{t('settingsSignOut')}</span>
           <span className={styles.rowChevron}>
             <IconChevronRightOutline14 />
           </span>
         </button>
-      </MobileGroup>
-      {version ? <div className={styles.meta}>版本 {version}</div> : null}
+      </MobileGroup>}
+      {version ? <div className={styles.meta}>{t('settingsVersion', { version })}</div> : null}
       <ModalPresence>{voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
@@ -858,36 +765,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           </div>
         </Modal>
       ) : null}</ModalPresence>
-      <ModalPresence>{signOutOpen ? (
-        <Modal
-          title={t('settingsSignOut')}
-          onClose={() => setSignOutOpen(false)}
-          footer={
-            <>
-              <Button variant="outlined" size="m" onClick={() => setSignOutOpen(false)}>
-                {t('cancel')}
-              </Button>
-              <Button
-                variant="dangerOutlined"
-                size="m"
-                onClick={() => {
-                  setSignOutOpen(false)
-                  clearApiProfiles()
-                  closeSettings()
-                  showToast({ key: 'signedOut' })
-                }}
-              >
-                {t('settingsSignOut')}
-              </Button>
-            </>
-          }
-        >
-          <div className={styles.riskNote}>{t('settingsSignOutHint')}</div>
-        </Modal>
-      ) : null}</ModalPresence>
       <ModalPresence>{helpOpen ? (
         <Modal
-          title="帮助与反馈"
+          title={t('settingsHelp')}
           onClose={() => setHelpOpen(false)}
           footer={
             <Button variant="outlined" size="m" onClick={() => setHelpOpen(false)}>
@@ -895,7 +775,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
             </Button>
           }
         >
-          <div className={styles.helpText}>{helpText}{'\n'}{t('backupHelpClear')}</div>
+          <div className={styles.helpText}>{t('settingsHelpDetails')}{'\n'}{t('backupHelpClear')}</div>
         </Modal>
       ) : null}</ModalPresence>
     </>
@@ -968,6 +848,17 @@ const providerPresets: {
   },
 ]
 
+const providerLabelsEn: Record<string, string> = {
+  deepseek: 'DeepSeek official', glm: 'Zhipu GLM', zai: 'Z.ai (international)',
+  qwen: 'Alibaba Cloud Qwen', 'qwen-intl': 'Alibaba Cloud Qwen (international)',
+  kimi: 'Moonshot Kimi', 'kimi-intl': 'Moonshot Kimi (international)', siliconflow: 'SiliconFlow',
+  volcengine: 'Volcengine Ark', qianfan: 'Baidu Qianfan', hunyuan: 'Tencent Hunyuan',
+  'minimax-intl': 'MiniMax (international)', stepfun: 'StepFun', spark: 'iFlytek Spark',
+  sensenova: 'SenseNova', baichuan: 'Baichuan', opencode: 'OpenCode Zen (pay as you go)',
+  'opencode-go': 'OpenCode Go (subscription)', ollama: 'Ollama (local)', lmstudio: 'LM Studio (local)',
+  custom: 'Custom (OpenAI-compatible)',
+}
+
 /** 按当前配置反查预设；认不出就是自定义 */
 const matchPreset = (profile: { protocol: string; origin: string; model: string }) =>
   providerPresets.find(
@@ -1007,45 +898,12 @@ const MobileApiKeyGuide = ({ onFillKey }: { onFillKey: () => void }) => {
         ))}
       </div>
       <MobileGroup>
-        <button
-          type="button"
-          className={styles.row}
-          onClick={() => void openExternal('https://platform.deepseek.com/sign_in')}
-        >
-          <span className={styles.rowIcon}>
-            <IconKey />
-          </span>
-          <span className={styles.rowLabel}>{t('apiGuideOpenPlatform')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-        <button
-          type="button"
-          className={styles.row}
-          onClick={() => void openExternal('https://platform.deepseek.com/api_keys')}
-        >
-          <span className={styles.rowIcon}>
-            <IconInfo />
-          </span>
-          <span className={styles.rowLabel}>{t('apiGuideOpenKeys')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-        <button
-          type="button"
-          className={styles.row}
-          onClick={() => void openExternal('https://platform.deepseek.com/top_up')}
-        >
-          <span className={styles.rowIcon}>
-            <IconInfo />
-          </span>
-          <span className={styles.rowLabel}>{t('apiGuideOpenTopUp')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
+        <MobileRow external icon={<SettingsIcon name="platform" />} label={t('apiGuideOpenPlatform')}
+          onClick={() => void openExternal('https://platform.deepseek.com/sign_in')} />
+        <MobileRow external icon={<SettingsIcon name="key" />} label={t('apiGuideOpenKeys')}
+          onClick={() => void openExternal('https://platform.deepseek.com/api_keys')} />
+        <MobileRow external icon={<SettingsIcon name="wallet" />} label={t('apiGuideOpenTopUp')}
+          onClick={() => void openExternal('https://platform.deepseek.com/top_up')} />
       </MobileGroup>
       <div className={styles.profileHint}>{t('apiGuideNote')}</div>
       <div className={styles.group}>
@@ -1072,16 +930,8 @@ const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
   return (
     <>
       <MobileGroup>
-        <button type="button" className={styles.row} onClick={onOpenGuide}>
-          <span className={styles.rowIcon}>
-            <IconKey />
-          </span>
-          <span className={styles.rowLabel}>{t('apiGuideEntry')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-        <MobileRow data-api-usage-entry icon={<IconUsage />} label={t('usageTitle')} onClick={openApiUsage} />
+        <MobileRow icon={<SettingsIcon name="guide" />} label={t('apiGuideEntry')} onClick={onOpenGuide} />
+        <MobileRow data-api-usage-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
       </MobileGroup>
       <MobileGroup>
         {apiProfiles.map((profile) => (
@@ -1089,12 +939,14 @@ const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
             <button
               type="button"
               className={styles.profileMain}
-              onClick={() => selectApiProfile(profile.id)}
+              onClick={async () => {
+                try { await selectApiProfile(profile.id) } catch { showToast({ key: 'credentialWriteFailed' }) }
+              }}
             >
               <span
                 className={clsx(styles.rowIcon, profile.id === activeProfileId && styles.active)}
               >
-                {profile.id === activeProfileId ? <IconCheckOutline16 /> : <IconKey />}
+                {profile.id === activeProfileId ? <IconCheckOutline16 /> : <SettingsIcon name="key" />}
               </span>
               <span className={styles.rowLabel}>{profile.name}</span>
               <span className={styles.apiKeyMask}>{maskApiKey(profile.apiKey)}</span>
@@ -1109,7 +961,7 @@ const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
         ))}
         <button type="button" className={styles.row} onClick={() => onEdit('new')}>
           <span className={styles.rowIcon}>
-            <IconPlusCircle24 />
+            <SettingsIcon name="add" />
           </span>
           <span className={styles.rowLabel}>{t('apiProfileAdd')}</span>
         </button>
@@ -1130,6 +982,7 @@ const MobileApiProfileForm = ({
   onDone: () => void
 }) => {
   const t = useTranslate()
+  const english = useSettings((state) => resolveLocale(state.locale) === 'en-US')
   const [preset, setPreset] = useState(() => matchPreset(profile))
   const [name, setName] = useState(profile.name)
   const [protocol, setProtocol] = useState(profile.protocol)
@@ -1173,7 +1026,7 @@ const MobileApiProfileForm = ({
     if (!next || value === 'custom') {
       return
     }
-    setName(next.name)
+    setName(english && /[\u4e00-\u9fff]/u.test(next.name) ? providerLabelsEn[next.value] ?? next.name : next.name)
     setProtocol(next.protocol)
     setOrigin(next.origin === defaultApiOrigin ? '' : next.origin)
     setModel(next.model)
@@ -1207,7 +1060,7 @@ const MobileApiProfileForm = ({
     setFailure(null)
     try {
       await verifyApiKey(key, origin.trim() || defaultApiOrigin)
-      saveApiProfile({
+      await saveApiProfile({
         ...profile,
         name: name.trim(),
         protocol,
@@ -1231,7 +1084,7 @@ const MobileApiProfileForm = ({
           <div className={styles.fieldLabel}>{t('apiProfileProvider')}</div>
           <Select
             value={preset}
-            options={providerPresets.map((item) => ({ value: item.value, label: item.label }))}
+            options={providerPresets.map((item) => ({ value: item.value, label: english ? providerLabelsEn[item.value] ?? item.label : item.label }))}
             onChange={pickPreset}
             ariaLabel={t('apiProfileProvider')}
           />
@@ -1391,8 +1244,11 @@ const MobileApiProfileForm = ({
             <Button
               variant="dangerOutlined"
               size="m"
-              onClick={() => {
-                removeApiProfile(profile.id)
+              onClick={async () => {
+                try { await removeApiProfile(profile.id) } catch {
+                  showToast({ key: 'credentialWriteFailed' })
+                  return
+                }
                 setConfirmDelete(false)
                 onDone()
               }}
@@ -1488,112 +1344,9 @@ const MobileCompactedContent = () => {
   )
 }
 
-/** 数据管理：导入 / 导出各占一行，结果在卡片下方提示 */
-const MobileDataContent = ({
-  historyImport,
-  disabled,
-  onOpenCompacted,
-  onDeleteAll,
-}: {
-  historyImport: ReturnType<typeof useHistoryImport>
-  disabled: boolean
-  onOpenCompacted: () => void
-  onDeleteAll: () => void
-}) => {
-  const t = useTranslate()
-  const inputRef = useRef<HTMLInputElement>(null)
-  const empty = useChatStore((state) => state.sessions.length === 0)
-  // 官方 App 的「导出数据」给的是一个 7 天有效的下载链接，粘进来直接下载并走同一套导入流程
-  const [link, setLink] = useState('')
-  const feedback = historyImport.feedback
-  return (
-    <>
-      <MobileGroup>
-        <button
-          type="button"
-          className={styles.row}
-          disabled={disabled}
-          onClick={() => inputRef.current?.click()}
-        >
-          <span className={styles.rowIcon}>
-            <IconUploadOutline14 />
-          </span>
-          <span className={styles.rowLabel}>{t('historyImport')}</span>
-          <span className={styles.rowValue}>{t('upload')}</span>
-        </button>
-        {feedback?.source === 'file' && <HistoryImportFeedback feedback={feedback} />}
-        <button
-          type="button"
-          className={styles.row}
-          disabled={disabled || empty}
-          onClick={onDeleteAll}
-        >
-          <span className={styles.rowIcon}>
-            <IconTrashOutline16 />
-          </span>
-          <span className={styles.rowLabel}>{t('deleteAllHistory')}</span>
-        </button>
-        <button type="button" className={styles.row} onClick={onOpenCompacted}>
-          <span className={styles.rowIcon}>
-            <IconDataOutline16 />
-          </span>
-          <span className={styles.rowLabel}>{t('compactedEntry')}</span>
-          <span className={styles.rowValue}>{listCompactions().length}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-      </MobileGroup>
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".zip,application/zip,application/x-zip-compressed"
-        hidden
-        onChange={(event) => {
-          const file = event.target.files?.[0]
-          event.target.value = ''
-          if (file) {
-            historyImport.select(file)
-          }
-        }}
-      />
-      <MobileGroup title={t('deepseekImportTitle')}>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="deepseek-export-link">
-            {t('deepseekImportLink')}
-          </label>
-          <input
-            id="deepseek-export-link"
-            disabled={disabled}
-            className={styles.fieldInput}
-            value={link}
-            placeholder={t('deepseekImportPlaceholder')}
-            autoComplete="off"
-            spellCheck={false}
-            inputMode="url"
-            onChange={(event) => setLink(event.target.value)}
-          />
-        </div>
-        <button
-          type="button"
-          className={styles.row}
-          disabled={disabled || !link.trim()}
-          onClick={async () => {
-            if (await historyImport.download(link)) { setLink('') }
-          }}
-        >
-          <span className={styles.rowIcon}>
-            <IconDownloadOutline16 />
-          </span>
-          <span className={styles.rowLabel}>{t('deepseekImportAction')}</span>
-        </button>
-        {feedback?.source === 'link' && <HistoryImportFeedback feedback={feedback} />}
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('deepseekImportHint')}</div>
-      <MobileGroup wide><BackupControls disabled={disabled} mobile /></MobileGroup>
-    </>
-  )
-}
+const MobileDataContent = ({ disabled, ...mobile }: MobileDataProps & { disabled: boolean }) => (
+  <DataSettings disabled={disabled} mobile={mobile} />
+)
 
 /** 字体大小：照官方——顶部预览、底部「跟随系统」开关 + A—A 七档滑块 */
 const MobileFontSizeContent = () => {
@@ -1700,6 +1453,7 @@ const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }
   const displayName = useSettings((state) => state.displayName)
   const avatar = useSettings((state) => state.avatar)
   const location = useSettings((state) => state.location)
+  const locale = useSettings((state) => resolveLocale(state.locale))
   const [name, setName] = useState(displayName)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -1727,7 +1481,7 @@ const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }
           <div className={styles.fieldLabel}>{t('personalizeAvatar')}</div>
           <div className={styles.avatarRow}>
             <span className={styles.avatarPreview}>
-              {avatar ? <img src={avatar} alt="" /> : <IconPersonalize />}
+              {avatar ? <img src={avatar} alt="" /> : <SettingsIcon name="account" />}
             </span>
             <button type="button" className={styles.fetchButton} onClick={() => inputRef.current?.click()}>
               {t('personalizePickAvatar')}
@@ -1769,11 +1523,11 @@ const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }
       <MobileGroup>
         <button type="button" className={styles.row} onClick={onOpenLocation}>
           <span className={styles.rowIcon}>
-            <IconLocation />
+            <SettingsIcon name="location" />
           </span>
           <span className={styles.rowLabel}>{t('settingsLocation')}</span>
           <span className={styles.rowValue}>
-            {location ? (location.region === 'CN' ? location.province ?? '已设置' : getRegionName(location.region, 'zh-CN')) : '未设置'}
+            {location ? (location.region === 'CN' ? location.province ?? t('settingsConfigured') : getRegionName(location.region, locale)) : t('settingsNotSet')}
           </span>
           <span className={styles.rowChevron}>
             <IconChevronRightOutline14 />
@@ -1791,7 +1545,7 @@ const MobileAppearanceContent = () => {
   const themePreference = useSettings((state) => state.themePreference)
   return (
     <div className={styles.group}>
-      <div className={styles.card} role="radiogroup" aria-label="外观">
+      <div className={styles.card} role="radiogroup" aria-label={t('settingsAppearance')}>
         {mobileThemeOrder.map((value) => (
           <button
             key={value}
@@ -1827,7 +1581,7 @@ const MobileLocationContent = () => {
   if (isChineseBrowser()) {
     return (
       <MobileGroup>
-        <MobileSelectRow label="省份/地区" value={province?.name ?? '未设置'}>
+        <MobileSelectRow icon={<SettingsIcon name="province" />} label={t('settingsLocationProvince')} value={province?.name ?? t('settingsNotSet')}>
           <Select
             className={styles.selectHit}
             ariaLabel={t('settingsLocationProvince')}
@@ -1842,8 +1596,9 @@ const MobileLocationContent = () => {
           />
         </MobileSelectRow>
         <MobileSelectRow
-          label="城市"
-          value={city?.name ?? '未设置'}
+          icon={<SettingsIcon name="city" />}
+          label={t('settingsLocationCity')}
+          value={city?.name ?? t('settingsNotSet')}
           muted={!province?.cities.length}
         >
           <Select
@@ -1866,8 +1621,9 @@ const MobileLocationContent = () => {
   return (
     <MobileGroup>
       <MobileSelectRow
-        label="国家或地区"
-        value={location ? getRegionName(location.region, locale) : '未设置'}
+        icon={<SettingsIcon name="language" />}
+        label={t('settingsLocationRegion')}
+        value={location ? getRegionName(location.region, locale) : t('settingsNotSet')}
       >
         <Select
           className={styles.selectHit}
@@ -2148,15 +1904,6 @@ const ThemeSetting = () => {
 /** `reason` 为失败原因的文案 key，展示时按当前语言翻译后填入 `message` 参数。 */
 type Status = (TranslationMessage & { error?: boolean; reason?: TranslationKey }) | null
 
-/** 导出失败附带原因：预期的错误用对应文案作原因，其他错误用错误信息。 */
-const errorStatus = (key: TranslationKey, error: unknown): Status => ({
-  key,
-  ...(error instanceof BackupError
-    ? { reason: error.key }
-    : { params: { message: error instanceof Error ? error.message : String(error) } }),
-  error: true,
-})
-
 const SettingCell = ({
   label,
   description,
@@ -2238,130 +1985,7 @@ const ImportHistory = ({
   )
 }
 
-const ExportHistory = ({ disabled }: { disabled: boolean }) =>
-  <BackupControls disabled={disabled} />
-
-const BackupControls = ({ disabled, mobile = false }: { disabled: boolean; mobile?: boolean }) => {
-  const t = useTranslate()
-  const locale = resolveLocale(useSettings((state) => state.locale))
-  const backup = useBackupState()
-  const empty = useChatStore((state) => state.sessions.length === 0)
-  const [status, setStatus] = useState<Status>(null)
-  const [restoreOpen, setRestoreOpen] = useState(false)
-  const [autoPreview, setAutoPreview] = useState<boolean | null>(null)
-  const [running, setRunning] = useState(false)
-  const inFlight = useRef(false)
-  const busy = disabled || running || backup.operation !== null
-  const date = (time: number) => new Date(time).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
-  useEffect(() => { void loadBackupState().catch(() => {}) }, [])
-
-  const run = async (action: () => Promise<unknown>, success?: TranslationKey) => {
-    if (inFlight.current) {return}
-    inFlight.current = true
-    setRunning(true)
-    setStatus(null)
-    try {
-      await action()
-      if (success) {setStatus({ key: success })}
-    } catch (error) {
-      setStatus(error instanceof SnapshotError
-        ? { key: 'backupSnapshotFailed', error: true }
-        : errorStatus('backupActionFailed', error))
-    } finally {
-      inFlight.current = false
-      setRunning(false)
-    }
-  }
-  const operationKey: Record<NonNullable<typeof backup.operation>, TranslationKey> = {
-    generating: 'backupGenerating', saving: 'backupSaving', snapshot: 'backupSnapshotting', restoring: 'backupRestoring',
-  }
-  const saveStatusKey = {
-    generated: 'backupGenerated', 'download-requested': 'backupDownloadRequested', shared: 'backupShared', confirmed: 'backupConfirmed',
-  } as const
-  const reasonKey = {
-    'before-import': 'backupBeforeImport', 'before-clear': 'backupBeforeClear', 'before-restore': 'backupBeforeRestore',
-    manual: 'backupTitle', automatic: 'backupTitle',
-  } as const
-  const latest = backup.latest
-  const safety = backup.safety
-  return (
-    <section className={clsx(styles.backupSection, mobile && styles.backupMobile)} aria-label={t('backupTitle')} aria-busy={busy}>
-      <h3 className={styles.backupTitle}>{t('backupTitle')}</h3>
-      <p className={styles.backupText}>{t('backupContents')}</p>
-      <div className={styles.backupActions}>
-        <Button variant="outlined" size="m" disabled={busy || empty} onClick={() => void run(exportHistory)}>
-          {t(backup.operation === 'generating' ? 'backupGenerating' : 'backupGenerate')}
-        </Button>
-        {latest ? <Button variant="primary" size="m" disabled={busy} onClick={() => void run(saveLatestBackup)}>
-          <IconDownloadOutline16 />{t('backupSave')}
-        </Button> : null}
-      </div>
-      <div className={styles.backupStatus} aria-live="polite">
-        {latest ? <>
-          <strong>{t(saveStatusKey[latest.saveStatus])}</strong>
-          <span>{t('backupFileDetails', { date: date(latest.createdAt), count: latest.sessionCount })}</span>
-          <span className={styles.backupFilename}>{latest.name}</span>
-        </> : <span>{t('backupEmpty')}</span>}
-        {backup.operation ? <span>{t(operationKey[backup.operation])}</span> : null}
-      </div>
-      {latest && (latest.saveStatus === 'download-requested' || latest.saveStatus === 'shared') ? (
-        <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(() => confirmBackupSaved(latest.id))}>
-          {t('backupConfirmSaved')}
-        </Button>
-      ) : null}
-      <p className={styles.backupText}>{t('backupLocalHint')}</p>
-      <div className={styles.backupDivider}>
-        <label className={styles.backupToggle}>
-          <span>{t('backupAutoLabel')}</span>
-          <input type="checkbox" checked={autoPreview ?? backup.autoEnabled} disabled={busy || !backup.ready}
-            onChange={(event) => {
-              const enabled = event.currentTarget.checked
-              setAutoPreview(enabled)
-              void run(async () => {
-                try { await setAutomaticBackup(enabled) } finally { setAutoPreview(null) }
-              })
-            }} />
-        </label>
-        <p className={styles.backupText}>{t('backupAutoHint')}</p>
-        {backup.autoEnabled ? <p className={styles.backupText}>{t('backupAutoProgress', { count: Math.max(0, 10 - backup.completedRounds) })}</p> : null}
-      </div>
-      <div className={styles.backupDivider}>
-        <h3 className={styles.backupTitle}>{t('backupSafetyTitle')}</h3>
-        <p className={styles.backupText}>{t(safety ? 'backupSafetyHint' : 'backupSafetyEmpty')}</p>
-        {safety ? <>
-          <div className={styles.backupStatus}>
-            <span>{t(reasonKey[safety.reason])} · {t('backupFileDetails', { date: date(safety.createdAt), count: safety.sessionCount })}</span>
-          </div>
-          <div className={styles.backupActions}>
-            <Button variant="outlined" size="m" disabled={busy} onClick={() => setRestoreOpen(true)}>{t('backupRestore')}</Button>
-            <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(async () => {
-              const result = await saveSafetySnapshot()
-              setStatus({ key: saveStatusKey[result.status] })
-            })}>{t('backupDownloadSnapshot')}</Button>
-          </div>
-          <p className={styles.backupText}>{t('backupSnapshotExportHint')}</p>
-        </> : null}
-      </div>
-      {backup.error ? <div role="alert" className={styles.backupError}>
-        <p>{t(backup.error === 'load' ? 'backupStorageFailed' : 'backupAutomaticFailed')}</p>
-        {backup.error === 'load' ? <Button variant="outlined" size="m" disabled={busy} onClick={() => void run(loadBackupState)}>{t('backupRetry')}</Button> : null}
-      </div> : null}
-      {status ? <div role={status.error ? 'alert' : 'status'} className={clsx(styles.backupStatus, status.error && styles.backupError)}>
-        {t(status.key, status.reason ? { message: t(status.reason) } : status.params)}
-      </div> : null}
-      <ModalPresence>{restoreOpen && safety ? <Modal title={t('backupRestoreTitle')} onClose={() => { if (!running) {setRestoreOpen(false)} }} footer={<>
-        <Button variant="outlined" size="m" autoFocus disabled={running} onClick={() => setRestoreOpen(false)}>{t('cancel')}</Button>
-        <Button variant="dangerOutlined" size="m" disabled={busy} onClick={() => void run(async () => {
-          await restoreSafetySnapshot()
-          setRestoreOpen(false)
-        }, 'backupRestored')}>{t(running ? 'backupRestoring' : 'backupRestore')}</Button>
-      </>}>
-        <p className={styles.backupText}>{t('backupRestoreDescription', { date: date(safety.createdAt), count: safety.sessionCount })}</p>
-        {status?.error ? <p role="alert" className={styles.backupError}>{t(status.key, status.params)}</p> : null}
-      </Modal> : null}</ModalPresence>
-    </section>
-  )
-}
+const ExportHistory = DataSettings
 
 /** 自动生成仅提醒；打开设置后由用户选择保存位置，不主动唤起系统分享。 */
 export const BackupReminder = () => {

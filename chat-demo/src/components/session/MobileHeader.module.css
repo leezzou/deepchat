@@ -1,53 +1,74 @@
 .header {
   display: flex;
   align-items: center;
-  flex-shrink: 0;
+  flex: none;
   box-sizing: border-box;
-  /* 56dp 高；图标盒 24dp 左内边距 13dp、最右图标距屏 11.4dp（UI-SPEC §1.4） */
   height: 56px;
-  padding: 0 1px 0 3px;
+  gap: 4px;
+  padding-inline: 6px;
+  color: var(--dc-ink, var(--dsw-alias-label-primary));
 }
-
-/* 顶栏图标统一 24dp，描边 2dp */
-.header button svg {
+.menuWrap,
+.right {
+  display: flex;
+  flex: none;
+  align-items: center;
+}
+.menuWrap {
+  position: relative;
+}
+.menuWrap button,
+.right button {
+  width: 48px;
+  height: 48px;
+}
+.menuWrap svg,
+.right svg {
   width: 24px;
   height: 24px;
 }
-
-.menuWrap {
-  position: relative;
-  display: flex;
-  flex-shrink: 0;
+.right button[aria-pressed='true'] {
+  color: var(--dc-accent, var(--dsw-alias-brand-text));
 }
-
 .updateDot {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 8px;
-  height: 8px;
+  top: 8px;
+  right: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background-color: #ec1313;
+  background: var(--dsw-alias-state-error-primary);
   pointer-events: none;
 }
-
 .title {
+  display: flex;
+  align-items: center;
   flex: 1;
   min-width: 0;
-  margin-left: 10px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-size: 16px;
-  line-height: 22px;
-  font-weight: 600;
-  color: var(--dsw-alias-label-primary);
 }
-
-.right {
-  display: flex;
-  flex-shrink: 0;
+.title > button[data-stacked] {
+  flex-direction: row;
   align-items: center;
-  gap: 5px;
-  margin-left: auto;
+  gap: 4px;
+}
+.title :global(.conversation-mode-caption) > span {
+  display: none;
+}
+.title[data-home] {
+  position: relative;
+  justify-content: flex-end;
+}
+.title[data-home] > button {
+  width: 48px;
+  height: 48px;
+}
+.title[data-home] > button > * {
+  display: none;
+}
+.modeIcon {
+  position: absolute;
+  inset-inline-end: 13px;
+  width: 22px;
+  height: 22px;
+  pointer-events: none;
 }

@@ -35,7 +35,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .waitingDot { animation: none; }
+  .waitingDot {
+    animation: none;
+  }
 }
 
 @keyframes fading {
@@ -150,12 +152,12 @@
 }
 
 /*
- * 移动端（官方 App v2.8 §5）：助手消息无气泡，正文左右 22px / 20px 通栏，16px/1.6，
+ * 移动端（官方 App v2.8 §5）：助手消息无气泡，正文左右 20px 通栏，16px/1.6，
  * 段落间距 12px；长代码块与表格在通栏内横向滚动，不撑破视口。
  */
 @media not all and (min-width: 768px) {
   .message {
-    padding: 0 20px 0 22px;
+    padding: 0 var(--dc-gutter, 20px);
   }
 
   .message :global(.ds-assistant-message-main-content) {
@@ -174,7 +176,7 @@
     font-weight: 700;
   }
 
-  /* 文本缩进到 22 + 16 = 38px，圆点落在 ~24px 处 */
+  /* 文本缩进到 20 + 16 = 36px，圆点落在 ~24px 处 */
   .message :global(.ds-assistant-message-main-content) ul,
   .message :global(.ds-assistant-message-main-content) ol {
     margin: 12px 0;
@@ -263,14 +265,16 @@
 
   .bottom {
     left: 0;
-    gap: 4px 12px;
-    padding: 12px 0 16px;
+    gap: 0 8px;
+    margin-inline: -6px;
+    padding: 2px 0 12px;
   }
 
   .actions {
-    flex: 1;
+    flex: 1 1 100%;
     order: 1;
-    gap: 16px;
+    gap: 0;
+    flex-wrap: wrap;
     opacity: 1;
   }
 
@@ -286,7 +290,7 @@
 
   .message .bottom .continueButton {
     order: 3;
-    height: 32px;
+    min-height: 48px;
     min-width: 0;
     padding: 0 12px;
     border-color: transparent;

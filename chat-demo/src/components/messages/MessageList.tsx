@@ -16,9 +16,11 @@ import { isReplyForQuestion } from '../../services/chat/reply.js'
 import type { Session } from '../../services/chat/types.js'
 import { closeSearchPanel } from '../search/searchPanelState.js'
 import { Button } from '../base/Button.js'
+import { IconCheckOutline16 } from '../base/icons.js'
 import { Modal, ModalPresence } from '../base/Modal.js'
 import { AssistantMessage } from './AssistantMessage.js'
 import { UserMessage } from './UserMessage.js'
+import { useMessageTools } from './MessageTools.js'
 import { clearHistoryLocation, useHistorySearch } from '../historySearch/historySearchState.js'
 import { SearchHighlight } from '../historySearch/SearchHighlight.js'
 import { highlightMessageText, keepMessageAnchored } from '../historySearch/messageAnchor.js'
@@ -255,6 +257,7 @@ export const MessageList = ({
   const restoreScrollRef = useRef<{ messageId: string; top: number } | null>(null)
   const t = useTranslate()
   const messages = getVisibleMessages(session)
+  const tools = useMessageTools(session.id, messages)
   const [pendingDelete, setPendingDelete] = useState<Message | null>(null)
   useEffect(() => setPendingDelete(null), [session.id])
   const [previousVersions, setPreviousVersions] = useState(() =>
@@ -430,62 +433,90 @@ export const MessageList = ({
     <>
       <div ref={isMobile ? undefined : scrollRef} className={styles.container}>
         <div ref={isMobile ? scrollRef : undefined} className={styles.scroll}>
-          <div ref={contentRef} className={styles.column}>
+          <div ref={contentRef} className={styles.column} {...tools.handlers}>
             {messages.map((message, index) => (
               <div
                 key={message.id}
                 data-message-id={message.id}
                 tabIndex={-1}
+                data-selecting={tools.selecting || undefined}
+                data-selected={tools.selected?.has(message.id) || undefined}
                 className={located?.messageId === message.id ? styles.locatedMessage : undefined}
               >
-                {located?.messageId === message.id ? (
-                  <div className={styles.locationLabel} data-search-location-label>
-                    <div className={styles.locationHeading}>
-                      <span>{t('historySearchLocated')}</span>
-                      <button type="button" onClick={clearHistoryLocation}>
-                        {t('historySearchClearLocation')}
-                      </button>
-                    </div>
-                    <div>
-                      {located.snippet.before ? '…' : ''}
-                      <SearchHighlight text={located.snippet.text} query={located.query} />
-                      {located.snippet.after ? '…' : ''}
-                    </div>
-                  </div>
-                ) : null}
-                {message.role === 'user' ? (
-                  <UserMessage
-                    key={message.id}
-                    sessionId={session.id}
-                    message={message}
-                    retryUploadId={uploadRetryId}
-                    isFirst={index === 0}
-                    isLast={index === lastIndex || index === lastIndex - 1}
-                    busy={streaming}
-                    versions={versions.get(message.id) ?? EMPTY_VERSIONS}
-                    onSelectVersion={selectVersion}
-                    onDelete={setPendingDelete}
-                  />
-                ) : (
-                  <AssistantMessage
-                    key={message.id}
-                    sessionId={session.id}
-                    message={message}
-                    canRegenerate={canRegenerateAt(messages, index)}
-                    isLast={index === lastIndex}
-                    streaming={streaming && index === lastIndex}
-                    busy={streaming}
-                    versions={versions.get(message.id) ?? EMPTY_VERSIONS}
-                    onSelectVersion={selectVersion}
-                    onDelete={setPendingDelete}
-                  />
+                {tools.selecting && (
+                  <label className="dc-message-selector">
+                    <input
+                      type="checkbox"
+                      checked={tools.selected?.has(message.id) ?? false}
+                      aria-label={tools.label(index)}
+                      aria-describedby={`message-body-${message.id}`}
+                      onChange={() => tools.toggle(message.id)}
+                    />
+                    <span className="dc-selection-check" aria-hidden="true">
+                      <IconCheckOutline16 />
+                    </span>
+                  </label>
                 )}
+                <div
+                  className="dc-message-content"
+                  id={`message-body-${message.id}`}
+                  {...(tools.selecting ? { inert: '' } : {})}
+                >
+                  {located?.messageId === message.id ? (
+                    <div className={styles.locationLabel} data-search-location-label>
+                      <div className={styles.locationHeading}>
+                        <span>
+                          {t(located.query ? 'historySearchLocated' : 'libFavoriteReply')}
+                        </span>
+                        <button type="button" onClick={clearHistoryLocation}>
+                          {t('historySearchClearLocation')}
+                        </button>
+                      </div>
+                      <div>
+                        {located.snippet.before ? '…' : ''}
+                        <SearchHighlight text={located.snippet.text} query={located.query} />
+                        {located.snippet.after ? '…' : ''}
+                      </div>
+                    </div>
+                  ) : null}
+                  {message.role === 'user' ? (
+                    <UserMessage
+                      key={message.id}
+                      sessionId={session.id}
+                      message={message}
+                      retryUploadId={uploadRetryId}
+                      isFirst={index === 0}
+                      isLast={index === lastIndex || index === lastIndex - 1}
+                      busy={streaming}
+                      versions={versions.get(message.id) ?? EMPTY_VERSIONS}
+                      onSelectVersion={selectVersion}
+                      onDelete={setPendingDelete}
+                      onOpenMenu={tools.open}
+                    />
+                  ) : (
+                    <AssistantMessage
+                      key={message.id}
+                      sessionId={session.id}
+                      message={message}
+                      canRegenerate={canRegenerateAt(messages, index)}
+                      isLast={index === lastIndex}
+                      streaming={streaming && index === lastIndex}
+                      busy={streaming}
+                      versions={versions.get(message.id) ?? EMPTY_VERSIONS}
+                      onSelectVersion={selectVersion}
+                      onDelete={setPendingDelete}
+                      onOpenMenu={tools.open}
+                    />
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </div>
-        {footer}
+        <div style={{ display: tools.selecting ? 'none' : 'contents' }}>{footer}</div>
+        {tools.controls}
       </div>
+      {tools.dialogs}
       <ModalPresence>
         {pendingDelete ? (
           <DeleteMessageDialog

@@ -25,6 +25,9 @@ final class AccountWindow extends Dialog {
         Window window = getWindow();
         window.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        if ((activity.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE);
+        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
     }
 

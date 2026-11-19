@@ -17,6 +17,7 @@ import { toggleSearchPanel, useSearchPanel } from '../search/searchPanelState.js
 import { ReadAloudButton } from './ReadAloudButton.js'
 import { CopyButton } from './CopyButton.js'
 import { ShareButton } from './ShareButton.js'
+import { MoreMessageButton } from './MessageTools.js'
 import { ReplyArea } from './ReplyArea.js'
 import { useReplyView } from './useReplyView.js'
 import {
@@ -39,6 +40,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   versions,
   onSelectVersion,
   onDelete,
+  onOpenMenu,
 }: {
   sessionId: string
   message: AssistantMessageType
@@ -48,6 +50,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   canRegenerate: boolean
   versions: MessageVersions
   onSelectVersion: SelectMessageVersion
+  onOpenMenu: (id: string) => void
   onDelete: (message: AssistantMessageType) => void
 }) {
   const t = useTranslate()
@@ -149,14 +152,15 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
       ) : null}
       {streaming ? null : (
-        <div className={styles.bottom}>
+        <div className={styles.bottom} data-message-actions>
           <BranchSwitcher versions={versions} disabled={busy} onSelect={onSelectVersion} />
           <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
             {copyText ? <CopyButton text={copyText} /> : null}
             {responseText && !refused ? (
-              <ReadAloudButton messageId={message.id} text={responseText} />
+              <ReadAloudButton sessionId={sessionId} messageId={message.id} text={responseText} />
             ) : null}
             {responseText ? <ShareButton text={responseText} /> : null}
+            <MoreMessageButton id={message.id} onOpen={onOpenMenu} />
             <IconButton
               icon={<IconTrashOutline16 />}
               className={actionStyles.action}

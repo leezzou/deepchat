@@ -13,7 +13,7 @@ export const MobileSettingsHeader = ({ title, onBack }: { title: string; onBack:
       >
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
           <path
-            d="M14.5 5.5 8 12l6.5 6.5"
+            d="M20 12H4m7-7-7 7 7 7"
             stroke="currentColor"
             strokeWidth="1.8"
             strokeLinecap="round"

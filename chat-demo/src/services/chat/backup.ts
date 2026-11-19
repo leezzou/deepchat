@@ -2,8 +2,17 @@ import { formatDate } from '../../utils/format.js'
 import { createId } from '../../utils/id.js'
 import { saveBlob } from '../../shell/saveFile.js'
 import { MAX_ARCHIVE_BYTES } from './history/limits.js'
+import { parseSessionPath } from './history/paths.js'
 import { fail } from './history/errors.js'
 import { useBackupState } from '../backup/state.js'
+import {
+  capturePortableMetadata,
+  stagePortableMetadata,
+  validatePortableMetadata,
+  withMetadataRecovery,
+  type PortableMetadata,
+} from '../backup/portableMetadata.js'
+import { MAX_PORTABLE_BYTES, PortableError } from '../backup/portableCrypto.js'
 import {
   backupMetadata,
   readBackup,
@@ -20,8 +29,13 @@ import {
 import * as db from './db.js'
 import { replaceHistory, useChatStore } from './store.js'
 import type { Session } from './types.js'
-import { captureDrafts, restoreDrafts, useDrafts } from './drafts.js'
-import { compactionRecord, rebuildCompactionIndex, replaceCompactionIndex, type CompactionRecord } from './compactionIndex.js'
+import { captureDrafts, useDrafts } from './drafts.js'
+import {
+  compactionRecord,
+  rebuildCompactionIndex,
+  replaceCompactionIndex,
+  type CompactionRecord,
+} from './compactionIndex.js'
 
 export { BackupError } from './history/errors.js'
 export { useBackupState } from '../backup/state.js'
@@ -148,7 +162,10 @@ export const confirmBackupSaved = (id: string) =>
     })
   })
 
+const currentIds = () => useChatStore.getState().sessions.map((session) => session.id)
+
 async function* currentSnapshotParts(): AsyncGenerator<SnapshotPart> {
+  yield { metadata: capturePortableMetadata(currentIds()) }
   for (const draft of captureDrafts()) {
     yield { draft }
   }
@@ -211,64 +228,139 @@ export const importHistory = (
   onProgress?: (processed: number, total: number) => void,
   onStage?: (stage: HistoryImportStage) => void
 ): Promise<number> =>
-  enqueueBackup(async () => {
-    onStage?.('reading')
-    const { checkArchiveFormat, importArchive } = await import('./history/importArchive.js')
-    if (file.size > MAX_ARCHIVE_BYTES) fail('importTooLarge')
-    // The picker already supplies a seekable File. Keeping the original avoids a second
-    // archive-sized Chromium Blob allocation before the first conversation can be staged.
-    const directory = await checkArchiveFormat(file)
-    onStage?.('validating')
-    const compactions: CompactionRecord[] = []
-    const count = await replaceHistory(async () => {
-      await importArchive(file, directory, onProgress, (session) => {
-        const record = compactionRecord(session)
-        if (record) compactions.push(record)
+  enqueueBackup(() =>
+    withMetadataRecovery(async () => {
+      onStage?.('reading')
+      const { checkArchiveFormat, importArchive } = await import('./history/importArchive.js')
+      if (file.size > MAX_ARCHIVE_BYTES) {
+        fail('importTooLarge')
+      }
+      // The picker already supplies a seekable File. Keeping the original avoids a second
+      // archive-sized Chromium Blob allocation before the first conversation can be staged.
+      const directory = await checkArchiveFormat(file)
+      onStage?.('validating')
+      const compactions: CompactionRecord[] = []
+      const count = await replaceHistory(async () => {
+        await importArchive(file, directory, onProgress, (session) => {
+          const record = compactionRecord(session)
+          if (record) {
+            compactions.push(record)
+          }
+        })
+        onStage?.('snapshot')
+        await preserveCurrentHistory('before-import')
+        // Ordinary ZIPs carry no library bindings. Preserve the user's folders,
+        // memories and templates, discarding references to the replaced history.
+        await stagePortableMetadata(
+          capturePortableMetadata([]),
+          directory.entries.flatMap((entry) => {
+            const id = parseSessionPath(entry.path)
+            return id === null ? [] : [id]
+          }),
+          currentIds()
+        )
+        onStage?.('commit')
       })
-      onStage?.('snapshot')
-      await preserveCurrentHistory('before-import')
-      onStage?.('commit')
+      replaceCompactionIndex(compactions)
+      return count
     })
-    replaceCompactionIndex(compactions)
-    return count
-  })
+  )
 
 /** 清空前必须成功保留快照；API Key 和其他设置不在备份或替换范围内。 */
 export const clearHistory = (): Promise<void> =>
-  enqueueBackup(async () => {
-    await replaceHistoryAndIndex(() => preserveCurrentHistory('before-clear'))
-  })
+  enqueueBackup(() =>
+    withMetadataRecovery(async () => {
+      await replaceHistoryAndIndex(async () => {
+        await preserveCurrentHistory('before-clear')
+        await stagePortableMetadata(capturePortableMetadata([]), [], currentIds())
+      })
+    })
+  )
 
 /** 恢复前另存当前历史；恢复后安全快照指向恢复前的状态，可以撤回这次恢复。 */
 export const restoreSafetySnapshot = (): Promise<number> =>
+  enqueueBackup(() =>
+    withMetadataRecovery(async () => {
+      const target = await readSnapshotRecord()
+      if (!target) {
+        throw new Error('No safety snapshot is available')
+      }
+      try {
+        const drafts: ReturnType<typeof captureDrafts> = []
+        const targetIds: string[] = []
+        let targetMetadata: PortableMetadata | undefined
+        const count = await replaceHistoryAndIndex(async () => {
+          useBackupState.setState({ operation: 'restoring' })
+          for await (const part of readSnapshotParts(target)) {
+            if (part.metadata) {
+              targetMetadata = part.metadata
+            }
+            if (part.session) {
+              targetIds.push(part.session.id)
+              await db.addStagingSession(part.session)
+            }
+            if (part.draft) {
+              drafts.push(part.draft)
+            }
+            if (part.files?.length) {
+              await db.saveStagingFiles(part.files)
+            }
+          }
+          const validated = targetMetadata && validatePortableMetadata(targetMetadata, targetIds)
+          await preserveCurrentHistory('before-restore')
+          await stagePortableMetadata(
+            validated ?? capturePortableMetadata([]),
+            targetIds,
+            currentIds(),
+            drafts
+          )
+        })
+        return count
+      } finally {
+        useBackupState.setState({ operation: null })
+      }
+    })
+  )
+
+/** Portable backup reuses the v3 ZIP writer, enabling stable message IDs so favorites travel. */
+export const exportPortableHistory = () =>
   enqueueBackup(async () => {
-    const target = await readSnapshotRecord()
-    if (!target) {
-      throw new Error('No safety snapshot is available')
+    if (!useChatStore.getState().ready) {
+      throw new PortableError('local')
     }
-    try {
-      const drafts: ReturnType<typeof captureDrafts> = []
-      const count = await replaceHistoryAndIndex(async () => {
-        useBackupState.setState({ operation: 'restoring' })
-        for await (const part of readSnapshotParts(target)) {
-          if (part.session) {
-            await db.addStagingSession(part.session)
-          }
-          if (part.draft) {
-            drafts.push(part.draft)
-          }
-          if (part.files?.length) {
-            await db.saveStagingFiles(part.files)
-          }
-        }
-        await preserveCurrentHistory('before-restore')
-      })
-      await restoreDrafts(drafts)
-      return count
-    } finally {
-      useBackupState.setState({ operation: null })
-    }
+    const metadata = capturePortableMetadata(currentIds())
+    const { exportArchive } = await import('./history/exportArchive.js')
+    const zip = await exportArchive(readCurrentSessions(), db.loadFile, true)
+    return { zip, metadata }
   })
+
+export const restorePortableHistory = (file: File, value: unknown, stillOpen = () => true) =>
+  enqueueBackup(() =>
+    withMetadataRecovery(async () => {
+      const checkOpen = () => {
+        if (!stillOpen()) {
+          throw new DOMException('Cancelled', 'AbortError')
+        }
+      }
+      checkOpen()
+      const { checkArchiveFormat, importArchive } = await import('./history/importArchive.js')
+      const directory = await checkArchiveFormat(file)
+      if (directory.entries.reduce((total, entry) => total + entry.size, 0) > MAX_PORTABLE_BYTES) {
+        throw new PortableError('large')
+      }
+      const ids: string[] = []
+      checkOpen()
+      return replaceHistoryAndIndex(async () => {
+        await importArchive(file, directory, checkOpen, (session) => ids.push(session.id))
+        const metadata = validatePortableMetadata(value, ids)
+        checkOpen()
+        await preserveCurrentHistory('before-restore')
+        checkOpen()
+        await stagePortableMetadata(metadata, ids, currentIds())
+        checkOpen()
+      })
+    })
+  )
 
 export const saveSafetySnapshot = () =>
   enqueueBackup(async () => {

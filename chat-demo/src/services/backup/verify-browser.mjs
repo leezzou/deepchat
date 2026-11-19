@@ -17,6 +17,7 @@ const modules = {
   settings: 'services/settings.ts', archive: 'services/chat/history/exportArchive.ts',
   toArchive: 'services/chat/history/toArchive.ts', toLocal: 'services/chat/history/toLocal.ts',
   schema: 'services/chat/history/schema.ts', zip: 'services/chat/history/zipWriter.ts',
+  ...(process.argv.includes('--portable') && { crypto: 'services/backup/portableCrypto.ts', dav: 'services/backup/webDav.ts', metadata: 'services/backup/portableMetadata.ts', library: 'services/library/index.ts', modes: 'services/conversationMode/storage.ts' }),
 }
 await writeFile(entry, Object.entries(modules).map(([name, file]) =>
   `import * as ${name} from ${JSON.stringify(path.join(root, 'src', file))}`
@@ -38,6 +39,9 @@ const browser = await chromium.launch({ headless: true, executablePath: process.
   args: snapshotScale ? ['--js-flags=--max-old-space-size=96'] : [],
 })
 try {
+  if (process.argv.includes('--portable')) {
+    await (await import('./verify-portable.mjs')).verifyPortable(browser,temporary)
+  } else {
   const page = await browser.newPage()
   const pageErrors = []
   if (snapshotScale) {page.on('console', (message) => process.stderr.write(`${message.text()}\n`))}
@@ -156,6 +160,7 @@ try {
   })
   assert.equal(pageErrors.length, 0, pageErrors.join('\n'))
   process.stdout.write(JSON.stringify({ passed: results.length, checks: results, temporary }, null, 2) + '\n')
+  }
 } finally {
   await browser.close()
 }

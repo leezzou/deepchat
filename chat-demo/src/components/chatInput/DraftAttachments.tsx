@@ -1,7 +1,14 @@
 import clsx from 'clsx'
 import { memo } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { useUploads, type UploadTask } from '../../services/attachments.js'
+import { useIsMobile } from '../../app/viewport.js'
+import { FileIcon } from '../files/FileIcon.js'
+import {
+  formatSize,
+  getExtension,
+  useUploads,
+  type UploadTask,
+} from '../../services/attachments.js'
 import type { DraftAttachment } from '../../services/chat/drafts.js'
 import { IconCloseFill14, IconRefreshOutline16 } from '../base/icons.js'
 import { Tooltip } from '../base/Tooltip.js'
@@ -48,8 +55,9 @@ const AttachmentItem = ({
   onRemove: () => void
 }) => {
   const t = useTranslate()
+  const mobile = useIsMobile()
   const task = useUploads((state) => state.tasks[item.id] ?? UPLOADING)
-  const status = task.status
+  const status = item.localOnly ? 'done' : task.status
   const error = task.status === 'error' ? t(task.error.key, task.error.params) : undefined
   // 过大、格式不支持等重试无效的失败只提示原因，需删除后再发送
   const retry = task.status === 'error' && task.retryable ? onRetry : undefined
@@ -57,6 +65,37 @@ const AttachmentItem = ({
   const retryLabel = t('uploadRetry', { message: error ?? t('uploadFileStatusFailed') })
   // 「上传失败」只显示重试图标，其余原因写在图片上：可重试时在图标下方，不可重试时贴底
   const showReason = failed && error !== undefined && error !== t('uploadFileStatusFailed')
+  if (mobile) {
+    return (
+      <div className={styles.mobileFile} data-failed={failed || undefined}>
+        <span className={styles.mobileThumb}>
+          {item.previewUrl ? (
+            <img src={item.previewUrl} alt={item.file.name} />
+          ) : (
+            <FileIcon ext={getExtension(item.file.name)} />
+          )}
+        </span>
+        <span className={styles.mobileFileMeta}>
+          <strong title={item.file.name}>{item.file.name}</strong>
+          <small role="status" title={error}>
+            {failed
+              ? (error ?? t('uploadFileStatusFailed'))
+              : status === 'uploading'
+                ? t('uploadFileStatusUploading')
+                : formatSize(item.file.size)}
+          </small>
+        </span>
+        {retry && (
+          <button type="button" aria-label={retryLabel} onClick={retry}>
+            <IconRefreshOutline16 />
+          </button>
+        )}
+        <button type="button" aria-label={`${t('delete')} ${item.file.name}`} onClick={onRemove}>
+          <IconCloseFill14 />
+        </button>
+      </div>
+    )
+  }
   return item.previewUrl ? (
     <div
       className={clsx(styles.attachment, failed && styles.attachmentFailed)}

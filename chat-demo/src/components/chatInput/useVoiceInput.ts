@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TranslationMessage } from '../../i18n/index.js'
 import { transcribe } from '../../services/api/speech.js'
 import { startRecording, type Recording } from '../../services/speech/recorder.js'
-import { requireChatAccess } from '../../services/api/access.js'
+import { requireChatAccess, type ChatAccess } from '../../services/api/access.js'
 import { showToast } from '../base/toastState.js'
 
 export type VoiceInputStatus = 'idle' | 'recording' | 'transcribing'
@@ -29,10 +29,11 @@ const describeRecordingError = (error: unknown): TranslationMessage => {
  * 语音输入（oneshot）：点击开始录音，再次点击结束并转写，结果交给 onText 填入输入框。
  * 转写中再次点击取消。录满 120 秒自动结束。
  */
-export const useVoiceInput = (onText: (text: string) => void) => {
+export const useVoiceInput = (sessionId: string | null, onText: (text: string) => void) => {
   const [status, setStatus] = useState<VoiceInputStatus>('idle')
   /** 本次录音已录秒数，只在录音中递增 */
   const [seconds, setSeconds] = useState(0)
+  const sourceRef = useRef<ChatAccess | null>(null)
   const recordingRef = useRef<Recording | null>(null)
   const controllerRef = useRef<AbortController | null>(null)
   const operationRef = useRef(0)
@@ -75,7 +76,11 @@ export const useVoiceInput = (onText: (text: string) => void) => {
       controller = new AbortController()
       controllerRef.current = controller
       setStatus('transcribing')
-      const text = await transcribe(requireChatAccess(), audio, controller.signal)
+      const access = sourceRef.current
+      if (!access || JSON.stringify(access) !== JSON.stringify(requireChatAccess(sessionId))) {
+        throw new Error('录音期间模型方案已更改')
+      }
+      const text = await transcribe(access, audio, controller.signal)
       if (controller.signal.aborted || operationRef.current !== operation) {
         return
       }
@@ -94,7 +99,7 @@ export const useVoiceInput = (onText: (text: string) => void) => {
         setStatus('idle')
       }
     }
-  }, [cancel])
+  }, [cancel, sessionId])
 
   const toggle = useCallback(async () => {
     if (!AVAILABLE) {
@@ -111,6 +116,7 @@ export const useVoiceInput = (onText: (text: string) => void) => {
     const operation = ++operationRef.current
     setStatus('recording')
     try {
+      sourceRef.current = requireChatAccess(sessionId)
       const recording = await startRecording(() => {
         if (operationRef.current === operation) {
           showToast({ key: 'voiceInputLimitReached' })
@@ -128,7 +134,7 @@ export const useVoiceInput = (onText: (text: string) => void) => {
         showToast(describeRecordingError(error))
       }
     }
-  }, [status, finish, cancel])
+  }, [status, finish, cancel, sessionId])
 
   useEffect(() => {
     if (status !== 'recording') {

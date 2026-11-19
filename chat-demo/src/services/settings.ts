@@ -1,5 +1,14 @@
 import { create } from 'zustand'
 import { hasAccountBridge } from '../shell/account.js'
+import { androidShell, nativeProfileVault, securityState } from './security/bridge.js'
+import {
+  decodeLegacy,
+  LEGACY_KEY,
+  LEGACY_LIST,
+  migrateProfiles,
+  persistProfiles,
+  type ProfileVault,
+} from './security/profiles.js'
 import {
   defaultApiOrigin,
   defaultApiModel,
@@ -47,6 +56,7 @@ type Settings = {
   /** 当前启用配置的接口地址 */
   apiOrigin: string
   apiProfiles: ApiProfile[]
+  credentialStatus: 'loading' | 'ready' | 'unavailable'
   activeProfileId: string | null
   locale: LocalePreference
   themePreference: ThemePreference
@@ -68,8 +78,6 @@ export type ChatSource = 'account' | 'api'
 
 const KEYS = {
   chatSource: 'chat-demo:chat-source',
-  apiKey: 'chat-demo:api-key',
-  apiProfiles: 'chat-demo:api-profiles',
   activeProfileId: 'chat-demo:active-profile',
   locale: 'chat-demo:locale',
   location: 'chat-demo:location',
@@ -139,52 +147,16 @@ const newProfileId = () =>
     ? crypto.randomUUID()
     : `p${Date.now().toString(36)}`
 
-/** 读取已保存的多条配置；没有时把旧版的单 Key 迁移成一条 */
+/** Android decodes legacy credentials only after the native gate has opened. */
 const initialApiProfiles = (): ApiProfile[] => {
-  try {
-    const saved: unknown = JSON.parse(read(KEYS.apiProfiles) ?? 'null')
-    if (Array.isArray(saved)) {
-      return saved.flatMap((item) => {
-        if (typeof item !== 'object' || item === null) {
-          return []
-        }
-        const raw = item as Partial<Record<keyof ApiProfile, unknown>>
-        const apiKey = typeof raw.apiKey === 'string' ? raw.apiKey : ''
-        if (!apiKey) {
-          return []
-        }
-        return [
-          {
-            id: typeof raw.id === 'string' && raw.id ? raw.id : newProfileId(),
-            name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'DeepSeek',
-            protocol: raw.protocol === 'openai' ? 'openai' : 'deepseek',
-            origin: normalizeOrigin(typeof raw.origin === 'string' ? raw.origin : ''),
-            model: typeof raw.model === 'string' ? raw.model.trim() : '',
-            contextWindow:
-              typeof raw.contextWindow === 'number' && raw.contextWindow > 0
-                ? raw.contextWindow
-                : undefined,
-            apiKey,
-          },
-        ]
-      })
-    }
-  } catch {
-    // 解析失败按未保存处理
+  if (androidShell) {
+    return []
   }
-  const legacy = read(KEYS.apiKey)
-  return legacy
-    ? [
-        {
-          id: 'default',
-          name: 'DeepSeek',
-          protocol: 'deepseek',
-          origin: defaultApiOrigin,
-          model: '',
-          apiKey: legacy,
-        },
-      ]
-    : []
+  try {
+    return decodeLegacy(read(LEGACY_LIST), read(LEGACY_KEY))
+  } catch {
+    return []
+  }
 }
 
 const initialActiveProfileId = (profiles: ApiProfile[]): string | null => {
@@ -212,8 +184,10 @@ setApiConfig({
 })
 
 const savedSource = read(KEYS.chatSource)
-const initialSource: ChatSource = hasAccountBridge &&
-  (savedSource === 'account' || (!initialActive && savedSource !== 'api')) ? 'account' : 'api'
+const initialSource: ChatSource =
+  hasAccountBridge && (savedSource === 'account' || (!initialActive && savedSource !== 'api'))
+    ? 'account'
+    : 'api'
 
 export const useSettings = create<Settings>(() => ({
   accountSignedIn: false,
@@ -223,6 +197,7 @@ export const useSettings = create<Settings>(() => ({
   apiKey: initialActive?.apiKey ?? null,
   apiOrigin: initialActive?.origin ?? defaultApiOrigin,
   apiProfiles: initialProfiles,
+  credentialStatus: 'loading',
   activeProfileId: initialActive?.id ?? null,
   locale: initialLocale(),
   location: initialLocation(),
@@ -265,18 +240,13 @@ export const setTtsVoice = (ttsVoice: TtsVoice) => {
   useSettings.setState({ ttsVoice })
 }
 
-/** 把配置列表与当前启用项一起落盘，并同步给接口层 */
 const applyProfiles = (apiProfiles: ApiProfile[], activeProfileId: string | null) => {
   const active = apiProfiles.find((profile) => profile.id === activeProfileId) ?? null
   setApiConfig({
-    origin: active?.origin,
-    protocol: active?.protocol,
+    origin: active?.origin ?? defaultApiOrigin,
+    protocol: active?.protocol ?? 'deepseek',
     model: active?.model,
   })
-  write(KEYS.apiProfiles, JSON.stringify(apiProfiles))
-  write(KEYS.activeProfileId, active?.id ?? null)
-  // 兼容旧字段，回退到单 Key 版本时不丢配置
-  write(KEYS.apiKey, active?.apiKey ?? null)
   useSettings.setState({
     apiProfiles,
     activeProfileId: active?.id ?? null,
@@ -285,44 +255,109 @@ const applyProfiles = (apiProfiles: ApiProfile[], activeProfileId: string | null
   })
 }
 
-/** 新增或更新一条配置；新配置自动启用 */
-export const saveApiProfile = (profile: ApiProfile) => {
-  const { apiProfiles } = useSettings.getState()
-  const normalized: ApiProfile = {
-    ...profile,
-    name: profile.name.trim() || 'DeepSeek',
-    origin: normalizeOrigin(profile.origin),
-    model: profile.model.trim(),
-    contextWindow:
-      profile.contextWindow && profile.contextWindow > 0 ? profile.contextWindow : undefined,
-    apiKey: profile.apiKey.trim(),
+let vault: ProfileVault | null = null
+let queue: Promise<void> = Promise.resolve()
+function serial<T>(work: () => Promise<T>) {
+  const next = queue.then(work)
+  queue = next.then(
+    () => {},
+    () => {}
+  )
+  return next
+}
+
+export const initializeCredentials = () =>
+  serial(async () => {
+    useSettings.setState({ credentialStatus: 'loading' })
+    try {
+      if (androidShell && (!securityState().vault || !securityState().unlocked)) {
+        throw new Error('unavailable')
+      }
+      if (!androidShell && !globalThis.crypto?.subtle) {
+        throw new Error('unavailable')
+      }
+      const store = androidShell
+        ? nativeProfileVault
+        : (await import('./security/browserVault.js')).browserProfileVault
+      const profiles = await migrateProfiles(store, localStorage)
+      applyProfiles(profiles, initialActiveProfileId(profiles))
+      if (hasAccountBridge && !read(KEYS.chatSource)) {
+        useSettings.setState({ chatSource: profiles.length ? 'api' : 'account' })
+      }
+      vault = store
+      useSettings.setState({ credentialStatus: 'ready' })
+    } catch {
+      vault = null
+      applyProfiles([], null)
+      useSettings.setState({ credentialStatus: 'unavailable' })
+      // Preserve the original data and allow access to history without exposing unverified profiles.
+      throw new Error('无法读取安全存储。请解锁设备、检查剩余空间或更新 WebView 后重试。')
+    }
+  })
+
+async function commitProfiles(profiles: ApiProfile[], activeId: string | null) {
+  if (!vault || (androidShell && !securityState().unlocked)) {
+    throw new Error('安全存储暂不可用，请在安全设置中重试。')
   }
-  const exists = apiProfiles.some((item) => item.id === normalized.id)
-  const next = exists
-    ? apiProfiles.map((item) => (item.id === normalized.id ? normalized : item))
-    : [...apiProfiles, normalized]
-  // 「保存并启用」：无论新增还是编辑，保存后都切到这条配置
-  applyProfiles(next, normalized.id)
-  if (hasAccountBridge) setChatSource('api')
+  try {
+    await persistProfiles(vault, profiles)
+  } catch {
+    vault = null
+    useSettings.setState({ credentialStatus: 'unavailable' })
+    throw new Error('未能确认安全存储中的新配置，请在安全设置中重试。')
+  }
+  write(KEYS.activeProfileId, activeId)
+  applyProfiles(profiles, activeId)
 }
 
-/** 删除一条配置；删掉当前启用的那条时自动切到第一条 */
-export const removeApiProfile = (id: string) => {
-  const { apiProfiles, activeProfileId } = useSettings.getState()
-  const next = apiProfiles.filter((profile) => profile.id !== id)
-  applyProfiles(next, activeProfileId === id ? (next[0]?.id ?? null) : activeProfileId)
+export const saveApiProfile = (profile: ApiProfile) =>
+  serial(async () => {
+    const { apiProfiles } = useSettings.getState()
+    const normalized: ApiProfile = {
+      ...profile,
+      name: profile.name.trim() || 'DeepSeek',
+      origin: normalizeOrigin(profile.origin),
+      model: profile.model.trim(),
+      contextWindow:
+        profile.contextWindow && profile.contextWindow > 0 ? profile.contextWindow : undefined,
+      apiKey: profile.apiKey.trim(),
+    }
+    if (!normalized.apiKey) {
+      throw new Error('请输入 API Key。')
+    }
+    const exists = apiProfiles.some((item) => item.id === normalized.id)
+    await commitProfiles(
+      exists
+        ? apiProfiles.map((item) => (item.id === normalized.id ? normalized : item))
+        : [...apiProfiles, normalized],
+      normalized.id
+    )
+    if (hasAccountBridge) {
+      setChatSource('api')
+    }
+  })
+
+export const removeApiProfile = (id: string) =>
+  serial(async () => {
+    const { apiProfiles, activeProfileId } = useSettings.getState()
+    const next = apiProfiles.filter((profile) => profile.id !== id)
+    await commitProfiles(next, activeProfileId === id ? (next[0]?.id ?? null) : activeProfileId)
+  })
+
+/** Selection writes an identifier only. Account and API credentials have independent lifetimes. */
+export const selectApiProfile = async (id: string) => {
+  const { apiProfiles } = useSettings.getState()
+  if (!apiProfiles.some((profile) => profile.id === id)) {
+    throw new Error('找不到此配置。')
+  }
+  write(KEYS.activeProfileId, id)
+  applyProfiles(apiProfiles, id)
+  if (hasAccountBridge) {
+    setChatSource('api')
+  }
 }
 
-/** 切换当前启用的配置 */
-export const selectApiProfile = (id: string) => {
-  applyProfiles(useSettings.getState().apiProfiles, id)
-  if (hasAccountBridge) setChatSource('api')
-}
-
-/** 退出登录：清空全部 API 配置（对话记录保留） */
-export const clearApiProfiles = () => {
-  applyProfiles([], null)
-}
+export const clearApiProfiles = () => serial(() => commitProfiles([], null))
 
 /** 生成一条空白配置 */
 export const createApiProfile = (): ApiProfile => ({
@@ -335,16 +370,16 @@ export const createApiProfile = (): ApiProfile => ({
 })
 
 /** 兼容旧调用：写入当前配置的 Key，没有配置时新建一条 */
-export const setApiKey = (apiKey: string | null) => {
+export const setApiKey = async (apiKey: string | null) => {
   const { apiProfiles, activeProfileId } = useSettings.getState()
   if (!apiKey) {
     if (activeProfileId) {
-      removeApiProfile(activeProfileId)
+      await removeApiProfile(activeProfileId)
     }
     return
   }
   const active = apiProfiles.find((profile) => profile.id === activeProfileId)
-  saveApiProfile(active ? { ...active, apiKey } : { ...createApiProfile(), apiKey })
+  await saveApiProfile(active ? { ...active, apiKey } : { ...createApiProfile(), apiKey })
 }
 
 export const setThinking = (thinking: boolean) => {

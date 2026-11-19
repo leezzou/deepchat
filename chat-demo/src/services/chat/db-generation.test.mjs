@@ -153,6 +153,7 @@ try {
   })
   await second.evaluate(async () => {
     await db.clearStaging()
+    db.setStagingRestoreId('restore-on-second-page')
     await db.addStagingSessions([session('a', 'shared'), session('b', 'shared')])
     await db.saveStagingFiles([{ id: 'shared', blob: new Blob(['shared bytes']) }])
     await db.updateStagingFileTypes(new Map([['shared', 'text/plain']]))
@@ -190,6 +191,7 @@ try {
     }
   })
   assert.deepEqual(committed, { ids: ['a', 'b'], injected: true })
+  assert.equal(await first.evaluate(() => db.readLastRestoreId()), 'restore-on-second-page')
   assert.deepEqual(await first.evaluate(() => physical()), {
     active: 1,
     live: [2, 2, 1],
@@ -231,6 +233,7 @@ try {
     /ConstraintError/
   )
   assert.deepEqual(await first.evaluate(() => db.commitStaging()), [])
+  assert.equal(await second.evaluate(() => db.readLastRestoreId()), undefined)
   assert.deepEqual(await second.evaluate(() => physical()), {
     active: 0,
     live: [0, 0, 0],

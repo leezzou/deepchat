@@ -1,9 +1,7 @@
 import { streamMessage } from '../api/client.js'
-import { getApiConfig } from '../api/origin.js'
-import { getChatAccess } from '../api/access.js'
+import { getChatAccess, getConversationRoute } from '../api/access.js'
 import type { CreateMessageRequest, MessageParam } from '../api/types.js'
 import { usesDeepSeekFileLimits } from '../attachmentLimits.js'
-import { useSettings } from '../settings.js'
 import { getContextRounds, getEffectiveContext, getReplyText, toRequestMessages } from './reply.js'
 import { applyCompaction, useChatStore } from './store.js'
 import { getVisibleMessages } from './branches.js'
@@ -84,17 +82,8 @@ const CHECKPOINT_PREAMBLE =
 export { estimateTokens } from './contextBudget.js'
 
 /** 当前选中 API 配置的窗口优先；不把默认 DeepSeek 窗口套到其他模型。 */
-export const contextWindowTokens = (): number => {
-  const state = useSettings.getState()
-  if (state.chatSource === 'account') {
-    return 1_000_000
-  }
-  const active = state.apiProfiles.find((profile) => profile.id === state.activeProfileId)
-  if (active?.contextWindow && Number.isFinite(active.contextWindow) && active.contextWindow > 0) {
-    return active.contextWindow
-  }
-  return getApiConfig().protocol === 'deepseek' ? 1_000_000 : 128_000
-}
+export const contextWindowTokens = (sessionId?: string | null): number =>
+  getConversationRoute(sessionId).contextWindow
 
 export const sessionContext = (session: Session, history = getVisibleMessages(session)) =>
   getEffectiveContext(
@@ -146,14 +135,14 @@ export const sessionContextTokens = (
 }
 
 export const contextPressure = (session: Session): number =>
-  sessionContextTokens(session) / contextWindowTokens()
+  sessionContextTokens(session) / contextWindowTokens(session.id)
 
 export const shouldWarnContext = (session: Session): boolean =>
   contextPressure(session) >= THRESHOLD_RATIO
 
-const summaryRequest = (messages: MessageParam[]): CreateMessageRequest => ({
-  model: 'deepseek-flash',
-  system: '该助手为DeepSeek，由深度求索公司创造。',
+const summaryRequest = (messages: MessageParam[], sessionId: string): CreateMessageRequest => ({
+  model: getConversationRoute(sessionId).nativeModel,
+  system: 'Summarize the selected conversation using the final checkpoint instructions.',
   messages,
   thinking: { type: 'disabled' },
   tools: [],
@@ -170,8 +159,8 @@ export type CompactOptions = {
   automatic?: boolean
 }
 
-const profileSignature = () =>
-  JSON.stringify([getChatAccess(), useSettings.getState().activeProfileId, contextWindowTokens()])
+const profileSignature = (sessionId: string) =>
+  JSON.stringify([getChatAccess(sessionId), contextWindowTokens(sessionId)])
 
 /** 单轮超过窗口时逐段摘要所有文字；不截掉原文尾部，附件仍按原 file_id 传入。 */
 const roundFragments = (
@@ -219,7 +208,7 @@ export const compactSession = async (
   sessionId: string,
   options: CompactOptions = {}
 ): Promise<CompactResult> => {
-  const access = getChatAccess()
+  const access = getChatAccess(sessionId)
   const store = useChatStore.getState()
   const session = store.sessionCache[sessionId]
   const failure = (message: string): CompactResult => ({ ok: false, message })
@@ -250,20 +239,20 @@ export const compactSession = async (
   useChatStore.setState((current) => ({
     compacting: { ...current.compacting, [sessionId]: controller },
   }))
-  const signature = profileSignature()
+  const signature = profileSignature(sessionId)
   const unchanged = () => {
     controller.signal.throwIfAborted()
     const current = useChatStore.getState()
     if (
       current.importingHistory ||
       current.sessionCache[sessionId] !== session ||
-      profileSignature() !== signature
+      profileSignature(sessionId) !== signature
     ) {
       throw new Error(translate('contextSummaryChanged'))
     }
   }
   try {
-    const window = contextWindowTokens()
+    const window = contextWindowTokens(sessionId)
     const files = indexRequestFiles(history)
     const roundCost = (round: (typeof rounds)[number]) => {
       const placeholder = { ...round[0], content: '', files: [] }
@@ -316,7 +305,7 @@ export const compactSession = async (
       let stopReason: string | undefined
       for await (const event of streamMessage(
         access,
-        summaryRequest(messages),
+        summaryRequest(messages, sessionId),
         controller.signal
       )) {
         controller.signal.throwIfAborted()

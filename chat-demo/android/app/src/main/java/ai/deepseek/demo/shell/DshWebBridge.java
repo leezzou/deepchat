@@ -13,7 +13,7 @@ final class DshWebBridge {
     private final DshAccountHost host;
     private final DshMessagesTransport transport;
     private JavaScriptReplyProxy page;
-    interface AccountOpener { void show(boolean fromUsage); }
+    interface AccountOpener { void show(boolean fromUsage, boolean confirmLogout); }
     DshWebBridge(WebView web, DshAccountHost host, AccountOpener openAccount) {
         this.web = web;
         this.host = host;
@@ -21,7 +21,7 @@ final class DshWebBridge {
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return;
         WebViewCompat.addWebMessageListener(web, "DshNative", Collections.singleton("https://localhost"),
                 (view, message, origin, mainFrame, reply) -> {
-                    if (!mainFrame || !"https://localhost".equals(origin.toString())
+                    if (!SecurityPlugin.isPackagedPage(view, origin, mainFrame) || !SecurityPlugin.isUnlocked()
                             || message.getType() != androidx.webkit.WebMessageCompat.TYPE_STRING) return;
                     String text = message.getData();
                     // The largest inline body is ASR (8 MiB + MIME). Upload chunks are 128 KiB of base64.
@@ -32,7 +32,8 @@ final class DshWebBridge {
                         page = reply;
                         switch (request.getString("op")) {
                             case "status": changed(); return;
-                            case "account": openAccount.show(Boolean.TRUE.equals(request.opt("fromUsage"))); return;
+                            case "account": openAccount.show(Boolean.TRUE.equals(request.opt("fromUsage")), false); return;
+                            case "confirmAccountLogout": openAccount.show(false, true); return;
                         }
                         id = request.getString("id");
                         if (!id.matches("[a-zA-Z0-9-]{1,64}")) return;
@@ -57,7 +58,7 @@ final class DshWebBridge {
                 });
     }
     void changed() {
-        if (page == null) return;
+        if (page == null || !SecurityPlugin.isUnlocked()) return;
         try {
             JSONObject status = host.status();
             status.put("type", "account");

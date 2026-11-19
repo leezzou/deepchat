@@ -212,18 +212,6 @@
   max-height: 336px;
 }
 
-/* ---------- 移动端覆盖（必须在本文件最后，才能盖住上面的桌面规则） ---------- */
-
-/*
-  移动端输入卡片照抄官方 App（UI-SPEC §4 / §1）：
-  24dp 圆角、1px #F0F0F0（深色 #333333）发丝线、白底（深色 #242424）、极淡外阴影；
-  行 1 文本左内边距 15dp；行 2 距卡片底 12dp、左右 12dp，左 chip 右 ⊕ + 语音/发送。
-*/
-
-
-/* 深色：卡片 #242424 / 描边 #333333，chip 描边 #474849、激活底 #283142、字 #6392F2 */
-
-
 .functionRow {
   display: flex;
   align-items: center;
@@ -320,134 +308,183 @@
   }
 }
 
-/* ---------- 移动端覆盖（放在最后，才能盖住上面的桌面规则） ---------- */
-
-@media not all and (min-width: 768px) {
+@media (max-width: 767px) {
   .wrapper {
-    flex-shrink: 0;
-    max-height: calc(var(--app-viewport-height, var(--full-viewport-height)) - 120px);
+    flex: none;
+    max-height: calc(var(--app-viewport-height, var(--full-viewport-height)) - 80px);
     border-radius: 24px;
-    border-color: #f0f0f0;
-    background: #ffffff;
-    box-shadow:
-      0 2px 12px rgba(0, 0, 0, 0.03),
-      0 0 1px rgba(0, 0, 0, 0.08);
+    border-color: var(--dc-line, var(--dsw-alias-border-l2));
+    background: var(--dc-surface, var(--dsw-specific-input-major));
+    box-shadow: 0 2px 8px rgb(16 26 45 / 5%);
   }
-
+  .wrapper:focus-within {
+    border-color: var(--dsw-alias-border-l2-darkmode-thick, var(--dc-secondary));
+  }
   .textareaWrapper {
     min-height: 0;
   }
-
   .attachments,
   .functionRow {
-    flex-shrink: 0;
+    flex: none;
   }
-
-  /* 行 1：单行正文，左内 15dp、16sp、占位 #B9BABB */
   .textarea,
   .mirror {
-    padding: 17px 15px 0;
-    min-height: calc(var(--line-height) + 17px);
+    padding: 12px 15px 2px;
+    min-height: 42px;
   }
-
-  .textarea {
-    font-size: 16px;
-
-    &::placeholder {
-      color: #b9babb;
-    }
+  .mirror {
+    max-height: min(132px, calc(var(--app-viewport-height, var(--full-viewport-height)) * 0.25));
   }
-
-  /* 行 2：chip 与右侧图标同一条基线，距卡片底 12dp */
+  .textarea::placeholder {
+    color: var(--dc-secondary, var(--dsw-alias-label-secondary));
+  }
   .functionRow {
-    gap: 8px;
+    gap: 2px;
     margin-top: 0;
-    padding: 18px 12px 12px;
+    padding: 0 4px 3px 12px;
   }
-
   .toggles {
-    gap: 10px;
+    gap: 6px;
   }
-
-  /* chip：高 29dp、全圆角、内边距 12dp、16dp 图标 + 6dp + 13sp/500 */
   .toggle {
+    box-sizing: border-box;
+    min-width: 48px;
+    height: 48px;
+    position: relative;
+    isolation: isolate;
     gap: 5px;
-    height: 29px;
-    padding: 0 11px;
+    padding-inline: 10px;
+    border: 0;
     border-radius: 999px;
-    border-color: #ededed;
-    background-color: #ffffff;
-    color: #4b4b4b;
+    background: transparent;
+    color: var(--dc-secondary, var(--dsw-alias-label-secondary));
     font-size: 13px;
-    line-height: 20px;
-    font-weight: 500;
-
-    svg {
-      width: 16px;
-      height: 16px;
-    }
-
-    &.selected {
-      border-color: transparent;
-      background-color: #edf3fe;
-      color: #426efe;
-
-      &:hover {
-        background-color: #edf3fe;
-      }
-    }
   }
-
-  /* 右侧两个图标：24dp 视觉、29dp 盒，间距 13dp（实测 ⊕ 中心 329dp、语音 372dp） */
+  .toggle::before {
+    position: absolute;
+    inset: 9px 0;
+    z-index: -1;
+    border: 1px solid var(--dc-line, var(--dsw-alias-border-l2));
+    border-radius: 999px;
+    content: '';
+  }
+  .toggle.selected::before {
+    border-color: transparent;
+    background: var(--dc-accent-soft, var(--dsw-alias-button-ghost-active-fill));
+  }
+  .toggle svg {
+    width: 16px;
+    height: 16px;
+  }
+  .toggle.selected,
+  .toggle.selected:hover {
+    border-color: transparent;
+    background: transparent;
+    color: var(--dc-accent, var(--dsw-alias-brand-text));
+  }
   .right {
-    gap: 13px;
-
-    button {
-      width: 29px;
-      height: 29px;
-    }
+    gap: 0;
   }
-
-  /* 发送：28-32dp 蓝色实心圆 + 白色 ↑ */
-  .sendButton {
-    width: 29px;
-    height: 29px;
+  .right button {
+    box-sizing: border-box;
+    width: 48px;
+    height: 48px;
+  }
+  .right button > svg {
+    width: 24px;
+    height: 24px;
+  }
+  .sendButton,
+  .sendButton:not(.disabled):hover {
     margin-left: 0;
-    background: #426efe;
-
-    svg {
-      width: 24px;
-      height: 24px;
-    }
-
-    &:not(.disabled):hover {
-      background: #426efe;
-    }
+    border: 8px solid transparent;
+    background: var(--dsw-alias-button-primary-fill) padding-box;
   }
-}
-
-@media not all and (min-width: 768px) {
-  [data-ds-dark-theme] {
-    & .wrapper {
-      border-color: #333333;
-      background: #242424;
-      box-shadow: none;
+  .toggle:focus-visible,
+  .sendButton:focus-visible,
+  .mobileFile button:focus-visible {
+    outline: 2px solid var(--dc-accent, var(--dsw-alias-brand-text));
+    outline-offset: -3px;
+  }
+  .attachments {
+    align-items: center;
+    gap: 6px;
+    padding: 8px 8px 0;
+    scroll-padding-inline: 8px;
+  }
+  .mobileFile {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-inline: 5px 0;
+    border-radius: 15px;
+    background: var(--dc-subtle, var(--dsw-alias-bg-layer-1));
+  }
+  .mobileThumb {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .mobileThumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .mobileFileMeta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    max-width: 36vw;
+  }
+  .mobileFileMeta strong,
+  .mobileFileMeta small {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .mobileFileMeta strong {
+    color: var(--dc-ink, var(--dsw-alias-label-primary));
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 550;
+  }
+  .mobileFileMeta small {
+    color: var(--dc-secondary, var(--dsw-alias-label-secondary));
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .mobileFile button {
+    display: grid;
+    place-items: center;
+    flex: none;
+    width: 48px;
+    height: 48px;
+    border: 0;
+    background: transparent;
+    color: var(--dc-secondary, var(--dsw-alias-label-secondary));
+    cursor: pointer;
+    border-radius: 12px;
+  }
+  .mobileFile[data-failed] small {
+    color: var(--dsw-alias-state-error-primary);
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .sendButton > svg,
+    .mobileFile {
+      animation: compose-in 160ms ease-out;
     }
-
-    & .toggle {
-      border-color: #474849;
-      background-color: #242424;
-      color: #f8f8f8;
-
-      &.selected {
-        border-color: transparent;
-        background-color: #283142;
-        color: #6392f2;
+    @keyframes compose-in {
+      from {
+        opacity: 0.65;
+        transform: translateY(3px);
       }
-    }
-
-    & .textarea::placeholder {
-      color: #6b6b6b;
     }
   }
 }

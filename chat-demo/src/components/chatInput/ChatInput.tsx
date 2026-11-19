@@ -10,7 +10,12 @@ import {
   IconThinkOutline14,
 } from '../base/icons.js'
 import { setSearch, setThinking, useSettings } from '../../services/settings.js'
-import { requireChatAccess } from '../../services/api/access.js'
+import {
+  useConversationModes,
+  getConversationMode,
+  setConversationMode,
+} from '../../services/conversationMode/storage.js'
+import { getConversationRoute, requireChatAccess } from '../../services/api/access.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { sendMessage, stopReply, useChatStore } from '../../services/chat/store.js'
 import {
@@ -29,12 +34,12 @@ import { Tooltip } from '../base/Tooltip.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
 import { DragMask, useFileDrop } from './DragMask.js'
 import { showToast } from '../base/toastState.js'
-import { ACCEPT, useUploads } from '../../services/attachments.js'
+import { ACCEPT, useUploads, validateFiles } from '../../services/attachments.js'
 import { DraftAttachments } from './DraftAttachments.js'
 import { useVoiceInput } from './useVoiceInput.js'
 import { VoiceButton } from './VoiceButton.js'
 import { Spectrum } from './Spectrum.js'
-import { useTranslate } from '../../i18n/index.js'
+import { resolveLocale, useTranslate } from '../../i18n/index.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
 import styles from './ChatInput.module.css'
 
@@ -46,9 +51,29 @@ export const ChatInput = memo(function ChatInput({ sessionId }: { sessionId: str
 
 const Input = ({ sessionId }: { sessionId: string | null }) => {
   const t = useTranslate()
+  const english = useSettings((s) => resolveLocale(s.locale) === 'en-US')
   const draft = useDrafts((state) => state.drafts.get(sessionId) ?? EMPTY_DRAFT)
   const { text, attachments } = draft
-  const setText = (value: string) => setDraftText(sessionId, value)
+  const setText = (value: string) => {
+    // Pin a welcome draft to the destination visible when its author starts typing.
+    const route = getConversationRoute(sessionId)
+    if (sessionId === null && value && route.profileId && !getConversationMode(null).profileId) {
+      try {
+        setConversationMode(
+          null,
+          { ...getConversationMode(null), profileId: route.profileId },
+          route.destination
+        )
+      } catch {
+        showToast(
+          english
+            ? 'Could not save the conversation settings. Try again.'
+            : '未能保存会话方案，请重试。'
+        )
+      }
+    }
+    setDraftText(sessionId, value)
+  }
   const draftReady = useUploads((state) => prepareDraftMessage(draft, state.tasks) !== null)
   const streaming = useChatStore(
     (state) =>
@@ -59,11 +84,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const importingHistory = useChatStore((state) => state.importingHistory)
   const isMobile = useIsMobile()
   const search = useSettings((state) => state.search)
-  const apiProtocol = useSettings((state) => {
-    if (state.chatSource === 'account') return 'deepseek'
-    const active = state.apiProfiles.find((item) => item.id === state.activeProfileId)
-    return active?.protocol ?? 'deepseek'
-  })
+  useSettings((state) => state.apiProfiles)
+  useSettings((state) => state.activeProfileId)
+  useSettings((state) => state.chatSource)
+  useConversationModes()
+  const route = getConversationRoute(sessionId)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
@@ -86,18 +111,42 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   }, [t])
 
   const acceptFiles = (files: File[]) => {
-    if (files.length === 0 || useChatStore.getState().importingHistory || !ensureApiKey()) {
+    if (
+      files.length === 0 ||
+      useChatStore.getState().importingHistory ||
+      !ensureApiKey(sessionId)
+    ) {
       return
     }
-    const error = addDraftFiles(sessionId, files, requireChatAccess())
+    if (!route.files) {
+      showToast({ key: 'uploadFileModel' })
+      return
+    }
+    if (!getConversationMode(sessionId).profileId && route.profileId) {
+      try {
+        setConversationMode(
+          sessionId,
+          { ...getConversationMode(sessionId), profileId: route.profileId },
+          route.destination
+        )
+      } catch {
+        showToast(
+          english
+            ? 'Could not save the conversation settings. Try again.'
+            : '未能保存会话方案，请重试。'
+        )
+        return
+      }
+    }
+    const error = addDraftFiles(sessionId, files, requireChatAccess(sessionId))
     if (error) {
       showToast(error)
     }
   }
   const retryFile = useCallback(
     (id: string) => {
-      if (!useChatStore.getState().importingHistory && ensureApiKey()) {
-        retryDraftAttachment(sessionId, id, requireChatAccess())
+      if (!useChatStore.getState().importingHistory && ensureApiKey(sessionId)) {
+        retryDraftAttachment(sessionId, id, requireChatAccess(sessionId))
       }
     },
     [sessionId]
@@ -113,7 +162,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const dragging = useFileDrop(acceptFiles)
 
   /** 转写结果插入到光标处，并把光标移到插入内容之后 */
-  const voice = useVoiceInput((transcript) => {
+  const voice = useVoiceInput(sessionId, (transcript) => {
     const textarea = textareaRef.current
     const current = getDraft(sessionId).text
     const start = textarea?.selectionStart ?? current.length
@@ -155,7 +204,42 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       return
     }
     // 文本与上传完成态由提交动作读取最新快照，不使用上一次渲染的草稿。
-    if (!ensureApiKey() || !sendMessage(sessionId)) {
+    if (route.needsApproval || route.missing) {
+      showToast(
+        english
+          ? 'Review the provider in the conversation header.'
+          : '请在会话顶栏检查模型并确认服务方案。'
+      )
+      return
+    }
+    if (!ensureApiKey(sessionId)) {
+      return
+    }
+    if (attachments.length) {
+      if (!route.files) {
+        showToast({ key: 'uploadFileModel' })
+        return
+      }
+      const issue = validateFiles(
+        attachments.map((item) => item.file),
+        [],
+        requireChatAccess(sessionId)
+      )
+      if (issue) {
+        showToast(issue)
+        return
+      }
+    }
+    try {
+      if (!sendMessage(sessionId)) {
+        return
+      }
+    } catch {
+      showToast(
+        english
+          ? 'Could not save the conversation settings. Your draft is still here.'
+          : '未能保存会话方案，草稿已保留。'
+      )
       return
     }
     stopReadAloud()
@@ -180,7 +264,18 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         <textarea
           ref={textareaRef}
           className={clsx(styles.textarea, recording && isMobile && styles.textareaHidden)}
-          placeholder={t('chatInputPlaceholderChat')}
+          aria-label={english ? 'Message' : '消息'}
+          placeholder={
+            isMobile
+              ? attachments.length
+                ? english
+                  ? 'Add a message (optional)'
+                  : '补充说明（可选）'
+                : english
+                  ? 'Message DeepSeek'
+                  : '给 DeepSeek 发消息'
+              : t('chatInputPlaceholderChat')
+          }
           rows={2}
           // 移动端不自动聚焦，避免一打开就弹出键盘
           autoFocus={!isMobile}
@@ -219,9 +314,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           <Tooltip content={t('deactivatedThinkTooltip')}>
             <button
               type="button"
-              className={clsx(styles.toggle, thinking && styles.selected)}
+              className={clsx(styles.toggle, route.thinking && thinking && styles.selected)}
               aria-label={t('thinkingSwitch')}
-              aria-pressed={thinking}
+              aria-pressed={route.thinking && thinking}
+              disabled={!route.thinking}
               onClick={() => setThinking(!thinking)}
             >
               <IconThinkOutline14 />
@@ -231,9 +327,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           <Tooltip content={t('deactivatedSearchTooltip')}>
             <button
               type="button"
-              className={clsx(styles.toggle, search && styles.selected)}
+              className={clsx(styles.toggle, route.search && search && styles.selected)}
               aria-label={t('search')}
-              aria-pressed={search}
+              aria-pressed={route.search && search}
+              disabled={!route.search}
               onClick={() => setSearch(!search)}
             >
               <IconGlobeLanguageOutline14 />
@@ -247,8 +344,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             tone="primary"
             icon={isMobile ? <IconPlusCircle24 /> : <IconPaperclipOutline16 />}
             tooltip={t('uploadFile')}
-            disabled={importingHistory}
-            onClick={() => ensureApiKey() && fileInputRef.current?.click()}
+            disabled={importingHistory || !route.files}
+            onClick={() => ensureApiKey(sessionId) && fileInputRef.current?.click()}
           />
           <input
             ref={fileInputRef}
@@ -262,15 +359,15 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             }}
           />
           {/* 移动端有文字时语音键让位给发送键（官方交互） */}
-          {!isMobile || !hasDraftContent || voice.status !== 'idle' ? (
+          {!isMobile || (!streaming && !hasDraftContent) || voice.status !== 'idle' ? (
             <VoiceButton
               status={voice.status}
-              disabled={!voice.available || apiProtocol !== 'deepseek'}
+              disabled={!voice.available || !route.speech}
               seconds={voice.seconds}
               onClick={() => {
                 if (
                   voice.status !== 'idle' ||
-                  (!useChatStore.getState().importingHistory && ensureApiKey())
+                  (!useChatStore.getState().importingHistory && ensureApiKey(sessionId))
                 ) {
                   void voice.toggle()
                 }
@@ -294,7 +391,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               type="button"
               className={clsx(styles.sendButton, !canSend && styles.disabled)}
               aria-label={t('send')}
-              aria-disabled={!canSend}
+              disabled={!canSend}
               onClick={send}
             >
               {isMobile ? <IconArrowUp24 /> : <IconSendOutline16 />}

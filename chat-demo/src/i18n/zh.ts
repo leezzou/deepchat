@@ -5,7 +5,27 @@ import { contextFeatureZh } from './contextFeature.js'
 import { deleteFeatureZh } from './deleteFeature.js'
 import { usageFeatureZh } from './usageFeature.js'
 
+import { libraryZh } from '../services/library/strings.js'
+
 export const zh = {
+  ...libraryZh,
+  chooseOption: '请选择',
+  settingsAccountGroup: '账户',
+  settingsPrivacyGroup: '数据与隐私',
+  settingsAppGroup: '应用偏好',
+  settingsVoiceGroup: '语音',
+  settingsAboutGroup: '关于',
+  settingsKeysTitle: 'API Key 管理',
+  settingsDefaultUser: 'DeepSeek 用户',
+  settingsConfigured: '已设置',
+  settingsNotSet: '未设置',
+  settingsAppearance: '外观',
+  settingsHelp: '帮助与反馈',
+  settingsVersion: '版本 {version}',
+  settingsHelpDetails: '在「API Key 管理」中添加密钥后，即可使用自己的 API 进行对话。\n「数据管理」可以导入和导出历史对话。导出的 ZIP 文件可以再次导入。\n联系 leezzou@mail.ustc.edu.cn 获取帮助。',
+  previewSecurity: '安全与应用锁',
+  previewWebDav: '加密 WebDAV 备份',
+  credentialWriteFailed: '未能可靠保存 API 配置，请解锁后重试。',
   dshAccountExpired: '账号登录已过期，请重新登录。',
   dshAccountInsufficient: '账号余额不足，请查看余额或充值。',
   dshAccountLogin: '登录 DeepSeek 账号',
@@ -234,9 +254,7 @@ export const zh = {
   personalizeName: '昵称',
   personalizeNamePlaceholder: '给自己起个名字',
   personalizeHint: '头像和昵称只保存在这台手机上，用于抽屉底部的账号信息。',
-  settingsSignOut: '退出登录',
-  settingsSignOutHint:
-    '退出后会清除本机保存的 API Key 配置（对话记录保留）。需要重新填写 Key 才能继续聊天。',
+  settingsSignOut: '退出 DeepSeek 账号',
   signedOut: '已退出登录',
   checkUpdate: '检查更新',
   updateChecking: '正在检查更新…',

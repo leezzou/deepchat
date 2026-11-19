@@ -29,7 +29,7 @@ interface ChatDB extends DBSchema {
   sessionSummariesStaging: SummaryStore
   files: { key: string; value: StoredFile }
   filesStaging: { key: string; value: StoredFile }
-  historyMeta: { key: 'active' | 'writer'; value: Generation | string }
+  historyMeta: { key: 'active' | 'writer' | 'lastRestoreId'; value: Generation | string }
 }
 
 // v11 的正式存储原地作为第 0 代。一次导入始终只写另一代，最后仅提交 active 指针。
@@ -199,7 +199,7 @@ export const saveFiles = (originals: StoredFile[]): Promise<void> =>
 export const loadFile = (id: string): Promise<Blob | undefined> =>
   transact(files, 'readonly', async (tx, g) => (await tx.objectStore(files[g]).get(id))?.blob)
 
-type Staging = { writer: string; list: SessionSummary[]; withFiles: string[] }
+type Staging = { writer: string; restoreId?: string; list: SessionSummary[]; withFiles: string[] }
 let staging: Staging | undefined
 const currentStaging = () => {
   if (!staging) {
@@ -341,10 +341,27 @@ export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>)
   }
 }
 
-/** 提交事务只写一个指针；全部详情、引用索引和原件已经持久化。 */
+/** Bind the metadata journal to the same durable commit as the history switch. */
+export const setStagingRestoreId = (id: string): void => {
+  currentStaging().restoreId = id
+}
+
+export const readLastRestoreId = async (): Promise<string | undefined> => {
+  const id = await (await getDB()).get('historyMeta', 'lastRestoreId')
+  return typeof id === 'string' ? id : undefined
+}
+
 export const commitStaging = async (): Promise<SessionSummary[]> => {
   const state = currentStaging()
-  await stage(state, [], (tx, next) => tx.objectStore('historyMeta').put(next, 'active'))
+  await stage(state, [], async (tx, next) => {
+    const meta = tx.objectStore('historyMeta')
+    await meta.put(next, 'active')
+    if (state.restoreId) {
+      await meta.put(state.restoreId, 'lastRestoreId')
+    } else {
+      await meta.delete('lastRestoreId')
+    }
+  })
   staging = undefined
   // 切换已经成功。回收失败只能留给下次准备暂存时重试，不能误报导入失败或触发草稿回滚。
   await clearInactive(state.writer, true).catch(reportStorageError('reclaim previous history'))

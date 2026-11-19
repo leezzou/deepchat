@@ -13,7 +13,8 @@ const json = (value: unknown) => new Blob([JSON.stringify(value)], { type: 'appl
  */
 export const exportArchive = async (
   sessions: Iterable<Session> | AsyncIterable<Session>,
-  loadOriginal: (id: string) => Promise<Blob | undefined> = db.loadFile
+  loadOriginal: (id: string) => Promise<Blob | undefined> = db.loadFile,
+  preserveIds = false
 ): Promise<Blob> => {
   const manifest: Manifest = { export_format_version: EXPORT_FORMAT_VERSION }
   const entries = [{ name: MANIFEST_PATH, blob: json(manifest) }]
@@ -39,7 +40,7 @@ export const exportArchive = async (
       const path = imagePath(session.id, id, name)
       images.set(path, blob)
       return path
-    })
+    }, preserveIds)
     entries.push({ name: sessionPath(session.id), blob: json(data) })
     for (const [name, blob] of images) {
       imageEntries.push({ name, blob })

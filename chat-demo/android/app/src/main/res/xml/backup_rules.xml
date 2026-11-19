@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <full-backup-content>
-    <!-- The login envelope is bound to this device's Android Keystore. -->
+    <!-- Portable backups are created explicitly inside DeepChat. -->
+    <exclude domain="root" path="app_webview" />
+    <exclude domain="sharedpref" path="deepchat-app-lock.xml" />
     <exclude domain="sharedpref" path="dsh-account-v1.xml" />
 </full-backup-content>

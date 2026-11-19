@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_lock_title">DeepChat 已锁定</string>
+    <string name="app_lock_hint">请使用此设备的系统身份验证继续。</string>
+    <string name="app_lock_action">解锁 DeepChat</string>
+    <string name="app_lock_cancelled">验证未完成，点按解锁可重试。</string>
+    <string name="app_lock_unavailable">请先在设备的系统设置中设置屏幕锁定。</string>
+    <string name="app_lock_prompt">验证身份以继续使用 DeepChat</string>
+</resources>

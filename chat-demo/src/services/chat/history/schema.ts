@@ -202,6 +202,7 @@ const message: Read<ChatMessage> = (value) => {
   return {
     id: count(item.id),
     parent_id: nullable(count)(item.parent_id),
+    ...(item.deepchat_local_id === undefined ? {} : { deepchat_local_id: string(item.deepchat_local_id) }),
     role: oneOf('USER', 'ASSISTANT')(item.role),
     ...(item.deepchat_context_user_id === undefined ? {} : {
       deepchat_context_user_id: nullable(count)(item.deepchat_context_user_id),

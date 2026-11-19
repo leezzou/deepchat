@@ -140,13 +140,17 @@
   }
 
   .bottom {
-    gap: 8px;
-    height: 24px;
+    gap: 0 4px;
+    height: auto;
+    min-width: 0;
+    max-width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     margin-top: 2px;
   }
 
   .actions {
-    gap: 12px;
+    gap: 0;
     opacity: 1;
   }
 

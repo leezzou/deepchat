@@ -175,7 +175,62 @@
   padding: 12px 0;
 }
 
+.searchBar { flex: none; }
+.backGlyph { display: none; }
+.closeGlyph { display: inline-flex; }
+.clear {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  margin-inline-end: -12px;
+  border: 0;
+  background: transparent;
+  color: var(--dsw-alias-bg-base);
+  cursor: pointer;
+}
+.clear span {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--dc-secondary);
+}
+.clear svg { width: 10px; height: 10px; }
+.input::-webkit-search-cancel-button { display: none; }
 @media (max-width: 767px) {
+  .searchBar {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    margin-inline-start: -12px;
+  }
+  .header { margin: 0; }
+  .title {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .close { margin: 0; width: 48px; height: 48px; color: var(--dc-ink); }
+  .closeGlyph { display: none; }
+  .close .backGlyph { display: block; width: 24px; height: 24px; }
+  :global([dir='rtl']) .backGlyph { transform: scaleX(-1); }
+  .inputWrap {
+    flex: 1;
+    min-width: 0;
+    background: var(--dc-subtle);
+    box-shadow: none;
+  }
+  .inputWrap:focus-within { box-shadow: none; }
+  .inputWrap:has(:focus-visible) { outline: 2px solid var(--dc-accent); outline-offset: 1px; }
+  @media (pointer: coarse) {
+    .inputWrap:has(.input:focus-visible) { outline: none; }
+  }
+  .input { font-size: 16px; }
   .dialog {
     width: 100%;
     max-width: 100%;
@@ -186,6 +241,7 @@
       calc(16px + env(safe-area-inset-bottom, 0px));
     border: 0;
     border-radius: 0;
+    background-color: rgb(var(--dc-history-rgb));
   }
   .result {
     padding-block: 16px;
@@ -195,10 +251,16 @@
 @media (prefers-reduced-motion: no-preference) {
   .dialog[open] { animation: searchArrive var(--nav-enter) var(--nav-ease); }
   .dialog[open][data-leaving] { animation: searchLeave var(--nav-exit) ease-in both; pointer-events: none; }
+  @media (max-width: 767px) {
+    .dialog[open] { animation-name: mobileSearchArrive; }
+    .dialog[open][data-leaving] { animation-name: mobileSearchLeave; }
+  }
   .dialog[open]::backdrop { animation: veilIn var(--nav-enter) ease-out; }
   .dialog[open][data-leaving]::backdrop { animation: veilIn var(--nav-exit) ease-in reverse both; }
 }
 @keyframes searchArrive { from { opacity: 0; transform: translateX(var(--search-travel, 28px)); } }
 @keyframes searchLeave { to { opacity: 0; transform: translateX(var(--search-travel, 28px)); } }
+@keyframes mobileSearchArrive { from { transform: translateX(var(--search-travel, 28px)); } }
+@keyframes mobileSearchLeave { to { transform: translateX(var(--search-travel, 28px)); } }
 @keyframes veilIn { from { opacity: 0; } to { opacity: 1; } }
 :global([dir='rtl']) .dialog { --search-travel: -28px; }

@@ -83,6 +83,8 @@ export type AssistantMessage = MessageBranch & {
   search?: boolean
   /** 本轮请求的系统信息快照；各回答版本独立保存，续写沿用。历史消息中缺省的快照保持为空。 */
   latestReminder?: string
+  /** Local receipt for the latest model request for this reply. Kept out of normal history exports and shared images. */
+  lastRequestMemories?: string[]
   /** 回答原属问题；单条删除重接后仍保留配对关系，null 表示原问题已删除。 */
   contextUserId?: string | null
   /** 是否允许作为续写前缀；仍需满足回复状态与内容限制。 */

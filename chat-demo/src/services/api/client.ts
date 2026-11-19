@@ -239,10 +239,8 @@ export const uploadFile = async (
 ): Promise<{ id: string }> => {
   const openAi = isOpenAi(access)
   const official = officialFiles(accessOrigin(access))
-  if (openAi) {
-    // An official PDF/Office upload can already incur a parsing charge.
-    checkFileModel(access, access.config.model)
-  }
+  // An official PDF/Office upload can already incur a parsing charge.
+  checkFileModel(access, access.source === 'api' ? access.config.model : access.model ?? 'deepseek-flash')
   const form = new FormData()
   const selectedPurpose = openAi ? (official ? purpose ?? 'user_data' : 'user_data') : purpose
   if (selectedPurpose) {
@@ -325,9 +323,11 @@ const toOpenAiMessages = (body: CreateMessageRequest, deepseek: boolean) => {
 async function* streamOpenAiChat(
   access: Extract<ChatAccess, { source: 'api' }>,
   body: CreateMessageRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onDispatch?: () => void
 ): AsyncGenerator<MessageStreamEvent> {
   const { origin, model } = access.config
+  onDispatch?.()
   const response = await request(`${origin}/chat/completions`, {
     method: 'POST',
     headers: {
@@ -405,16 +405,18 @@ async function* streamOpenAiChat(
 export async function* streamMessage(
   access: ChatAccess,
   body: CreateMessageRequest,
-  signal: AbortSignal
+  signal: AbortSignal,
+  onDispatch?: () => void
 ): AsyncGenerator<MessageStreamEvent> {
   const referencesFiles = hasFile(body)
   if (referencesFiles) {
     checkFileModel(access, isOpenAi(access) ? access.config.model : body.model)
   }
   if (isOpenAi(access)) {
-    yield* streamOpenAiChat(access, body, signal)
+    yield* streamOpenAiChat(access, body, signal, onDispatch)
     return
   }
+  onDispatch?.()
   const response = await request(`${anthropicBaseUrl(access)}/messages`, {
     method: 'POST',
     headers: {

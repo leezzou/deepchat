@@ -1,7 +1,12 @@
 import { create } from 'zustand'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
-import { getChatAccess, requireChatAccess, type ChatAccess } from '../api/access.js'
+import {
+  getChatAccess,
+  getConversationRoute,
+  requireChatAccess,
+  type ChatAccess,
+} from '../api/access.js'
 import type { ChatModel, CreateMessageRequest } from '../api/types.js'
 import {
   extractFileIds,
@@ -11,6 +16,16 @@ import {
 } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { usesDeepSeekFileLimits } from '../attachmentLimits.js'
+import {
+  getConversationMode,
+  setConversationMode,
+  promoteConversationMode,
+  removeConversationMode,
+  flagUnboundSessions,
+  type ConversationMode,
+} from '../conversationMode/storage.js'
+import { conversationInstructions } from '../conversationMode/prompt.js'
+import { promoteLibraryDraft, removeLibrarySession } from '../library/index.js'
 import { useSettings } from '../settings.js'
 import { resolveLocale } from '../../i18n/index.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -49,8 +64,6 @@ import {
 
 /** deepseek-flash 同时支持深度思考与图片输入 */
 const MODEL: ChatModel = 'deepseek-flash'
-/** 所有生成请求统一携带的助手身份说明 */
-const SYSTEM_PROMPT = '该助手为DeepSeek，由深度求索公司创造。'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
 /** 安全审核固定开启，所有请求都走扩展模式 */
@@ -414,16 +427,17 @@ export const bindChatPersistence = () => {
 }
 
 /** 按当前开关创建回复：深度思考对应 thinking，智能搜索控制 deepseek_web_search。 */
-const createReply = (contextUserId: string): AssistantMessage => {
+const createReply = (sessionId: string, contextUserId: string): AssistantMessage => {
+  const route = getConversationRoute(sessionId)
   const { thinking, search } = useSettings.getState()
   return {
     id: createId(),
     role: 'assistant',
     contextUserId,
     createdAt: Date.now(),
-    model: MODEL,
-    thinking,
-    search,
+    model: route.protocol === 'deepseek' ? route.nativeModel : null,
+    thinking: thinking && route.thinking,
+    search: search && route.search,
     prefix: true,
     status: 'pending',
     blocks: [],
@@ -462,6 +476,7 @@ export const initChat = (): Promise<void> => {
     try {
       const summaries = await db.loadSessionSummaries()
       if (epoch === historyEpoch) {
+        flagUnboundSessions(summaries.map((row) => row.id))
         set({ ready: true, sessions: sortSessions(summaries) })
       }
     } catch (error) {
@@ -743,6 +758,12 @@ const removeSessionData = async (id: string): Promise<boolean> => {
     pendingFiles.delete(id)
     pendingFileDeletes.delete(id)
     clearDraft(id)
+    try {
+      removeConversationMode(id)
+      removeLibrarySession(id)
+    } catch (error) {
+      db.reportStorageError('clean session metadata')(error)
+    }
     set((state) => ({
       sessions: state.sessions.filter((session) => session.id !== id),
       sessionCache: Object.fromEntries(
@@ -778,6 +799,87 @@ export const stopReply = (sessionId: string) => {
   cancelCompaction(sessionId)
 }
 
+function createEmptySession(id: string, title: string) {
+  const now = Date.now()
+  const session: Session = {
+    id,
+    title,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+    rootMessageId: null,
+  }
+  touchSession(id)
+  set((state) => ({
+    sessions: [toSessionSummary(session), ...state.sessions],
+    sessionCache: { ...state.sessionCache, [id]: session },
+    activeId: id,
+  }))
+}
+
+/** Receive a share alongside an existing welcome draft without consuming its model or text. */
+export function createDraftSession(title: string): string | null {
+  if (!get().ready || get().importingHistory) {
+    return null
+  }
+  const id = createId()
+  createEmptySession(id, title)
+  persist(id)
+  return id
+}
+
+/** Called after explicit approval of a new destination. Original attachment blobs remain local. */
+export function applyConversationMode(sessionId: string | null, mode: ConversationMode) {
+  if (
+    get().importingHistory ||
+    (sessionId && (isSessionBusy(sessionId) || !getSession(sessionId)))
+  ) {
+    return false
+  }
+  const previous = getConversationRoute(sessionId)
+  const next = getConversationRoute(sessionId, mode)
+  if (next.missing) {
+    return false
+  }
+  setConversationMode(sessionId, mode, next.destination)
+  if (previous.destination !== next.destination || previous.needsApproval) {
+    for (const item of getDraft(sessionId).attachments) {
+      if (useUploads.getState().tasks[item.id]) {
+        cancelUpload(item.id)
+        useUploads.setState((s) => ({
+          tasks: {
+            ...s.tasks,
+            [item.id]: {
+              status: 'error',
+              retryable: true,
+              error: { key: 'draftAttachmentRestored' },
+            },
+          },
+        }))
+      }
+    }
+    if (sessionId) {
+      updateSession(sessionId, (session) => ({
+        ...session,
+        messages: session.messages.map((message) => {
+          if (message.role !== 'user' || !message.files.length) {
+            return message
+          }
+          return {
+            ...message,
+            files: message.files.map((file) => {
+              cancelUpload(file.id)
+              return { ...file, serverId: null }
+            }),
+          }
+        }),
+      }))
+      persist(sessionId)
+    }
+  }
+  return true
+}
+
 /**
  * 提交指定会话的最新草稿；null 表示新建会话。
  * 同步接收成功才清空草稿，附件原件由会话接管；保存失败仍通过保存入口重试。
@@ -799,22 +901,23 @@ export const sendMessage = (targetSessionId: string | null) => {
   ) {
     return false
   }
+  const route = getConversationRoute(targetSessionId)
+  if (!getChatAccess(targetSessionId) || (files.length && !route.files)) {
+    return false
+  }
+  const selected = {
+    ...getConversationMode(targetSessionId),
+    profileId: route.profileId ?? undefined,
+  }
   if (sessionId === null) {
-    const session: Session = {
-      id: createId(),
-      title: '',
-      createdAt: now,
-      updatedAt: now,
-      messages: [],
-      rootMessageId: null,
-    }
-    sessionId = session.id
-    touchSession(session.id)
-    set((state) => ({
-      sessions: [toSessionSummary(session), ...state.sessions],
-      sessionCache: { ...state.sessionCache, [session.id]: session },
-      activeId: session.id,
-    }))
+    sessionId = createId()
+    const createdId = sessionId
+    promoteConversationMode(createdId, selected, route.destination, () =>
+      promoteLibraryDraft(createdId)
+    )
+    createEmptySession(sessionId, '')
+  } else if (!getConversationMode(sessionId).profileId) {
+    setConversationMode(sessionId, selected, route.destination)
   }
   const current = getSession(sessionId)
   if (!current) {
@@ -835,7 +938,7 @@ export const sendMessage = (targetSessionId: string | null) => {
     })),
     createdAt: now,
   }
-  const reply = createReply(question.id)
+  const reply = createReply(sessionId, question.id)
   updateSession(sessionId, (session) => ({
     ...appendBranch(session, history.at(-1)?.id ?? null, [question, reply]),
     updatedAt: now,
@@ -858,7 +961,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || isSessionBusy(sessionId)) {
+  if (!session || isSessionBusy(sessionId) || !getChatAccess(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
@@ -874,7 +977,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     return
   }
   const history = path.slice(0, index - 1)
-  const reply = createReply(question.id)
+  const reply = createReply(sessionId, question.id)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, question.id, [reply]),
     updatedAt: Date.now(),
@@ -889,7 +992,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     return false
   }
   const session = getSession(sessionId)
-  if (!session || isSessionBusy(sessionId)) {
+  if (!session || isSessionBusy(sessionId) || !getChatAccess(sessionId)) {
     return false
   }
   const path = getVisibleMessages(session)
@@ -906,7 +1009,7 @@ export const editMessage = (sessionId: string, messageId: string, content: strin
     files: previous.files,
     createdAt: Date.now(),
   }
-  const reply = createReply(question.id)
+  const reply = createReply(sessionId, question.id)
   updateSession(sessionId, (s) => ({
     ...appendBranch(s, path[index - 1]?.id ?? null, [question, reply]),
     updatedAt: Date.now(),
@@ -963,7 +1066,7 @@ export const continueReply = (sessionId: string, messageId: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || isSessionBusy(sessionId)) {
+  if (!session || isSessionBusy(sessionId) || !getChatAccess(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
@@ -979,12 +1082,13 @@ export const continueReply = (sessionId: string, messageId: string) => {
     return
   }
   const { thinking, search } = useSettings.getState()
+  const route = getConversationRoute(sessionId)
   const reply: AssistantMessage = {
     ...previous,
     // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: previous.model ?? MODEL,
-    thinking: previous.thinking ?? thinking,
-    search: previous.search ?? search,
+    model: route.protocol === 'deepseek' ? route.nativeModel : null,
+    thinking: route.thinking && (previous.thinking ?? thinking),
+    search: route.search && (previous.search ?? search),
     status: 'pending',
     stopReason: undefined,
     stopDetails: undefined,
@@ -1013,7 +1117,7 @@ export const retryUpload = (sessionId: string, messageId: string) => {
     return
   }
   const session = getSession(sessionId)
-  if (!session || isSessionBusy(sessionId)) {
+  if (!session || isSessionBusy(sessionId) || !getChatAccess(sessionId)) {
     return
   }
   const path = getVisibleMessages(session)
@@ -1061,15 +1165,17 @@ const saveServerIds = (sessionId: string, serverIds: Map<string, string>) => {
  * 附件的服务端 id：已有直接用；正在上传的等待同一任务；否则读取本地原件补传。
  * 本地也没有原件（导入的文档附件只有元数据）时返回 null，该附件只展示、不进入请求。
  */
-const ensureServerId = async (access: ChatAccess, file: FileAttachment): Promise<string | null> => {
+const ensureServerId = async (
+  access: ChatAccess,
+  sessionId: string,
+  file: FileAttachment
+): Promise<string | null> => {
   if (file.serverId) {
     return file.serverId
   }
-  const task = useUploads.getState().tasks[file.id]
-  if (task?.status === 'done') {
-    return task.serverId
-  }
-  const blob = await db.loadFile(file.id)
+  const blob =
+    pendingFiles.get(sessionId)?.find((item) => item.id === file.id)?.blob ??
+    (await db.loadFile(file.id))
   if (!blob) {
     return null
   }
@@ -1116,6 +1222,7 @@ const prepareFiles = async (
   signal: AbortSignal
 ) => {
   const epoch = historyEpoch
+  const destination = getConversationRoute(sessionId).destination
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
@@ -1126,14 +1233,15 @@ const prepareFiles = async (
   })
   const uploads = Promise.allSettled(
     request.question.files.map(async (file) => {
-      const serverId = await ensureServerId(access, file)
+      const serverId = await ensureServerId(access, sessionId, file)
       if (serverId) {
         serverIds.set(file.id, serverId)
       }
     })
   )
   void uploads.then(() => {
-    if (epoch === historyEpoch) {
+    const route = getConversationRoute(sessionId)
+    if (epoch === historyEpoch && !route.needsApproval && route.destination === destination) {
       saveServerIds(sessionId, serverIds)
     }
   })
@@ -1154,7 +1262,7 @@ const prepareFiles = async (
   for (const file of pending.values()) {
     signal.throwIfAborted()
     try {
-      const serverId = await Promise.race([ensureServerId(access, file), aborted])
+      const serverId = await Promise.race([ensureServerId(access, sessionId, file), aborted])
       if (serverId) {
         serverIds.set(file.id, serverId)
         saveServerIds(sessionId, new Map([[file.id, serverId]]))
@@ -1261,12 +1369,10 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
  */
 const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
   const configuration = () =>
-    JSON.stringify([
-      getChatAccess(),
-      useSettings.getState().activeProfileId,
-      useSettings.getState().apiProfiles,
-    ])
+    JSON.stringify([getChatAccess(sessionId), getConversationRoute(sessionId).contextWindow])
   const initialConfiguration = configuration()
+  const route = getConversationRoute(sessionId)
+  const { system, memories } = conversationInstructions(sessionId)
   const controller = new AbortController()
   if (!getSession(sessionId)?.title) {
     titleRequests.add(controller)
@@ -1293,7 +1399,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           preparing = false
           throw new ApiError('protocol', { key: 'contextSummaryChanged' })
         }
-        const access = requireChatAccess()
+        const access = requireChatAccess(sessionId)
         const prepared = await prepareFiles(access, sessionId, request, controller.signal)
         preparing = false
         if (
@@ -1343,7 +1449,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         let exceedsBudget = false
         if (useContextPreferences.getState().autoCompact) {
           const { compactSession, contextWindowTokens } = await import('./compact.js')
-          const window = contextWindowTokens()
+          const window = contextWindowTokens(sessionId)
           if (estimateRequestTokens(messages, files) >= window * 0.8) {
             // Compaction cannot remove attachments from the current question.
             assertFileLimits(toRequestMessages([], prepared.question))
@@ -1377,15 +1483,19 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const events = streamMessage(
           access,
           {
-            model: initial.model ?? MODEL,
-            system: SYSTEM_PROMPT,
+            model: route.protocol === 'deepseek' ? route.nativeModel : MODEL,
+            system,
             messages,
-            thinking: { type: initial.thinking ? 'enabled' : 'disabled' },
+            thinking: { type: route.thinking && initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
-            tools: serverTools(initial.search ?? false),
+            tools: route.search ? serverTools(initial.search ?? false) : [],
             ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
           },
-          controller.signal
+          controller.signal,
+          () => {
+            reply = { ...reply, lastRequestMemories: memories }
+            updateReply(sessionId, reply)
+          }
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {

@@ -1,35 +1,16 @@
-/*
- * 会话操作行图标（复制 / 朗读 / 重新生成 …）。
- * 官方 App：20px 描边图标、24px 盒、颜色 #8E9094（深浅色一致），图标间距 16px。
- */
-.action {
-  svg {
-    color: #8e9094;
-  }
+.action svg {
+  color: var(--dc-secondary);
 }
-
-/* 触摸设备没有 hover：给 24px 盒外扩 6px 的隐形热区（相邻盒仍不重叠） */
-@media (hover: none) {
-  .action {
-    position: relative;
-
-    &::after {
-      content: '';
-      position: absolute;
-      inset: -6px;
-    }
-  }
+.action:disabled svg {
+  color: var(--dsw-alias-label-caption);
 }
-
-@media not all and (min-width: 768px) {
-  .action {
-    /* 覆盖 IconButton .xs 的 28px 盒：用 max-* 避免与 width/height 抢优先级 */
-    max-width: 24px;
-    max-height: 24px;
-
-    svg {
-      width: 20px;
-      height: 20px;
-    }
+@media (max-width: 767px) {
+  button.action {
+    width: 48px;
+    height: 48px;
+  }
+  .action svg {
+    width: 20px;
+    height: 20px;
   }
 }

@@ -28,6 +28,7 @@ import {
 import { initializeAutoBackup } from '../services/backup/automatic.js'
 import { bindUpdateSafety } from '../services/updateSafety.js'
 import { UpdateSafetyNotice } from './UpdateSafetyNotice.js'
+import { IncomingShare } from '../shell/incoming/IncomingShare.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
@@ -232,6 +233,7 @@ export const App = () => {
         <SearchPanel />
       </div>
       <SettingsDialog />
+      {ready && draftsReady && !importingHistory && <IncomingShare />}
       <ApiUsageDialog />
       <HistorySearch />
       <BackupReminder />

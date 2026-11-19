@@ -20,9 +20,9 @@ const Presence = createContext<boolean | null>(null)
 
 /** Wrap the conditional that owns a dialog, including a component that renders a Modal.
  * Keeping the last live element preserves its content even when a confirm clears the source data. */
-export const ModalPresence = ({ children }: { children: ReactNode }) => {
+export const ModalPresence = ({ children, onExited }: { children: ReactNode; onExited?: () => void }) => {
   const open = Boolean(children)
-  const { present, closing } = useMotionPresence(open, MODAL_EXIT_MS)
+  const { present, closing } = useMotionPresence(open, MODAL_EXIT_MS, onExited)
   const last = useRef<ReactNode>(null)
   useLayoutEffect(() => {
     if (open || !present) {

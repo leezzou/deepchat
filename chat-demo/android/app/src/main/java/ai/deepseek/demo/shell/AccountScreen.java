@@ -96,8 +96,13 @@ public final class AccountScreen {
         }
     }
 
-    public void show(boolean fromUsage) {
-        if (destroyed || activity.isFinishing() || activity.isDestroyed() || isShowing()) return;
+    public void show(boolean fromUsage, boolean confirmLogout) {
+        if (destroyed || activity.isFinishing() || activity.isDestroyed() || !SecurityPlugin.isUnlocked()) return;
+        if (confirmLogout) {
+            if (host.signedIn()) confirmLogout();
+            return;
+        }
+        if (isShowing()) return;
         if (fromUsage && underUsage && dialog != null && host.signedIn()) {
             underUsage = false;
             dialog.reveal(true);
@@ -119,9 +124,9 @@ public final class AccountScreen {
         updated = null;
         AccountWindow opened = new AccountWindow(activity, theme.isAppDark(), this::schedulePoll);
         dialog = opened;
-        page = new AccountPage(activity, opened.getWindow(), theme, "DeepChat 账户", opened::dismiss, this::render);
+        page = new AccountPage(activity, opened.getWindow(), theme, "DeepSeek 账号", opened::dismiss, this::render);
         opened.setContentView(page);
-        opened.setTitle("DeepChat 账户");
+        opened.setTitle("DeepSeek 账号");
         opened.setOnDismissListener(ignored -> {
             if (dialog != opened) return;
             main.removeCallbacks(poll);
@@ -132,9 +137,23 @@ public final class AccountScreen {
             wallets = null;
             underUsage = false;
         });
+        // The host already owns the current in-memory session. Resolve the layout before the
+        // first frame so opening a known account never flashes a different welcome page.
+        try {
+            Status initial = new Status(host.status());
+            session = initial.session;
+            name = initial.name;
+            statusError = initial.error;
+            exchanging = initial.exchanging;
+        } catch (Exception failure) {
+            statusError = failure("无法读取账户状态", failure);
+        }
         opened.reveal(fromUsage);
-        render();
-        checkStatus(true);
+        if (session == Session.SIGNED_IN) refreshWallets();
+        else {
+            render();
+            schedulePoll();
+        }
     }
 
     void accountChanged() {
@@ -155,6 +174,14 @@ public final class AccountScreen {
         } else if (session == Session.PENDING) {
             checkStatus(false);
         }
+    }
+
+    /** Release private dialogs on lock without tearing down the account service. */
+    public void hideForLock() {
+        main.removeCallbacks(poll);
+        closeConfirmation();
+        closeProxy();
+        if (dialog != null) dialog.dismissNow();
     }
 
     /** Host destruction. Normal Back / Continue only close the dialog, so it can be reopened. */
@@ -329,7 +356,8 @@ public final class AccountScreen {
                 actionError = failure(label, ex);
                 if (next == Action.LOGOUT && proxyDialog != null) readProxyState();
             } else if (next == Action.LOGOUT) {
-                session = Session.UNKNOWN;
+                session = Session.SIGNED_OUT;
+                page.scrollToStart();
                 name = proxyAddress = "";
                 wallets = null;
                 updated = null;
@@ -443,20 +471,45 @@ public final class AccountScreen {
         schedulePoll();
     }
 
+    private boolean settingsLogoutPending;
+
+    private void logoutFromSettings() {
+        if (settingsLogoutPending || destroyed || !SecurityPlugin.isUnlocked() || !host.signedIn()) return;
+        settingsLogoutPending = true;
+        accountWorker.execute(() -> {
+            String error = null;
+            try { proxy.stop(); host.logout(); }
+            catch (Exception failure) { error = failure("退出登录失败", failure); }
+            final String message = error;
+            main.post(() -> {
+                settingsLogoutPending = false;
+                if (!destroyed && message != null && SecurityPlugin.isUnlocked())
+                    Toast.makeText(activity, message, Toast.LENGTH_LONG).show();
+            });
+        });
+    }
+
     private void confirmLogout() {
-        if (action != Action.NONE || confirmation != null) return;
-        AlertDialog prompt = new AlertDialog.Builder(activity, page.dark ? android.R.style.Theme_Material_Dialog_Alert
+        if (settingsLogoutPending || confirmation != null || (isShowing() && action != Action.NONE)) return;
+        boolean fromSettings = !isShowing();
+        AlertDialog prompt = new AlertDialog.Builder(activity, theme.isAppDark() ? android.R.style.Theme_Material_Dialog_Alert
                 : android.R.style.Theme_Material_Light_Dialog_Alert)
                 .setTitle("退出 DeepSeek 账号？")
-                .setMessage("此手机将停止使用该账号聊天，并关闭本机 API。")
+                .setMessage("此手机将退出该账号并关闭本机 API。API Key 配置和对话记录会保留。")
                 .setNegativeButton("取消", null)
-                .setPositiveButton("退出登录", (ignored, which) -> accountAction(Action.LOGOUT)).create();
+                .setPositiveButton("退出登录", (ignored, which) -> {
+                    if (fromSettings) logoutFromSettings();
+                    else accountAction(Action.LOGOUT);
+                }).create();
         confirmation = prompt;
+        if ((activity.getWindow().getAttributes().flags & WindowManager.LayoutParams.FLAG_SECURE) != 0)
+            prompt.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         prompt.getWindow().setWindowAnimations(android.R.style.Animation_Dialog);
         prompt.setOnDismissListener(ignored -> { if (confirmation == prompt) confirmation = null; });
         prompt.show();
-        confirmation.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(page.error);
-        confirmation.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(page.blue);
+        boolean dark = theme.isAppDark();
+        prompt.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(dark ? 0xffffa4a4 : 0xffb32632);
+        prompt.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(dark ? 0xff9cb8ff : 0xff426efe);
     }
 
     private void openProxy() {
@@ -586,7 +639,9 @@ public final class AccountScreen {
         group(box, "钱包余额", wallets == null ? null : wallets.cash, "暂无钱包", 0);
         page.divider(box, 14);
         group(box, "赠送余额", wallets == null ? null : wallets.bonus, "暂无赠送钱包", 14);
-        if (updated != null) page.label(box, "上次更新 " + DateFormat.getTimeFormat(activity).format(updated), 13, page.muted, false, 14);
+        String updateLabel = updated != null ? "上次更新 " + DateFormat.getTimeFormat(activity).format(updated)
+                : refreshing ? "余额更新中…" : "尚未更新";
+        page.label(box, updateLabel, 13, page.muted, false, 14);
         error(box, walletError);
         LinearLayout row = page.actionRow(box, 16);
         boolean available = action == Action.NONE;

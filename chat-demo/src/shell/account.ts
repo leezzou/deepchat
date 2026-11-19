@@ -29,6 +29,10 @@ const post = (value: object) => {
 export function openAccount() {
   post({ op: 'account' })
 }
+/** Android presents the same confirmation used by the account page. */
+export function requestAccountLogout() {
+  post({ op: 'confirmAccountLogout' })
+}
 export function returnToAccount() {
   post({ op: 'account', fromUsage: true })
 }

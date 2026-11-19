@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useTranslate } from '../../i18n/index.js'
+import { resolveLocale, useTranslate } from '../../i18n/index.js'
+import { useSettings } from '../../services/settings.js'
 import { loadSession } from '../../services/chat/db.js'
 import { searchHistory, type HistorySearchResult } from '../../services/chat/search.js'
 import { revealMessage, selectSession, useChatStore } from '../../services/chat/store.js'
@@ -39,6 +40,7 @@ const emptyState = (): SearchState => ({
 
 const SearchDialog = ({ open }: { open: boolean }) => {
   const t = useTranslate()
+  const clearLabel = useSettings((state) => resolveLocale(state.locale) === 'zh-CN' ? '清除搜索内容' : 'Clear search')
   const sessions = useChatStore((state) => state.sessions)
   const importing = useChatStore((state) => state.importingHistory)
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -59,7 +61,11 @@ const SearchDialog = ({ open }: { open: boolean }) => {
   const navigationRef = useRef<AbortController | null>(null)
   const resultToFocus = useRef<string | null>(null)
 
-  useBackLayer(true, () => { if (open) closeHistorySearch() })
+  useBackLayer(true, () => {
+    if (open) {
+      closeHistorySearch()
+    }
+  })
   useLayoutEffect(() => {
     mounted.current = true
     const dialog = dialogRef.current
@@ -161,7 +167,9 @@ const SearchDialog = ({ open }: { open: boolean }) => {
   }, [query, sessions, composing, importing, retry])
 
   useLayoutEffect(() => {
-    if (!open) navigationRef.current?.abort()
+    if (!open) {
+      navigationRef.current?.abort()
+    }
   }, [open])
 
   const openResult = async (result: HistorySearchResult) => {
@@ -248,13 +256,14 @@ const SearchDialog = ({ open }: { open: boolean }) => {
         }
       }}
     >
+      <div className={styles.searchBar}>
       <div className={styles.header}>
         <h2 id="history-search-title" className={styles.title}>
           {t('historySearch')}
         </h2>
         <IconButton
           className={styles.close}
-          icon={<IconCloseOutline16 />}
+          icon={<><span className={styles.closeGlyph}><IconCloseOutline16 /></span><svg className={styles.backGlyph} viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 6-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg></>}
           aria-label={t('close')}
           onClick={closeHistorySearch}
         />
@@ -280,6 +289,18 @@ const SearchDialog = ({ open }: { open: boolean }) => {
             }
           }}
         />
+        {query && (
+          <button className={styles.clear} type="button" aria-label={clearLabel} disabled={opening !== null}
+            onPointerDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setComposing(false)
+              setQuery('')
+              inputRef.current?.focus({ preventScroll: true })
+            }}>
+            <span aria-hidden="true"><IconCloseOutline16 /></span>
+          </button>
+        )}
+      </div>
       </div>
       <div className={styles.results} aria-busy={state.loading}>
         {!query.trim() ? <p className={styles.empty}>{t('historySearchHint')}</p> : null}

@@ -68,6 +68,8 @@ export type ChatMessage = {
   role: ChatRole
   /** 原始提问引用；显式 null 表示删除后孤立的回答，不允许推断成其他提问的回答。 */
   deepchat_context_user_id?: number | null
+  /** Stable local identity for portable backups containing favorite references. */
+  deepchat_local_id?: string
   status: ChatMessageStatus
   thinking_enabled: boolean
   search_enabled: boolean

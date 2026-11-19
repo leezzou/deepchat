@@ -52,6 +52,14 @@
   width: 100%;
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .button { transition-property: background-color, opacity, transform; }
+  .button:active:not(:disabled) { transform: scale(.98); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .button { transition: none; }
+}
+
 .primary {
   color: var(--dsw-alias-label-primary-foreground);
   background-color: var(--dsw-alias-button-primary-fill);

@@ -6,7 +6,27 @@ import { contextFeatureEn } from './contextFeature.js'
 import { deleteFeatureEn } from './deleteFeature.js'
 import { usageFeatureEn } from './usageFeature.js'
 
+import { libraryEn } from '../services/library/strings.js'
+
 export const en = {
+  ...libraryEn,
+  chooseOption: 'Choose an option',
+  settingsAccountGroup: 'Account',
+  settingsPrivacyGroup: 'Data and privacy',
+  settingsAppGroup: 'App preferences',
+  settingsVoiceGroup: 'Voice',
+  settingsAboutGroup: 'About',
+  settingsKeysTitle: 'API keys',
+  settingsDefaultUser: 'DeepSeek user',
+  settingsConfigured: 'Configured',
+  settingsNotSet: 'Not set',
+  settingsAppearance: 'Appearance',
+  settingsHelp: 'Help and feedback',
+  settingsVersion: 'Version {version}',
+  settingsHelpDetails: 'Add a key under API keys to chat using your API account.\nOpen Data management to import or export conversations. You can import an exported ZIP file again.\nFor help, contact leezzou@mail.ustc.edu.cn.',
+  previewSecurity: 'Security & app lock',
+  previewWebDav: 'Encrypted WebDAV backup',
+  credentialWriteFailed: 'Could not save your API configuration. Unlock the app and try again.',
   dshAccountExpired: 'Your session expired. Sign in again.',
   dshAccountInsufficient: 'Your account has insufficient balance. Check your balance or top up.',
   dshAccountLogin: 'Sign in to DeepSeek',
@@ -247,9 +267,7 @@ export const en = {
   personalizeName: 'Display name',
   personalizeNamePlaceholder: 'Pick a name',
   personalizeHint: 'Avatar and name stay on this device and are shown at the bottom of the drawer.',
-  settingsSignOut: 'Sign out',
-  settingsSignOutHint:
-    'Signing out removes stored API keys on this device (chat history is kept). You will need a key to chat again.',
+  settingsSignOut: 'Sign out of DeepSeek',
   signedOut: 'Signed out',
   checkUpdate: 'Check for updates',
   updateChecking: 'Checking for updates…',

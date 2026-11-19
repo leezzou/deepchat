@@ -81,7 +81,8 @@ export const describeReadAloudError = (error: unknown): TranslationMessage | str
 export const toggleReadAloud = (
   messageId: string,
   text: string,
-  onError: (error: unknown) => void
+  onError: (error: unknown) => void,
+  sessionId?: string
 ) => {
   const reading = useReadAloud.getState().messageId
   stopReadAloud()
@@ -100,7 +101,7 @@ export const toggleReadAloud = (
     let lastSource: AudioBufferSourceNode | null = null
     let rest = new Uint8Array(0)
     try {
-      const stream = await synthesize(requireChatAccess(), text, ttsVoice, controller.signal)
+      const stream = await synthesize(requireChatAccess(sessionId), text, ttsVoice, controller.signal)
       const reader = stream.getReader()
       controller.signal.addEventListener('abort', () => void reader.cancel().catch(() => {}))
       for (;;) {

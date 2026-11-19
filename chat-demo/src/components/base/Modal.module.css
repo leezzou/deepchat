@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   background-color: rgba(0, 0, 0, var(--overlay-opacity));
-  backdrop-filter: blur(2px);
+  /* The quiet scrim leaves the underlying page recognizable while a sheet moves. */
 
   [data-ds-dark-theme] & {
     --overlay-opacity: 0.6;
@@ -94,7 +94,44 @@
 .overlay[data-placement='bottom'] > .content {
   width: min(100%, 560px);
   border-radius: 24px 24px 0 0;
-  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+  padding: 10px var(--dc-gutter) calc(16px + env(safe-area-inset-bottom));
+  background: var(--dc-surface);
+  box-shadow: 0 -4px 24px rgb(15 20 36 / 8%);
+}
+.overlay[data-placement='bottom'] > .content::before {
+  content: '';
+  width: 32px;
+  height: 4px;
+  flex: none;
+  margin: 0 auto 8px;
+  border-radius: 4px;
+  background: var(--dc-line);
+}
+.overlay[data-placement='bottom'] .header {
+  flex: none;
+  min-height: 48px;
+  margin-bottom: 8px;
+}
+.overlay[data-placement='bottom'] .title {
+  color: var(--dc-ink);
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 600;
+}
+.overlay[data-placement='bottom'] .close {
+  width: var(--dc-touch);
+  height: var(--dc-touch);
+  color: var(--dc-secondary);
+}
+.overlay[data-placement='bottom'] .close svg { width: 18px; height: 18px; }
+.overlay[data-placement='bottom'] .footer > button {
+  height: auto;
+  min-height: var(--dc-touch);
+  white-space: normal;
+}
+@media (max-height: 420px) {
+  .overlay[data-placement='bottom'] > .content { padding-top: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); }
+  .overlay[data-placement='bottom'] .header { min-height: 40px; margin-bottom: 4px; }
 }
 
 .overlay[data-modal-state='closing'] > .content {

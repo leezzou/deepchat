@@ -18,6 +18,7 @@ import {
 } from './BranchSwitcher.js'
 import { MessageFile } from './MessageFile.js'
 import { CopyButton } from './CopyButton.js'
+import { MoreMessageButton } from './MessageTools.js'
 import actionStyles from './MessageActions.module.css'
 import styles from './UserMessage.module.css'
 
@@ -31,6 +32,7 @@ export const UserMessage = memo(function UserMessage({
   versions,
   onSelectVersion,
   onDelete,
+  onOpenMenu,
 }: {
   sessionId: string
   message: UserMessageType
@@ -41,6 +43,7 @@ export const UserMessage = memo(function UserMessage({
   busy: boolean
   versions: MessageVersions
   onSelectVersion: SelectMessageVersion
+  onOpenMenu: (id: string) => void
   onDelete: (message: UserMessageType) => void
 }) {
   const t = useTranslate()
@@ -61,7 +64,7 @@ export const UserMessage = memo(function UserMessage({
   }, [editing, draft])
 
   const sendEdit = () => {
-    if (canSend && ensureApiKey() && editMessage(sessionId, message.id, draft.trim())) {
+    if (canSend && ensureApiKey(sessionId) && editMessage(sessionId, message.id, draft.trim())) {
       stopReadAloud()
       setEditing(false)
     }
@@ -120,9 +123,10 @@ export const UserMessage = memo(function UserMessage({
       ) : (
         <>
           {message.content ? <div className={styles.bubble}>{message.content}</div> : null}
-          <div className={styles.bottom}>
+          <div className={styles.bottom} data-message-actions>
             <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
               {message.content ? <CopyButton text={message.content} /> : null}
+              <MoreMessageButton id={message.id} onOpen={onOpenMenu} />
               <IconButton
                 icon={<IconEditOutline16 />}
                 className={actionStyles.action}

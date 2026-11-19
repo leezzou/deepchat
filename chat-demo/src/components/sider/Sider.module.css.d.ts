@@ -24,7 +24,8 @@ declare const styles: {
   readonly avatarImage: string
   readonly collapsedItem: string
   readonly updateDot: string
-  readonly footerMoreWrap: string
+  readonly accountButton: string
+  readonly footerSettings: string
   readonly searchPill: string
   readonly searchIcon: string
   readonly searchInput: string

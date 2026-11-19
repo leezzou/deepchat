@@ -226,7 +226,7 @@ const numberMessages = (messages: Message[]) => {
   return { ordered, ids }
 }
 
-export const toSessionFile = (original: Session, exportImage: ExportImage): SessionFile => {
+export const toSessionFile = (original: Session, exportImage: ExportImage, preserveIds = false): SessionFile => {
   const session = normalizeSession(original)
   const { ordered, ids } = numberMessages(session.messages)
   const id = (message: Message) => ids.get(message.id) ?? fail('backupInvalidBranches')
@@ -245,6 +245,7 @@ export const toSessionFile = (original: Session, exportImage: ExportImage): Sess
     const reply = message.role === 'assistant' ? message : firstReply.get(message.id)
     return {
       ...tree,
+      ...(preserveIds ? { deepchat_local_id: message.id } : {}),
       role: message.role === 'user' ? 'USER' : 'ASSISTANT',
       ...(message.role !== 'assistant' || message.contextUserId === undefined ? {} : {
         deepchat_context_user_id: message.contextUserId === null ? null : (ids.get(message.contextUserId) ?? null),
