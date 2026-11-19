@@ -19,6 +19,9 @@ export function capturePortableMetadata(sessionIds: readonly string[]) {
   const active = new Set(sessionIds)
   library.sessions = library.sessions.filter((row) => active.has(row.sessionId))
   library.favorites = library.favorites.filter((row) => active.has(row.sessionId))
+  library.memories = library.memories.filter(
+    (row) => row.sessionId === null || active.has(row.sessionId)
+  )
   return { version: 1 as const, library, modes: exportConversationModes(sessionIds) }
 }
 export type PortableMetadata = ReturnType<typeof capturePortableMetadata>
@@ -39,7 +42,10 @@ export function validatePortableMetadata(
   try {
     const library = validateLibrarySnapshot(item.library)
     const ids = new Set(sessionIds)
-    if ([...library.sessions, ...library.favorites].some((row) => !ids.has(row.sessionId))) {
+    if (
+      [...library.sessions, ...library.favorites].some((row) => !ids.has(row.sessionId)) ||
+      library.memories.some((row) => row.sessionId !== null && !ids.has(row.sessionId))
+    ) {
       throw new PortableError('format')
     }
     return { version: 1, library, modes: validateConversationModes(item.modes, sessionIds) }

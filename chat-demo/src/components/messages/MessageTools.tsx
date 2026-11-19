@@ -261,7 +261,7 @@ export function useMessageTools(sessionId: string, messages: Message[]) {
           </div>
         </Modal>
       ) : memory !== null ? (
-        <MemoryEditor key="memory" message={memory} onClose={() => setMemory(null)} />
+        <MemoryEditor key="memory" sessionId={sessionId} message={memory} onClose={() => setMemory(null)} />
       ) : preview ? (
         <SharePreview key="preview" messages={preview} onClose={() => setPreview(null)} />
       ) : null}

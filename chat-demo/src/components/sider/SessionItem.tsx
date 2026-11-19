@@ -21,12 +21,14 @@ export const SessionItem = memo(function SessionItem({
   session,
   active,
   attributes,
+  sharesFolderMemory,
   onMove,
   onDelete,
 }: {
   session: SessionSummary
   active: boolean
   attributes?: SessionAttributes
+  sharesFolderMemory: boolean
   onMove: () => void
   onDelete: () => void
 }) {
@@ -98,7 +100,9 @@ export const SessionItem = memo(function SessionItem({
             },
             {
               key: 'memory',
-              label: t(attributes?.memoryEnabled ? 'libMemoryOff' : 'libMemoryOn'),
+              label: sharesFolderMemory
+                ? t(attributes?.memoryEnabled ? 'libUsePersonalOff' : 'libUsePersonalOn')
+                : t(attributes?.memoryEnabled ? 'libMemoryOff' : 'libMemoryOn'),
               icon: <LibraryIcon name="memory" />,
               onSelect: () =>
                 modify(() => setMemoryEnabled(session.id, !attributes?.memoryEnabled)),

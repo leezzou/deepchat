@@ -25,7 +25,7 @@ import {
   type ConversationMode,
 } from '../conversationMode/storage.js'
 import { conversationInstructions } from '../conversationMode/prompt.js'
-import { promoteLibraryDraft, removeLibrarySession } from '../library/index.js'
+import { promoteLibraryDraft, removeLibrarySession, setDraftFolder } from '../library/index.js'
 import { useSettings } from '../settings.js'
 import { resolveLocale } from '../../i18n/index.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
@@ -622,8 +622,9 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
   }
 }
 
-export const newChat = () => {
+export const newChat = (folderId: string | null = null) => {
   if (!get().importingHistory) {
+    setDraftFolder(folderId)
     set({ activeId: null })
     trimSessionCache()
   }

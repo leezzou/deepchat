@@ -1,5 +1,5 @@
 /** Only these fields may cross the backup boundary. Never serialize settings or session objects. */
-export type Folder = { id: string; name: string }
+export type Folder = { id: string; name: string; shareMemory: boolean }
 export type SessionAttributes = {
   sessionId: string
   folderId: string | null
@@ -7,18 +7,20 @@ export type SessionAttributes = {
   memoryEnabled: boolean
 }
 export type Favorite = { sessionId: string; messageId: string; excerpt: string }
-export type Memory = { id: string; text: string }
+export type Memory = { id: string; text: string; sessionId: string | null }
 export type LibrarySnapshot = {
-  version: 1
+  version: 2
   folders: Folder[]
   sessions: SessionAttributes[]
   favorites: Favorite[]
   memories: Memory[]
 }
 export const MEMORY_LIMIT = 2000
+export const GUIDE_FOLDER_ID = 'deepchat-guide-folder'
+const guideFolder = (): Folder => ({ id: GUIDE_FOLDER_ID, name: '示例文件夹', shareMemory: false })
 export const emptyLibrary = (): LibrarySnapshot => ({
-  version: 1,
-  folders: [],
+  version: 2,
+  folders: [guideFolder()],
   sessions: [],
   favorites: [],
   memories: [],
@@ -67,14 +69,19 @@ const rows = <T>(input: unknown, parse: (item: unknown) => T, key: (item: T) => 
 }
 export const validateLibrarySnapshot = (input: unknown): LibrarySnapshot => {
   const root = fields(input, ['version', 'folders', 'sessions', 'favorites', 'memories'])
-  if (root.version !== 1) {
+  const legacy = root.version === 1
+  if (!legacy && root.version !== 2) {
     return invalid()
   }
   const folders = rows(
     root.folders,
     (item) => {
-      const row = fields(item, ['id', 'name'])
-      return { id: id(row.id), name: text(row.name, 80) }
+      const row = fields(item, legacy ? ['id', 'name'] : ['id', 'name', 'shareMemory'])
+      return {
+        id: id(row.id),
+        name: text(row.name, 80),
+        shareMemory: legacy ? false : flag(row.shareMemory),
+      }
     },
     (row) => row.id
   )
@@ -111,10 +118,18 @@ export const validateLibrarySnapshot = (input: unknown): LibrarySnapshot => {
   const memories = rows(
     root.memories,
     (item) => {
-      const row = fields(item, ['id', 'text'])
-      return { id: id(row.id), text: text(row.text, MEMORY_LIMIT) }
+      const row = fields(item, legacy ? ['id', 'text'] : ['id', 'text', 'sessionId'])
+      return {
+        id: id(row.id),
+        text: text(row.text, MEMORY_LIMIT),
+        sessionId: legacy || row.sessionId === null ? null : id(row.sessionId),
+      }
     },
     (row) => row.id
   )
-  return { version: 1, folders, sessions, favorites, memories }
+  // Only seed on migration or first install. An empty v2 folder list is an explicit choice.
+  if (legacy && !folderIds.has(GUIDE_FOLDER_ID) && folders.length < 100000) {
+    folders.push(guideFolder())
+  }
+  return { version: 2, folders, sessions, favorites, memories }
 }

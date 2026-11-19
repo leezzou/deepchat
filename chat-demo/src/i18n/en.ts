@@ -10,6 +10,15 @@ import { libraryEn } from '../services/library/strings.js'
 
 export const en = {
   ...libraryEn,
+  memoryGlobal: 'General memory',
+  memorySaveGeneral: 'Saved on this device. Each chat can opt in.',
+  memorySaveToChat: 'Saved to its original chat and shared according to its folder settings.',
+  memoryThisChat: 'From this chat',
+  memoryFromFolder: 'From another chat in this folder',
+  memoryIncludeGlobal: 'Also use general memories',
+  memoryPrivateScope: 'When enabled, memories from this chat and general memories are sent to the selected provider with your messages.',
+  memoryFolderScope: 'Sharing is on in “{name}”. Messages include saved memories from chats in this folder.',
+  memoryFolderDraft: 'Send the first message in this folder to save a memory for the new chat.',
   chooseOption: 'Choose an option',
   settingsAccountGroup: 'Account',
   settingsPrivacyGroup: 'Data and privacy',

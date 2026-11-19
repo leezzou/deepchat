@@ -5,6 +5,8 @@ import { useChatStore } from '../../services/chat/store.js'
 import {
   deleteMemory,
   getMemoryEnabled,
+  getSessionFolderId,
+  getVisibleMemories,
   setMemoryEnabled,
   type Memory,
 } from '../../services/library/index.js'
@@ -23,8 +25,11 @@ type Action = { kind: 'edit'; memory?: Memory } | { kind: 'delete'; memory: Memo
 export const MemorySettings = () => {
   const t = useTranslate()
   const mobile = useIsSettingsMobile()
-  const { memories } = useLibrarySnapshot()
+  const { folders } = useLibrarySnapshot()
   const activeId = useChatStore((state) => state.activeId)
+  const memories = getVisibleMemories(activeId)
+  const folder = folders.find((item) => item.id === getSessionFolderId(activeId))
+  const folderDraft = Boolean(folder && !activeId)
   const title = useChatStore(
     (state) => state.sessions.find((session) => session.id === activeId)?.title
   )
@@ -45,14 +50,14 @@ export const MemorySettings = () => {
         <h3 className={styles.heading}>{t('libMemoryChat')}</h3>
         <label className={styles.switchRow}>
           <span className={styles.chatText}>
-            <span>{t('libMemoryUse')}</span>
+            <span>{t(folder?.shareMemory ? 'memoryIncludeGlobal' : 'libMemoryUse')}</span>
             <small>{title || t(activeId ? 'untitledChat' : 'libNewChat')}</small>
           </span>
           <input
             className="dc-local-switch"
             type="checkbox"
             role="switch"
-            aria-label={t('libMemoryUse')}
+            aria-label={t(folder?.shareMemory ? 'memoryIncludeGlobal' : 'libMemoryUse')}
             aria-describedby={description}
             checked={getMemoryEnabled(activeId)}
             onChange={({ currentTarget }) =>
@@ -61,7 +66,9 @@ export const MemorySettings = () => {
           />
         </label>
         <p id={description} className={styles.scope}>
-          {t('libMemoryScope')}
+          {folder?.shareMemory
+            ? t('memoryFolderScope', { name: folder.name })
+            : t('memoryPrivateScope')}
         </p>
       </section>
       <section>
@@ -86,8 +93,19 @@ export const MemorySettings = () => {
                     aria-label={`${t('libMemoryEdit')} · ${memory.text}`}
                     onClick={() => setAction({ kind: 'edit', memory })}
                   >
-                    <span className={styles.excerpt} dir="auto">
-                      {memory.text}
+                    <span className={styles.memoryBody}>
+                      <span className={styles.excerpt} dir="auto">
+                        {memory.text}
+                      </span>
+                      <small>
+                        {t(
+                          memory.sessionId === null
+                            ? 'memoryGlobal'
+                            : memory.sessionId === activeId
+                              ? 'memoryThisChat'
+                              : 'memoryFromFolder'
+                        )}
+                      </small>
                     </span>
                     <IconChevronRightOutline14 />
                   </button>
@@ -102,16 +120,21 @@ export const MemorySettings = () => {
               ))}
             </ul>
           )}
-          <button className={styles.add} onClick={() => setAction({ kind: 'edit' })}>
+          <button
+            className={styles.add}
+            disabled={folderDraft}
+            onClick={() => setAction({ kind: 'edit' })}
+          >
             <span className={styles.plus} aria-hidden="true" />
             {t('libMemoryAdd')}
           </button>
         </div>
+        {folderDraft && <p className={styles.scope}>{t('memoryFolderDraft')}</p>}
       </section>
       <ModalPresence>
         {action &&
           (action.kind === 'edit' ? (
-            <MemoryEditor memory={action.memory} onClose={close} />
+            <MemoryEditor sessionId={activeId} memory={action.memory} onClose={close} />
           ) : (
             <Modal
               title={t('libMemoryDeleteConfirm')}

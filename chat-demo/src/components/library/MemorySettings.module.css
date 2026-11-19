@@ -123,6 +123,19 @@
   padding: 12px 4px 12px 12px;
   text-align: start;
 }
+.memoryBody {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.memoryBody small {
+  color: var(--dc-secondary);
+  font-size: 13px;
+}
+.add:disabled {
+  color: var(--dc-secondary);
+  cursor: default;
+}
 .excerpt {
   display: -webkit-box;
   overflow: hidden;

@@ -75,7 +75,7 @@ test('strict backup roundtrip includes only known fields, refuses duplicates, da
   assert.doesNotMatch(JSON.stringify(snapshot), /SECRET_SENTINEL/)
   for (const bad of [
     { ...snapshot, apiKey: 'private' },
-    { ...snapshot, version: 2 },
+    { ...snapshot, version: 3 },
     { ...snapshot, folders: [{ ...snapshot.folders[0], token: 'private' }] },
     { ...snapshot, sessions: [{ ...snapshot.sessions[0], cookie: 'private' }] },
     { ...snapshot, favorites: [{ ...snapshot.favorites[0], credential: 'private' }] },
@@ -114,4 +114,107 @@ test('a malformed stored snapshot survives reads and attempted edits', () => {
   assert.throws(() => lib.exportLibrarySnapshot())
   assert.throws(() => lib.createFolder('Lost'))
   assert.equal(disk.get(key), '{invalid')
+})
+
+const visibleTexts = (sessionId) => lib.getVisibleMemories(sessionId).map((row) => row.text)
+
+test('old storage and backups migrate once with the ordinary removable guide folder', async () => {
+  const key = 'deepseek.local-library.v1'
+  const old = {
+    version: 1,
+    folders: [{ id: 'work', name: 'Work' }],
+    sessions: [{ sessionId: 'a', folderId: 'work', pinned: true, memoryEnabled: true }],
+    favorites: [{ sessionId: 'a', messageId: 'reply', excerpt: 'saved' }],
+    memories: [{ id: 'old', text: 'global preference' }],
+  }
+  assert.deepEqual(empty.folders, [
+    { id: lib.GUIDE_FOLDER_ID, name: '示例文件夹', shareMemory: false },
+  ])
+  disk.set(key, JSON.stringify(old))
+  const migrated = lib.exportLibrarySnapshot()
+  assert.equal(migrated.version, 2)
+  assert.deepEqual(migrated.folders, [{ ...old.folders[0], shareMemory: false }, ...empty.folders])
+  assert.deepEqual(migrated.memories, [{ ...old.memories[0], sessionId: null }])
+  assert.deepEqual(migrated.sessions, old.sessions)
+  assert.deepEqual(migrated.favorites, old.favorites)
+  assert.deepEqual(JSON.parse(disk.get(key)), migrated)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['global preference'])
+  assert.deepEqual(lib.getSessionMemoryTexts('b'), [])
+  lib.restoreLibrarySnapshot(old)
+  assert.deepEqual(lib.exportLibrarySnapshot(), migrated)
+  lib.updateFolder(lib.GUIDE_FOLDER_ID, 'Renamed guide', true)
+  lib.deleteFolder(lib.GUIDE_FOLDER_ID)
+  const reopened = await import('./index.ts?reopen')
+  const after = reopened.exportLibrarySnapshot()
+  assert.deepEqual(after.folders, [{ id: 'work', name: 'Work', shareMemory: false }])
+  reopened.restoreLibrarySnapshot(after)
+  assert.deepEqual(reopened.exportLibrarySnapshot(), after)
+})
+
+test('folder sharing follows current membership while personal and global memories remain opt-in', () => {
+  const work = lib.createFolder('Work', 'a', true)
+  const home = lib.createFolder('Home', 'c', true)
+  lib.moveSessionToFolder('b', work)
+  lib.addMemory('global')
+  for (const id of ['a', 'b', 'c', 'unfiled']) {
+    lib.addMemory(id, id)
+  }
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['b', 'a'])
+  assert.deepEqual(visibleTexts('b'), ['b', 'a', 'global'])
+  assert.deepEqual(lib.getSessionMemoryTexts('unfiled'), [])
+  assert.deepEqual(visibleTexts('another unfiled'), ['global'])
+  lib.setMemoryEnabled('a', true)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['b', 'a', 'global'])
+  lib.updateFolder(work, 'Project', false)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['a', 'global'])
+  assert.deepEqual(lib.getSessionMemoryTexts('b'), [])
+  assert.deepEqual(visibleTexts('b'), ['b', 'global'])
+  lib.updateFolder(work, 'Project', true)
+  lib.moveSessionToFolder('b', home)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['a', 'global'])
+  assert.deepEqual(visibleTexts('b'), ['c', 'b', 'global'])
+  lib.deleteFolder(home)
+  assert.deepEqual(lib.getSessionMemoryTexts('b'), [])
+  assert.deepEqual(visibleTexts('b'), ['b', 'global'])
+  lib.removeLibrarySession('b')
+  assert.deepEqual(visibleTexts('b'), ['global'])
+  assert.deepEqual(visibleTexts('c'), ['c', 'global'])
+})
+
+test('folder drafts share from the first turn and promote their preference and folder together', () => {
+  const folder = lib.createFolder('Project', 'source', true)
+  lib.addMemory('source text', 'source')
+  lib.addMemory('global')
+  lib.setDraftFolder(folder)
+  assert.equal(lib.getSessionFolderId(null), folder)
+  assert.deepEqual(lib.getSessionMemoryTexts(null), ['source text'])
+  lib.setMemoryEnabled(null, true)
+  assert.deepEqual(lib.getSessionMemoryTexts(null), ['global', 'source text'])
+  const before = lib.exportLibrarySnapshot()
+  full = true
+  assert.throws(() => lib.promoteLibraryDraft('created'))
+  assert.deepEqual(lib.exportLibrarySnapshot(), before)
+  assert.equal(lib.getSessionFolderId(null), folder)
+  full = false
+  lib.promoteLibraryDraft('created')
+  assert.equal(lib.getSessionFolderId(null), null)
+  assert.equal(lib.getSessionFolderId('created'), folder)
+  assert.deepEqual(lib.getSessionMemoryTexts('created'), ['global', 'source text'])
+  assert.deepEqual(lib.getSessionMemoryTexts(null), [])
+  lib.setDraftFolder(folder)
+  lib.deleteFolder(folder)
+  lib.promoteLibraryDraft('after-delete')
+  assert.deepEqual(lib.getSessionMemoryTexts('after-delete'), [])
+  assert.equal(lib.getSessionFolderId('after-delete'), null)
+})
+
+test('failed shared-folder updates preserve both persisted name and permissions', () => {
+  const folder = lib.createFolder('Keep', 'a', true)
+  lib.addMemory('shared', 'a')
+  const before = lib.exportLibrarySnapshot()
+  assert.throws(() => lib.updateFolder(folder, '  ', false))
+  full = true
+  assert.throws(() => lib.updateFolder(folder, 'Changed', false))
+  assert.deepEqual(lib.exportLibrarySnapshot(), before)
+  assert.deepEqual(lib.getSessionMemoryTexts('a'), ['shared'])
 })

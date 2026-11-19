@@ -145,8 +145,8 @@ export async function verifyPortable(browser, temporary) {
           sessionCache: { [id]: session },
           ready: true,
         })
-        m.library.createFolder(id, id)
-        m.library.addMemory('memory ' + id)
+        m.library.createFolder(id, id, true)
+        m.library.addMemory('memory ' + id, id)
         m.library.toggleFavorite(id, 'answer', 'reply ' + id)
         const template = m.modes.savePromptTemplate('template ' + id, 'instruction ' + id)
         m.modes.setConversationMode(id, { templateId: template, profileId: 'local-profile-id' })
@@ -206,6 +206,11 @@ export async function verifyPortable(browser, temporary) {
     assert.deepEqual(restored.history, ['source'])
     assert.equal(restored.library.favorites[0].messageId, 'answer')
     assert.equal(restored.library.memories[0].text, 'memory source')
+    assert.equal(restored.library.memories[0].sessionId, 'source')
+    assert.equal(
+      restored.library.folders.find((folder) => folder.name === 'source').shareMemory,
+      true
+    )
     assert.equal(restored.modes.templates[0].prompt, 'instruction source')
     assert.deepEqual(restored.modes.sessions[0], {
       sessionId: 'source',

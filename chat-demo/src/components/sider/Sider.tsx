@@ -26,7 +26,7 @@ import { SessionItem } from './SessionItem.js'
 import { openHistorySearch } from '../historySearch/historySearchState.js'
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { moveSessionToFolder } from '../../services/library/index.js'
-import { FolderPicker, type FolderFilter } from '../library/FolderPicker.js'
+import { FolderPicker } from '../library/FolderPicker.js'
 import { Favorites } from '../library/Favorites.js'
 import { LibraryIcon } from '../library/LibraryIcon.js'
 import { IconChevronDownOutline14 } from '../base/icons.js'
@@ -61,17 +61,21 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
   const activeId = useChatStore((state) => state.activeId)
   const [now, setNow] = useState(Date.now)
   const library = useLibrarySnapshot()
-  const [filter, setFilter] = useState<FolderFilter>()
+  const [filter, setFilter] = useState<string>()
   const [foldersOpen, setFoldersOpen] = useState(false)
   const [moving, setMoving] = useState<string | null>(null)
   const [favoritesOpen, setFavoritesOpen] = useState(false)
   const drawerOpen = useMobileSider((state) => state.open)
   useBackLayer(mobile && drawerOpen && favoritesOpen, () => setFavoritesOpen(false), -9)
   const folder = library.folders.find((item) => item.id === filter)
-  const selected = filter === null ? null : folder?.id
+  const selected = folder?.id
   const attributes = useMemo(
     () => new Map(library.sessions.map((row) => [row.sessionId, row])),
     [library.sessions]
+  )
+  const sharedFolders = useMemo(
+    () => new Set(library.folders.filter((item) => item.shareMemory).map((item) => item.id)),
+    [library.folders]
   )
   const groups = useMemo(() => {
     const visible = sessions.filter(
@@ -124,7 +128,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
               icon={<IconNewChatOutline20 />}
               aria-label={t('newChat')}
               onClick={() => {
-                newChat()
+                newChat(folder?.id)
                 closeMobileSider()
               }}
             />
@@ -162,7 +166,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             type="button"
             className={styles.newChat}
             onClick={() => {
-              newChat()
+              newChat(folder?.id)
               closeMobileSider()
             }}
           >
@@ -192,14 +196,14 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
         </button>
         <button
           type="button"
-          aria-label={`${t('libFolders')} · ${folder?.name ?? t(selected === null ? 'libUngrouped' : 'libAll')}`}
+          aria-label={`${t('libFolders')} · ${folder?.name ?? t('libAll')}`}
           className="lib-folder-trigger"
           aria-expanded={foldersOpen}
           aria-haspopup="dialog"
           onClick={() => setFoldersOpen(true)}
         >
           <LibraryIcon name="folder" />
-          <span>{folder?.name ?? t(selected === null ? 'libUngrouped' : 'libAll')}</span>
+          <span>{folder?.name ?? t('libAll')}</span>
           <IconChevronDownOutline14 />
         </button>
       </nav>
@@ -228,6 +232,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
                     session={session}
                     active={session.id === activeId}
                     attributes={attributes.get(session.id)}
+                    sharesFolderMemory={sharedFolders.has(attributes.get(session.id)?.folderId ?? '')}
                     onMove={() => setMoving(session.id)}
                     onDelete={() => setDeleting(session)}
                   />
@@ -244,8 +249,11 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             className={styles.accountButton}
             aria-label={`${userName} · ${english ? 'DeepSeek account' : 'DeepSeek 账号'}`}
             onClick={() => {
-              if (hasAccountBridge) openAccount()
-              else showToast(english ? 'Open DeepChat on Android to manage your DeepSeek account.' : '请在 Android 版 DeepChat 中管理 DeepSeek 账号。')
+              if (hasAccountBridge) {
+                openAccount()
+              } else {
+                showToast(english ? 'Open DeepChat on Android to manage your DeepSeek account.' : '请在 Android 版 DeepChat 中管理 DeepSeek 账号。')
+              }
             }}
           >
             <span className={styles.avatar}>
@@ -286,7 +294,7 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
       <ModalPresence>
         {moving && (
           <FolderPicker
-            current={attributes.get(moving)?.folderId ?? null}
+            current={attributes.get(moving)?.folderId ?? undefined}
             moveSessionId={moving}
             onClose={() => setMoving(null)}
             onPick={(value) => moveSessionToFolder(moving, value ?? null)}

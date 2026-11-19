@@ -1,38 +1,33 @@
+import { useEffect, useId, useRef, useState } from 'react'
 import { useIsMobile } from '../../app/viewport.js'
-import { LibraryIcon } from './LibraryIcon.js'
-import { Menu } from '../base/Menu.js'
-import { useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import {
   createFolder,
   deleteFolder,
-  renameFolder,
+  GUIDE_FOLDER_ID,
+  updateFolder,
   type Folder,
 } from '../../services/library/index.js'
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
-import {
-  IconCheckOutline16,
-  IconEditOutline16,
-  IconEllipsisOutline16,
-  IconTrashOutline16,
-} from '../base/icons.js'
+import { IconCheckOutline16, IconEditOutline16, IconTrashOutline16 } from '../base/icons.js'
 import { Modal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
+import { LibraryIcon } from './LibraryIcon.js'
 import './library.css'
+import './localSwitch.css'
 
-export type FolderFilter = string | null | undefined // undefined = all chats, null = unfiled
+type Editor = { id?: string; name: string; shareMemory: boolean }
 
-type Editor = { kind: 'name'; id?: string; name: string } | { kind: 'delete'; folder: Folder }
 export const FolderPicker = ({
   current,
   onPick,
   onClose,
   moveSessionId,
 }: {
-  current: FolderFilter
-  onPick: (filter: FolderFilter) => void
+  current: string | undefined
+  onPick: (folderId: string | undefined) => void
   onClose: () => void
   moveSessionId?: string
 }) => {
@@ -40,7 +35,29 @@ export const FolderPicker = ({
   const placement = useIsMobile() ? 'bottom' : 'center'
   const { folders } = useLibrarySnapshot()
   const [editor, setEditor] = useState<Editor | null>(null)
-  const choose = (value: FolderFilter) => {
+  const [deleting, setDeleting] = useState<Folder | null>(null)
+  const listRef = useRef<HTMLUListElement>(null)
+  const returnToList = useRef(false)
+  const nameId = useId()
+  const scopeId = useId()
+  const guide = folders.find((folder) => folder.id === GUIDE_FOLDER_ID)
+  const [showGuide] = useState(() => {
+    try {
+      return localStorage.getItem('deepchat:folder-guide-seen') !== '1'
+    } catch {
+      return true
+    }
+  })
+  useEffect(() => {
+    if (guide && !moveSessionId && showGuide) {
+      try {
+        localStorage.setItem('deepchat:folder-guide-seen', '1')
+      } catch {
+        // The guide remains usable when browser storage is unavailable.
+      }
+    }
+  }, [guide, moveSessionId, showGuide])
+  const choose = (value: string | undefined) => {
     try {
       onPick(value)
       onClose()
@@ -53,12 +70,10 @@ export const FolderPicker = ({
       return
     }
     try {
-      if (editor.kind === 'delete') {
-        deleteFolder(editor.folder.id)
-      } else if (editor.id) {
-        renameFolder(editor.id, editor.name)
+      if (editor.id) {
+        updateFolder(editor.id, editor.name, editor.shareMemory)
       } else {
-        const folderId = createFolder(editor.name, moveSessionId)
+        const folderId = createFolder(editor.name, moveSessionId, editor.shareMemory)
         if (!moveSessionId) {
           onPick(folderId)
         }
@@ -69,16 +84,19 @@ export const FolderPicker = ({
       showToast({ key: 'libSaveError', type: 'error' })
     }
   }
-  const option = (value: FolderFilter, name: string) => (
+  const option = (folder?: Folder) => (
     <button
       type="button"
       className="lib-option"
-      aria-pressed={current === value}
-      onClick={() => choose(value)}
+      aria-pressed={current === folder?.id}
+      onClick={() => choose(folder?.id)}
     >
-      <LibraryIcon name={value === undefined ? 'chats' : 'folder'} />
-      <span>{name}</span>
-      {current === value && <IconCheckOutline16 />}
+      <LibraryIcon name={folder ? 'folder' : 'chats'} />
+      <span>
+        {folder?.name ?? t('libAll')}
+        {folder?.shareMemory && <small className="lib-shared-status">{t('libSharingOn')}</small>}
+      </span>
+      {current === folder?.id && <IconCheckOutline16 />}
     </button>
   )
   return (
@@ -89,85 +107,73 @@ export const FolderPicker = ({
         closable
         onClose={onClose}
         footer={
-          <Button block variant="outlined" onClick={() => setEditor({ kind: 'name', name: '' })}>
+          <Button
+            block
+            variant="outlined"
+            onClick={() => setEditor({ name: '', shareMemory: false })}
+          >
             {t(moveSessionId ? 'libCreateMove' : 'libNewFolder')}
           </Button>
         }
       >
-        <ul className="lib-rows lib-folder-options">
-          {!moveSessionId && <li className="lib-row">{option(undefined, t('libAll'))}</li>}
-          <li className="lib-row">{option(null, t('libUngrouped'))}</li>
+        <ul className="lib-rows lib-folder-options" ref={listRef}>
+          {!moveSessionId && <li className="lib-row">{option()}</li>}
           {folders.map((folder) => (
             <li className="lib-row" key={folder.id}>
-              {option(folder.id, folder.name)}
+              {option(folder)}
               {!moveSessionId && (
-                <Menu
-                  options={[
-                    {
-                      key: 'rename',
-                      label: t('libRenameFolder'),
-                      icon: <IconEditOutline16 />,
-                      onSelect: () => setEditor({ kind: 'name', id: folder.id, name: folder.name }),
-                    },
-                    {
-                      key: 'delete',
-                      label: t('libDeleteFolder'),
-                      icon: <IconTrashOutline16 />,
-                      danger: true,
-                      onSelect: () => setEditor({ kind: 'delete', folder }),
-                    },
-                  ]}
-                >
-                  {({ open, toggle }) => (
-                    <IconButton
-                      icon={<IconEllipsisOutline16 />}
-                      aria-label={`${t('libManageFolders')} · ${folder.name}`}
-                      aria-expanded={open}
-                      aria-haspopup="menu"
-                      onClick={toggle}
-                    />
-                  )}
-                </Menu>
+                <IconButton
+                  icon={<IconEditOutline16 />}
+                  aria-label={`${t('libEditFolder')} · ${folder.name}`}
+                  aria-haspopup="dialog"
+                  onClick={() => setEditor({ ...folder })}
+                />
               )}
             </li>
           ))}
         </ul>
+        {moveSessionId && current && (
+          <button className="lib-remove-folder" type="button" onClick={() => choose(undefined)}>
+            {t('libRemoveFromFolder')}
+          </button>
+        )}
+        {moveSessionId && !folders.length && <p className="lib-note">{t('libNoFolders')}</p>}
+        {!moveSessionId && guide && showGuide && (
+          <p className="lib-guide-note">{t('libGuideFolderNote', { name: guide.name })}</p>
+        )}
       </Modal>
-      <ModalPresence>
+      <ModalPresence
+        onExited={() => {
+          if (returnToList.current) {
+            returnToList.current = false
+            listRef.current
+              ?.querySelector<HTMLButtonElement>('.lib-option')
+              ?.focus({ preventScroll: true })
+          }
+        }}
+      >
         {editor && (
           <Modal
             placement={placement}
-            title={t(
-              editor.kind === 'delete'
-                ? 'libDeleteFolder'
-                : editor.id
-                  ? 'libRenameFolder'
-                  : 'libNewFolder'
-            )}
+            title={t(editor.id ? 'libEditFolder' : 'libNewFolder')}
             onClose={() => setEditor(null)}
             footer={
               <>
                 <Button variant="outlined" onClick={() => setEditor(null)}>
                   {t('cancel')}
                 </Button>
-                <Button
-                  disabled={editor.kind === 'name' && !editor.name.trim()}
-                  variant={editor.kind === 'delete' ? 'danger' : 'primary'}
-                  onClick={finish}
-                >
-                  {t(editor.kind === 'delete' ? 'delete' : 'libSave')}
+                <Button disabled={!editor.name.trim()} variant="primary" onClick={finish}>
+                  {t('libSave')}
                 </Button>
               </>
             }
           >
-            {editor.kind === 'delete' ? (
-              t('libFolderDeleteHint', { name: editor.folder.name })
-            ) : (
+            <div className="lib-folder-form">
+              <label htmlFor={nameId}>{t('libFolderName')}</label>
               <input
+                id={nameId}
                 className="lib-input"
                 maxLength={80}
-                aria-label={t('libFolderName')}
-                placeholder={t('libFolderName')}
                 value={editor.name}
                 onChange={(event) => setEditor({ ...editor, name: event.target.value })}
                 onKeyDown={(event) => {
@@ -180,7 +186,64 @@ export const FolderPicker = ({
                   }
                 }}
               />
-            )}
+              <label className="lib-switch-row">
+                <span>{t('libFolderShareMemory')}</span>
+                <input
+                  className="dc-local-switch"
+                  type="checkbox"
+                  role="switch"
+                  checked={editor.shareMemory}
+                  aria-describedby={scopeId}
+                  onChange={(event) => setEditor({ ...editor, shareMemory: event.target.checked })}
+                />
+              </label>
+              <p className="lib-note" id={scopeId}>
+                {t('libFolderShareScope')}
+              </p>
+              {editor.id && (
+                <button
+                  type="button"
+                  className="lib-folder-delete"
+                  onClick={() => setDeleting(folders.find((item) => item.id === editor.id) ?? null)}
+                >
+                  <IconTrashOutline16 />
+                  {t('libDeleteFolder')}
+                </button>
+              )}
+            </div>
+          </Modal>
+        )}
+      </ModalPresence>
+      <ModalPresence>
+        {deleting && (
+          <Modal
+            placement={placement}
+            title={t('libDeleteFolder')}
+            onClose={() => setDeleting(null)}
+            footer={
+              <>
+                <Button variant="outlined" onClick={() => setDeleting(null)}>
+                  {t('cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    try {
+                      deleteFolder(deleting.id)
+                      returnToList.current = true
+                      setDeleting(null)
+                      setEditor(null)
+                    } catch {
+                      showToast({ key: 'libSaveError', type: 'error' })
+                    }
+                  }}
+                >
+                  {t('delete')}
+                </Button>
+              </>
+            }
+          >
+            {t('libFolderDeleteHint', { name: deleting.name })}
           </Modal>
         )}
       </ModalPresence>

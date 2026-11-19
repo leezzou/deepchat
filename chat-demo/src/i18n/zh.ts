@@ -9,6 +9,15 @@ import { libraryZh } from '../services/library/strings.js'
 
 export const zh = {
   ...libraryZh,
+  memoryGlobal: '通用记忆',
+  memorySaveGeneral: '保存在此设备，可在各对话中启用。',
+  memorySaveToChat: '保存在来源对话，按该对话的文件夹设置共享。',
+  memoryThisChat: '来自本对话',
+  memoryFromFolder: '来自同文件夹的对话',
+  memoryIncludeGlobal: '同时使用通用记忆',
+  memoryPrivateScope: '开启后，本对话保存的记忆和通用记忆会随消息发送给所选服务商。',
+  memoryFolderScope: '“{name}”已开启共享。发送消息时会带上该文件夹内各对话保存的记忆。',
+  memoryFolderDraft: '先在这个文件夹中发送一条消息，即可为新对话保存记忆。',
   chooseOption: '请选择',
   settingsAccountGroup: '账户',
   settingsPrivacyGroup: '数据与隐私',

@@ -3,23 +3,37 @@ import {
   emptyLibrary,
   validateLibrarySnapshot,
   type LibrarySnapshot,
+  type Memory,
   type SessionAttributes,
 } from './schema.js'
 
-export { validateLibrarySnapshot, MEMORY_LIMIT } from './schema.js'
+export { validateLibrarySnapshot, MEMORY_LIMIT, GUIDE_FOLDER_ID } from './schema.js'
 export type { LibrarySnapshot, Favorite, Folder, Memory, SessionAttributes } from './schema.js'
 
 const storageKey = 'deepseek.local-library.v1'
 let state = emptyLibrary()
 let saved: string | null | undefined
 let draftEnabled = false
+let draftFolderId: string | null = null
 const listeners = new Set<() => void>()
 const notify = () => listeners.forEach((listener) => listener())
 const refresh = () => {
   const raw = localStorage.getItem(storageKey)
   if (raw !== saved) {
-    state = raw === null ? emptyLibrary() : validateLibrarySnapshot(JSON.parse(raw))
+    const parsed: unknown = raw === null ? null : JSON.parse(raw)
+    const next = raw === null ? emptyLibrary() : validateLibrarySnapshot(parsed)
+    state = next
     saved = raw
+    if (raw === null || (parsed as { version: number }).version === 1) {
+      // A full disk may still be read. Writes retry validation and persistence before notifying.
+      try {
+        const migrated = JSON.stringify(next)
+        localStorage.setItem(storageKey, migrated)
+        saved = migrated
+      } catch {
+        /* Keep the original persisted data and its in-memory projection. */
+      }
+    }
   }
 }
 // An unreadable or future-version library must not break chat startup or be silently overwritten.
@@ -53,7 +67,7 @@ export const exportLibrarySnapshot = (): LibrarySnapshot => {
   refresh()
   return validateLibrarySnapshot(state)
 }
-const persist = (next: LibrarySnapshot) => {
+const persist = (next: unknown) => {
   const clean = validateLibrarySnapshot(next)
   const raw = JSON.stringify(clean)
   localStorage.setItem(storageKey, raw)
@@ -61,7 +75,7 @@ const persist = (next: LibrarySnapshot) => {
   state = clean
   notify()
 }
-export const restoreLibrarySnapshot = (snapshot: LibrarySnapshot) => {
+export const restoreLibrarySnapshot = (snapshot: unknown) => {
   persist(snapshot)
   clearLibraryDraft()
 }
@@ -90,10 +104,10 @@ const updateAttributes = (
     }
   })
 }
-export const createFolder = (name: string, moveSessionId?: string): string => {
+export const createFolder = (name: string, moveSessionId?: string, shareMemory = false): string => {
   const id = createId()
   change((next) => {
-    next.folders.push({ id, name: name.trim() })
+    next.folders.push({ id, name: name.trim(), shareMemory })
     if (moveSessionId !== undefined) {
       const row = next.sessions.find((item) => item.sessionId === moveSessionId)
       if (row) {
@@ -110,14 +124,20 @@ export const createFolder = (name: string, moveSessionId?: string): string => {
   })
   return id
 }
-export const renameFolder = (id: string, name: string) =>
+const editFolder = (id: string, name: string, shareMemory?: boolean) =>
   change((next) => {
     const folder = next.folders.find((item) => item.id === id)
     if (!folder) {
       throw new Error('Missing folder')
     }
     folder.name = name.trim()
+    if (shareMemory !== undefined) {
+      folder.shareMemory = shareMemory
+    }
   })
+export const renameFolder = (id: string, name: string) => editFolder(id, name)
+export const updateFolder = (id: string, name: string, shareMemory: boolean) =>
+  editFolder(id, name, shareMemory)
 export const deleteFolder = (id: string) =>
   change((next) => {
     next.folders = next.folders.filter((folder) => folder.id !== id)
@@ -138,13 +158,15 @@ export const removeLibrarySession = (sessionId: string) => {
   refresh()
   if (
     !state.sessions.some((row) => row.sessionId === sessionId) &&
-    !state.favorites.some((row) => row.sessionId === sessionId)
+    !state.favorites.some((row) => row.sessionId === sessionId) &&
+    !state.memories.some((row) => row.sessionId === sessionId)
   ) {
     return
   }
   change((next) => {
     next.sessions = next.sessions.filter((row) => row.sessionId !== sessionId)
     next.favorites = next.favorites.filter((row) => row.sessionId !== sessionId)
+    next.memories = next.memories.filter((row) => row.sessionId !== sessionId)
   })
 }
 export const isFavorite = (sessionId: string, messageId: string) =>
@@ -170,9 +192,9 @@ export const toggleFavorite = (sessionId: string, messageId: string, excerpt: st
   })
   return true
 }
-export const addMemory = (text: string): void =>
+export const addMemory = (text: string, sessionId: string | null = null): void =>
   change((next) => {
-    next.memories.unshift({ id: createId(), text: text.trim() })
+    next.memories.unshift({ id: createId(), text: text.trim(), sessionId })
   })
 export const editMemory = (id: string, text: string) =>
   change((next) => {
@@ -198,16 +220,63 @@ export const setMemoryEnabled = (sessionId: string | null, memoryEnabled: boolea
   state = { ...state }
   notify()
 }
-export const getSessionMemoryTexts = (sessionId: string | null): string[] =>
-  getMemoryEnabled(sessionId) ? state.memories.map((row) => row.text) : []
+export const getSessionFolderId = (sessionId: string | null): string | null => {
+  if (sessionId === null) {
+    return state.folders.some((folder) => folder.id === draftFolderId) ? draftFolderId : null
+  }
+  return state.sessions.find((row) => row.sessionId === sessionId)?.folderId ?? null
+}
+export const setDraftFolder = (folderId: string | null) => {
+  refresh()
+  if (folderId !== null && !state.folders.some((folder) => folder.id === folderId)) {
+    throw new Error('Missing folder')
+  }
+  if (folderId !== draftFolderId) {
+    draftFolderId = folderId
+    state = { ...state }
+    notify()
+  }
+}
+const scopedMemories = (sessionId: string | null, includePersonal: boolean): Memory[] => {
+  const folderId = getSessionFolderId(sessionId)
+  const shared = state.folders.some((folder) => folder.id === folderId && folder.shareMemory)
+  const members = shared
+    ? new Set(state.sessions.filter((row) => row.folderId === folderId).map((row) => row.sessionId))
+    : undefined
+  return state.memories.filter((memory) => {
+    if (memory.sessionId !== null && members?.has(memory.sessionId)) {
+      return true
+    }
+    return includePersonal && (memory.sessionId === null || memory.sessionId === sessionId)
+  })
+}
+export const getVisibleMemories = (sessionId: string | null): Memory[] =>
+  scopedMemories(sessionId, true)
+export const getSessionMemoryTexts = (sessionId: string | null): string[] => {
+  // Read current sharing permissions even if another tab's storage event is still queued.
+  try {
+    refresh()
+  } catch {
+    return []
+  }
+  return scopedMemories(sessionId, getMemoryEnabled(sessionId)).map((memory) => memory.text)
+}
 export const clearLibraryDraft = () => {
-  if (draftEnabled) {
-    setMemoryEnabled(null, false)
+  if (draftEnabled || draftFolderId !== null) {
+    draftEnabled = false
+    draftFolderId = null
+    state = { ...state }
+    notify()
   }
 }
 export const promoteLibraryDraft = (sessionId: string) => {
-  if (draftEnabled) {
-    setMemoryEnabled(sessionId, true)
-    clearLibraryDraft()
+  refresh()
+  const folderId = getSessionFolderId(null)
+  if (draftEnabled || folderId !== null) {
+    updateAttributes(sessionId, {
+      ...(draftEnabled ? { memoryEnabled: true } : {}),
+      ...(folderId !== null ? { folderId } : {}),
+    })
   }
+  clearLibraryDraft()
 }

@@ -10,8 +10,10 @@ import styles from './MemorySettings.module.css'
 export function MemoryEditor({
   memory,
   message,
+  sessionId,
   onClose,
 }: {
+  sessionId: string | null
   memory?: Memory
   message?: string
   onClose: () => void
@@ -23,12 +25,13 @@ export function MemoryEditor({
   const [failed, setFailed] = useState(false)
   const text = value.trim()
   const tooLong = text.length > MEMORY_LIMIT
+  const owner = memory ? memory.sessionId : sessionId
   const save = () => {
     try {
       if (memory) {
         editMemory(memory.id, text)
       } else {
-        addMemory(text)
+        addMemory(text, sessionId)
       }
       showToast({ key: 'libMemorySaved' })
       onClose()
@@ -72,7 +75,11 @@ export function MemoryEditor({
         }}
       />
       <div className={styles.fieldMeta} id={`${field}-limit`}>
-        <span>{t(tooLong ? 'libMemoryShorten' : 'libMemorySavedLocally')}</span>
+        <span>
+          {t(
+            tooLong ? 'libMemoryShorten' : owner === null ? 'memorySaveGeneral' : 'memorySaveToChat'
+          )}
+        </span>
         <span className={styles.count}>
           {t('libLimit', { count: text.length, max: MEMORY_LIMIT })}
         </span>

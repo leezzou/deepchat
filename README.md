@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.45/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.46/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
   <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
 </p>

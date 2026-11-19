@@ -205,6 +205,27 @@ test('two conversations sharing one compatible profile accept independent model 
   assert.equal(settings.useSettings.getState().apiProfiles[1].model, 'beta-text')
 })
 
+test('the first request in a folder includes only its shared memories, and the next request respects disabling sharing', async () => {
+  settings.useSettings.setState({ apiProfiles: [a, b], activeProfileId: b.id, apiKey: b.apiKey })
+  const group = library.createFolder('Project', 'source-in-folder', true)
+  library.createFolder('Other', 'outside-folder', true)
+  library.addMemory('INSIDE_FOLDER', 'source-in-folder')
+  library.addMemory('OUTSIDE_FOLDER', 'outside-folder')
+  store.newChat(group)
+  store.applyConversationMode(null, { profileId: b.id })
+  const id = enter(null, 'first request in folder')
+  await idle(id)
+  assert.equal(library.getSessionFolderId(id), group)
+  assert.deepEqual(saved.get(id).messages.at(-1).lastRequestMemories, ['INSIDE_FOLDER'])
+  assert.match(JSON.stringify(calls.at(-1).body), /INSIDE_FOLDER/)
+  assert.doesNotMatch(JSON.stringify(calls.at(-1).body), /OUTSIDE_FOLDER/)
+  library.updateFolder(group, 'Project', false)
+  enter(id, 'next request')
+  await idle(id)
+  assert.deepEqual(saved.get(id).messages.at(-1).lastRequestMemories, [])
+  assert.doesNotMatch(JSON.stringify(calls.at(-1).body), /INSIDE_FOLDER|OUTSIDE_FOLDER/)
+})
+
 test('incoming image stays local until first send and uploads the original through the selected route', async () => {
   store.newChat()
   store.applyConversationMode(null, { profileId: b.id, model: 'with-vision' })
