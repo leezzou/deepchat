@@ -21,6 +21,7 @@ const shared = {
 
 // Match the rounded strokes and monochrome silhouettes of the product's outline icons.
 const drawings = {
+  work: <><rect x="3.1" y="7.4" width="17.8" height="13" rx="2.6" /><path d="M8.5 7.4V5.9a2.1 2.1 0 0 1 2.1-2.1h2.8a2.1 2.1 0 0 1 2.1 2.1v1.5m-12.4 5.2a19.8 19.8 0 0 0 17.8 0M12 13.6v2" /></>,
   account: <><circle cx="12" cy="7.2" r="3.7" /><path d="M4.5 20c.6-4.1 3.1-6.2 7.5-6.2s6.9 2.1 7.5 6.2" /></>,
   profile: <><rect x="2.7" y="4.7" width="18.6" height="14.6" rx="2.8" /><circle cx="8.6" cy="10.1" r="1.9" /><path d="M5.6 15.3a3.1 3.1 0 0 1 6.1 0m2.4-5.4h3.7m-3.7 4h2.6" /></>,
   source: <path d="M3.5 7.5h11.8l-3-3m3 3-3 3m8.2 6h-12l3 3m-3-3 3-3" />,

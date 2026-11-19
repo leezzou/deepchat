@@ -140,6 +140,7 @@ export const applyEvent = (
     case 'message_delta':
       return {
         ...next,
+        workBuddyReasoningUnavailable: event.workBuddyReasoningUnavailable,
         stopReason: event.delta.stop_reason,
         stopDetails: event.delta.stop_details,
         usage: mergeUsage(next.usage, event.usage),

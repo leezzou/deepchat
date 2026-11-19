@@ -94,6 +94,8 @@ export type AssistantMessage = MessageBranch & {
   blocks: ReplyBlock[]
   stopReason?: StopReason
   stopDetails?: StopDetails
+  /** Tencent accepted a thinking request and returned an answer without visible reasoning. */
+  workBuddyReasoningUnavailable?: true
   /** 最近一次请求的用量，续写后更新 */
   usage?: MessageUsage
   error?: {

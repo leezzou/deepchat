@@ -294,6 +294,65 @@ public class DshAccountOfflineTest {
         }
     }
 
+    @Test public void callbackBypassesIdleBrowserConnections() throws Exception {
+        JSONObject init = beginAuthorization();
+        URI redirect = new URI(init.getString("redirect_uri"));
+        net.json("POST", AUTH + "auth_exchange", 200, grantResponse());
+        try (Socket idle = loopback(redirect); Socket partial = loopback(redirect)) {
+            partial.getOutputStream().write('G');
+            long start = SystemClock.elapsedRealtime();
+            callback(redirect, init.getString("state"), 200);
+            long elapsed = SystemClock.elapsedRealtime() - start;
+            assertTrue("Callback stalled for " + elapsed + " ms", elapsed < 3000);
+            awaitCompletion();
+            assertSignedIn();
+        }
+    }
+
+    @Test public void recreatedHostAcceptsOriginalBrowserCallback() throws Exception {
+        JSONObject init = beginAuthorization();
+        URI redirect = new URI(init.getString("redirect_uri"));
+        reopenHost();
+        assertTrue("The pending attempt survives host recreation", host.status().getBoolean("pending"));
+        assertTrue("Recovery must not open a second browser", activity.launches.isEmpty());
+        callback(redirect, "invalid", 400);
+        OfflineHttps.Exchange exchange = net.json("POST", AUTH + "auth_exchange", 200, grantResponse());
+        callback(redirect, init.getString("state"), 200);
+        JSONObject proof = exchange.await().requestJson();
+        String digest = Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(
+                proof.getString("code_verifier").getBytes(StandardCharsets.US_ASCII)), Base64.NO_WRAP | Base64.NO_PADDING | Base64.URL_SAFE);
+        assertTrue("PKCE proof matches the first attempt", digest.equals(init.getString("code_challenge")));
+        assertTrue("Redirect URI must stay identical", redirect.toString().equals(proof.getString("redirect_uri")));
+        awaitCompletion();
+        assertSignedIn();
+    }
+
+    @Test public void restoredAttemptWithPortInUseCanCompleteManually() throws Exception {
+        JSONObject init = beginAuthorization();
+        URI redirect = new URI(init.getString("redirect_uri"));
+        host.close();
+        try (java.net.ServerSocket busy = new java.net.ServerSocket()) {
+            busy.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), redirect.getPort()));
+            host = new DshAccountHost(activity);
+            assertTrue(host.status().getBoolean("pending"));
+            assertTrue(host.status().getString("error").contains("手动完成授权"));
+            net.json("POST", AUTH + "auth_exchange", 200, grantResponse());
+            host.submitCallback(redirect + "?state=" + init.getString("state") + "&code=manual-code");
+            awaitCompletion();
+            assertSignedIn();
+        }
+    }
+
+    @Test public void cancelledAttemptDoesNotRecover() throws Exception {
+        JSONObject init = beginAuthorization();
+        OfflineHttps.Exchange cancel = net.json("POST", AUTH + "auth_cancel", 200, success(new JSONObject()));
+        host.cancelLogin();
+        cancel.await();
+        reopenHost();
+        assertFalse(host.status().getBoolean("pending"));
+        assertManualRejected(init.getString("redirect_uri") + "?state=" + init.getString("state") + "&code=manual-code");
+    }
+
     @Test public void loginMapsWalletsAndLogoutRevokesTheGrant() throws Exception {
         signIn();
         JSONObject summary = new JSONObject("{\"normal_wallets\":[{\"currency\":\"USD\",\"balance\":\"12.3400\",\"private\":1}],"

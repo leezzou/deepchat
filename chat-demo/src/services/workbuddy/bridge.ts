@@ -65,7 +65,9 @@ export async function manageWorkBuddy(
 export function workBuddyFetch(
   model: WorkBuddyModel,
   revision: string,
-  messages: { role: string; content: string }[],
+  operation:
+    | { op: 'chat'; messages: { role: string; content: string }[]; thinking: boolean }
+    | { op: 'search'; query: string },
   signal: AbortSignal
 ): Promise<Response> {
   const id = createId()
@@ -145,7 +147,7 @@ export function workBuddyFetch(
       }
     })
     try {
-      post({ op: 'chat', id, model, revision, messages })
+      post({ ...operation, id, model, revision })
     } catch (error) {
       finish()
       reject(error)

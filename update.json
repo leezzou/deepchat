@@ -1,8 +1,8 @@
 {
-  "version": "1.0.51",
+  "version": "1.0.52",
   "publishedAt": "2026-11-19",
-  "notes": "修复 WorkBuddy 手机号登录时，点击「获取验证码」提示「网络连接失败」的问题。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.51",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.51/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.51/deepchat.apk"
+  "notes": "WorkBuddy 登录入口移至 DeepSeek 账号下方，支持深度思考和智能搜索。积分页新增 4.1 Flash 用量和腾讯返回的重置时间。修复部分手机在 DeepSeek 登录后一直等待本地回调的问题。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.52",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.52/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.52/deepchat.apk"
 }

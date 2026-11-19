@@ -7,7 +7,6 @@ import android.webkit.WebView;
 import androidx.webkit.JavaScriptReplyProxy;
 import androidx.webkit.WebMessageCompat;
 import androidx.webkit.WebViewCompat;
-import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -23,7 +22,6 @@ import javax.net.ssl.HttpsURLConnection;
 /** Only the bundled main page may use the WorkBuddy account authorized on this device. The bridge takes no URL or headers. */
 final class WorkBuddyChat {
     private static final String PORT = "WorkBuddyChat";
-    private static final String CHAT = "https://copilot.tencent.com/v2/chat/completions";
     private static final int MAX_BODY = 5 * 1024 * 1024, MAX_REPLY = 8 * 1024 * 1024;
     private final WebView web;
     private final WorkBuddySession session;
@@ -48,7 +46,7 @@ final class WorkBuddyChat {
                 if (!id.matches("[a-zA-Z0-9-]{1,64}")) return;
                 if (op.equals("cancel")) { cancel(id); return; }
                 if (!SecurityPlugin.isUnlocked()) { error(reply, id, "locked"); return; }
-                if (op.equals("chat")) start(id, req, reply);
+                if (op.equals("chat") || op.equals("search")) start(id, req, reply);
                 else storage.execute(() -> WebDavCookies.isolate(() -> manage(id, op, req, reply)));
             } catch (Exception invalid) { /* Malformed or detached caller. */ }
         });
@@ -96,7 +94,7 @@ final class WorkBuddyChat {
     private static String publicError(Exception e) {
         if (e instanceof WorkBuddySession.Fault) return e.getMessage();
         String code = e.getMessage();
-        if (code != null && code.matches("login_expired|invalid_consent|personal_account_required|account_missing|invalid_token|sign_in_required|sign_in_expired")) return code;
+        if (code != null && code.matches("login_expired|invalid_consent|personal_account_required|account_missing|invalid_token|sign_in_required|sign_in_expired|model|empty|text_only|search_query_length|search_response_too_large|invalid_search_response")) return code;
         return "connection_or_storage";
     }
 
@@ -120,26 +118,15 @@ final class WorkBuddyChat {
     private void send(Call call, String id, JSONObject req, JavaScriptReplyProxy reply) {
         HttpsURLConnection conn = null;
         try {
-            String model = req.getString("model");
-            if (!allowedModel(model)) { error(reply, id, "model"); return; }
-            JSONArray input = req.getJSONArray("messages"), messages = new JSONArray();
-            if (input.length() == 0) { error(reply, id, "empty"); return; }
-            for (int i = 0; i < input.length(); i++) {
-                JSONObject row = input.getJSONObject(i);
-                String role = row.getString("role");
-                if (!("system".equals(role) || "user".equals(role) || "assistant".equals(role)) || !(row.opt("content") instanceof String)) {
-                    error(reply, id, "text_only"); return;
-                }
-                messages.put(new JSONObject().put("role", role).put("content", row.getString("content")));
-            }
-            byte[] body = new JSONObject().put("model", model).put("messages", messages).put("stream", true).toString().getBytes(StandardCharsets.UTF_8);
+            boolean isSearch = "search".equals(req.getString("op"));
+            byte[] body = WorkBuddyWire.body(req, isSearch).toString().getBytes(StandardCharsets.UTF_8);
             if (body.length > MAX_BODY) { error(reply, id, "too_large"); return; }
             JSONObject saved = session.account();
             String bearer = saved.getString("access");
             synchronized (this) {
                 if (!saved.getString("revision").equals(req.getString("revision"))) { error(reply, id, "account_changed"); return; }
                 if (closed || call.cancelled || !SecurityPlugin.isUnlocked()) { error(reply, id, "locked"); return; }
-                conn = (HttpsURLConnection) new URL(CHAT).openConnection();
+                conn = (HttpsURLConnection) new URL(isSearch ? WorkBuddyWire.SEARCH : WorkBuddyWire.CHAT).openConnection();
                 call.connection = conn;
             }
             conn.setRequestMethod("POST");
@@ -152,13 +139,22 @@ final class WorkBuddyChat {
             conn.setRequestProperty("User-Agent", "DeepChat/Android");
             conn.setRequestProperty("Authorization", "Bearer " + bearer);
             conn.setRequestProperty("X-User-Id", saved.getString("uid"));
-            conn.setRequestProperty("Accept", "text/event-stream");
+            conn.setRequestProperty("Accept", isSearch ? "application/json" : "text/event-stream");
             conn.setRequestProperty("Content-Type", "application/json");
             if (call.cancelled || closed || !SecurityPlugin.isUnlocked()) { error(reply, id, "cancelled"); return; }
             try (OutputStream out = conn.getOutputStream()) { out.write(body); }
             int status = conn.getResponseCode();
             String media = conn.getContentType();
             emit(reply, id, new JSONObject().put("type", "headers").put("status", status).put("contentType", media == null ? "" : media));
+            if (isSearch && status >= 200 && status < 300) {
+                try (InputStream in = conn.getInputStream()) {
+                    byte[] result = WorkBuddyWire.searchResults(in, bearer);
+                    if (call.cancelled || closed || !SecurityPlugin.isUnlocked()) { error(reply, id, "cancelled"); return; }
+                    emit(reply, id, new JSONObject().put("type", "data").put("data", Base64.encodeToString(result, Base64.NO_WRAP)));
+                }
+                emit(reply, id, new JSONObject().put("type", "end"));
+                return;
+            }
             // Return only the bounded service error message and code. An upstream error can echo request headers.
             if (status < 200 || status >= 300 || media == null || !media.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
                 try (InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream()) {

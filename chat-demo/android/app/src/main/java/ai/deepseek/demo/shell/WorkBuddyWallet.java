@@ -124,9 +124,12 @@ final class WorkBuddyWallet {
                 store.edit().putString("state", "unavailable").remove("http").apply();
             }
         }
-        if (!owner.equals(revision(ctx))) return scheduled ? null : signedOut();
+        JSONObject current = WorkBuddySession.forContext(ctx).status();
+        if (!owner.equals(current.optString("revision"))) return scheduled ? null : signedOut();
         JSObject s = new JSObject();
         s.put("source", "account");
+        s.put("revision", owner);
+        s.put("model", current.optString("model"));
         s.put("state", store.getString("state", "account-page"));
         s.put("balance", store.contains("balance") ? Double.valueOf(store.getString("balance", "0")) : JSONObject.NULL);
         s.put("observedAt", store.contains("observedAt") ? store.getLong("observedAt", 0) : JSONObject.NULL);

@@ -45,19 +45,53 @@ final class DshAccountHost {
     // Called under the host lock. The listener only posts a status refresh onto the UI thread.
     private void sessionChanged() { if (sessionListener != null) sessionListener.run(); }
 
+    private static final long MAX_ATTEMPT_MS = 600_000;
+    private static final String PENDING = "browser-login-v1";
+
     private static final class Attempt {
         final ServerSocket server;
+        final Set<Socket> readers = new LinkedHashSet<>();
+        final CountDownLatch finishedReceiving = new CountDownLatch(1);
         final String state, verifier, redirect;
-        volatile String authorizationId;
-        volatile String receivedCode;
-        volatile long deadline = SystemClock.elapsedRealtime() + 600000;
-        Attempt(String state, String verifier) throws IOException {
-            this.state = state; this.verifier = verifier;
-            server = new ServerSocket();
-            server.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0), 4);
-            redirect = "http://127.0.0.1:" + server.getLocalPort() + "/oauth/callback";
+        final int port;
+        volatile String authorizationId, receivedCode;
+        volatile boolean detached;
+        volatile long deadline;
+
+        Attempt(String state, String verifier, int previousPort, long remaining) throws IOException {
+            this.state = state;
+            this.verifier = verifier;
+            deadline = SystemClock.elapsedRealtime() + remaining;
+            ServerSocket socket = new ServerSocket();
+            try {
+                socket.setReuseAddress(true);
+                socket.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), previousPort), 16);
+            } catch (IOException unavailable) {
+                socket.close();
+                if (previousPort == 0) throw unavailable;
+                // Replacing an occupied port changes the registered redirect URI. Use manual delivery.
+                socket = null;
+            }
+            server = socket;
+            port = socket == null ? previousPort : socket.getLocalPort();
+            redirect = "http://127.0.0.1:" + port + "/oauth/callback";
         }
-        void close() { try { server.close(); } catch (IOException ignored) {} }
+
+        synchronized boolean add(Socket client) throws IOException {
+            if (finishedReceiving.getCount() == 0) return false;
+            // Six speculative browser connections must never block the actual HTTP GET.
+            if (readers.size() >= 12) return false;
+            client.setSoTimeout(5000);
+            return readers.add(client);
+        }
+
+        synchronized void remove(Socket client) { readers.remove(client); }
+        synchronized void close() {
+            finishedReceiving.countDown();
+            if (server != null) try { server.close(); } catch (IOException ignored) { }
+            for (Socket reader : readers) try { reader.close(); } catch (IOException ignored) { }
+            readers.clear();
+        }
     }
     DshAccountHost(Activity activity) {
         this.activity = activity;
@@ -74,7 +108,8 @@ final class DshAccountHost {
             JSONObject saved = new JSONObject(new String(cipher.doFinal(decode(prefs.getString("ciphertext", ""))), StandardCharsets.UTF_8));
             grant = saved.getString("token"); name = saved.optString("name"); avatar = validPicture(saved.optString("avatar"));
         } catch (Exception invalid) { error = "此设备上的登录凭据无法读取，请重新授权。"; }
-        if (grant != null && avatar.isEmpty()) refreshProfile();
+        if (grant == null) restorePending();
+        else if (avatar.isEmpty()) refreshProfile();
     }
     private static SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -96,25 +131,82 @@ final class DshAccountHost {
     synchronized JSONObject beginLogin() throws Exception {
         if (closed) throw new IOException("账户页已关闭。");
         if (active != null || grant != null) return status();
-        Attempt attempt = new Attempt(nonce(), nonce()); active = attempt; error = "";
+        Attempt attempt = new Attempt(nonce(), nonce(), 0, MAX_ATTEMPT_MS); active = attempt; error = "";
         workers.execute(() -> authorize(attempt));
         return status();
     }
     private synchronized boolean live(Attempt a) { return !closed && active == a && SystemClock.elapsedRealtime() < a.deadline; }
+    private int bootCount() {
+        return android.provider.Settings.Global.getInt(activity.getContentResolver(), "boot_count", -1);
+    }
+
+    // Persist only an unclaimed, unexpired handshake. No callback URL or authorization code is stored.
+    private synchronized boolean savePending(Attempt a) throws Exception {
+        if (!live(a)) return false;
+        long remaining = a.deadline - SystemClock.elapsedRealtime();
+        byte[] metadata = new JSONObject().put("state", a.state).put("verifier", a.verifier)
+                .put("port", a.port).put("id", a.authorizationId).put("end", a.deadline)
+                .put("wallEnd", System.currentTimeMillis() + remaining).put("boot", bootCount())
+                .toString().getBytes(StandardCharsets.UTF_8);
+        Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+        cipher.init(Cipher.ENCRYPT_MODE, key());
+        cipher.updateAAD(PENDING.getBytes(StandardCharsets.US_ASCII));
+        String sealed = encode(cipher.getIV()) + "." + encode(cipher.doFinal(metadata));
+        if (!prefs.edit().putString(PENDING, sealed).commit()) throw new IOException("未能保存本次授权。");
+        return true;
+    }
+
+    private void restorePending() {
+        String sealed = prefs.getString(PENDING, "");
+        if (sealed.isEmpty()) return;
+        try {
+            String[] pair = sealed.split("\\.", 2);
+            Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
+            cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, decode(pair[0])));
+            cipher.updateAAD(PENDING.getBytes(StandardCharsets.US_ASCII));
+            JSONObject saved = new JSONObject(new String(cipher.doFinal(decode(pair[1])), StandardCharsets.UTF_8));
+            long remaining = Math.min(saved.getLong("end") - SystemClock.elapsedRealtime(),
+                    saved.getLong("wallEnd") - System.currentTimeMillis());
+            int port = saved.getInt("port");
+            String state = saved.getString("state"), verifier = saved.getString("verifier"), id = saved.getString("id");
+            if (remaining <= 0 || remaining > MAX_ATTEMPT_MS || saved.getInt("boot") != bootCount()
+                    || port <= 0 || port > 65535 || !state.matches("[A-Za-z0-9_-]{43}")
+                    || !verifier.matches("[A-Za-z0-9_-]{43}") || id.isEmpty()) throw new IOException();
+            Attempt restored = new Attempt(state, verifier, port, remaining);
+            restored.authorizationId = id;
+            active = restored;
+            if (restored.server == null) error = "本次登录已恢复，请点「手动完成授权」并粘贴浏览器中的本机返回网址。";
+            workers.execute(() -> authorize(restored));
+        } catch (Exception invalid) {
+            prefs.edit().remove(PENDING).commit();
+            error = "上次浏览器授权已结束，请重新登录。";
+        }
+    }
+
+    private void openBrowser(Attempt a) throws Exception {
+        String challenge = encode(MessageDigest.getInstance("SHA-256").digest(a.verifier.getBytes(StandardCharsets.US_ASCII)));
+        JSONObject init = request(AUTH + "auth_init", new JSONObject().put("code_challenge", challenge).put("code_challenge_method", "S256")
+                .put("state", a.state).put("redirect_uri", a.redirect).put("locale", locale()).put("login_source", "web"), null);
+        a.authorizationId = init.getString("authorize_id");
+        Uri page = platformPage(init.getString("authorize_url"), "/dsh/authorize");
+        long seconds = Math.min(600, init.getLong("expires_in"));
+        a.deadline = Math.min(a.deadline, SystemClock.elapsedRealtime() + 1000L * seconds);
+        if (!savePending(a)) return;
+        activity.runOnUiThread(() -> {
+            if (!live(a)) return;
+            // Supporting browsers leave the host visible and able to serve its local callback.
+            int height = Math.max(1, activity.getResources().getDisplayMetrics().heightPixels * 4 / 5);
+            try { new CustomTabsIntent.Builder().setInitialActivityHeightPx(height).setShowTitle(true).build().launchUrl(activity, page); }
+            catch (RuntimeException unavailable) {
+                try { activity.startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, page)); }
+                catch (RuntimeException noBrowser) { finish(a, "无法打开授权页，请安装或启用系统浏览器。"); }
+            }
+        });
+    }
+
     private void authorize(Attempt a) {
         try {
-            String challenge = encode(MessageDigest.getInstance("SHA-256").digest(a.verifier.getBytes(StandardCharsets.US_ASCII)));
-            JSONObject init = request(AUTH + "auth_init", new JSONObject().put("code_challenge", challenge).put("code_challenge_method", "S256")
-                    .put("state", a.state).put("redirect_uri", a.redirect).put("locale", locale()).put("login_source", "web"), null);
-            a.authorizationId = init.getString("authorize_id");
-            Uri page = platformPage(init.getString("authorize_url"), "/dsh/authorize");
-            long seconds = Math.min(600, init.getLong("expires_in"));
-            a.deadline = Math.min(a.deadline, SystemClock.elapsedRealtime() + 1000L * seconds);
-            activity.runOnUiThread(() -> {
-                if (!live(a)) return;
-                try { new CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(activity, page); }
-                catch (Exception noBrowser) { finish(a, "无法打开授权页，请安装或启用系统浏览器。"); }
-            });
+            if (a.authorizationId == null) openBrowser(a);
             awaitCallback(a);
             if (!live(a) || a.receivedCode == null) {
                 finish(a, "本次授权已结束，请重新登录。");
@@ -129,34 +221,54 @@ final class DshAccountHost {
         }
         finally {
             a.close();
-            if (a.authorizationId != null && !signedIn()) try { request(AUTH + "auth_cancel", new JSONObject().put("authorize_id", a.authorizationId).put("code_verifier", a.verifier), null); } catch (Exception ignored) {}
+            if (!a.detached && a.authorizationId != null && !signedIn()) try { request(AUTH + "auth_cancel", new JSONObject().put("authorize_id", a.authorizationId).put("code_verifier", a.verifier), null); } catch (Exception ignored) {}
         }
     }
     // Confirm delivery before an HTTPS request or a keystore operation can stall the browser.
-    private void awaitCallback(Attempt a) throws IOException {
-        try {
-            while (live(a) && a.receivedCode == null) {
+    private void awaitCallback(Attempt a) throws InterruptedException, IOException {
+        if (a.server == null) {
+            if (!a.finishedReceiving.await(Math.max(1, a.deadline - SystemClock.elapsedRealtime()), TimeUnit.MILLISECONDS))
+                throw new SocketTimeoutException();
+            return;
+        }
+        while (live(a) && a.finishedReceiving.getCount() != 0) {
+            Socket client;
+            try {
                 a.server.setSoTimeout((int)Math.max(1, a.deadline - SystemClock.elapsedRealtime()));
-                try (Socket socket = a.server.accept()) {
-                    socket.setSoTimeout(5000);
-                    try {
-                        String code = callbackCode(socket, a);
-                        boolean accepted = code != null && claim(a, code);
-                        reply(socket, accepted);
-                    } catch (IOException | RuntimeException invalid) {
-                        reply(socket, false);
-                    }
-                }
+                client = a.server.accept();
+            } catch (SocketException wake) {
+                if (a.finishedReceiving.getCount() == 0) return;
+                throw wake;
             }
-        } catch (SocketException wake) {
-            if (live(a) && a.receivedCode == null) throw wake;
+            try {
+                if (!a.add(client)) { client.close(); continue; }
+                workers.execute(() -> handleCallback(a, client));
+            } catch (IOException | RejectedExecutionException stopping) {
+                client.close();
+                a.remove(client);
+            }
+        }
+    }
+
+    private void handleCallback(Attempt a, Socket client) {
+        boolean accepted = false;
+        try (Socket socket = client) {
+            try {
+                String code = callbackCode(socket, a);
+                accepted = code != null && claim(a, code);
+            } catch (IOException | RuntimeException invalid) { /* Reject incomplete HTTP requests. */ }
+            reply(socket, accepted);
+        } catch (IOException disconnected) { /* The tab may close before reading the acknowledgement. */ }
+        finally {
+            a.remove(client);
+            if (accepted) a.close(); // Wake exchange only after the acknowledgement has been sent.
         }
     }
 
     private synchronized boolean claim(Attempt a, String code) {
         if (!live(a) || a.receivedCode != null || a.authorizationId == null) return false;
+        if (!prefs.edit().remove(PENDING).commit()) return false;
         a.receivedCode = code;
-        a.close(); // Wake accept() if a user supplied a callback from a browser that cannot reach loopback.
         return true;
     }
 
@@ -169,6 +281,7 @@ final class DshAccountHost {
             throw new IOException("返回地址与本次登录不匹配。");
         String code = validateCode(Uri.parse(url), a);
         if (code == null || !claim(a, code)) throw new IOException("该返回地址无效、已处理或已过期。");
+        a.close();
     }
 
     /** 账号资料只保留昵称与 HTTPS 头像地址，不保存平台返回的其它字段。 */
@@ -274,7 +387,7 @@ final class DshAccountHost {
             if (avatar.isEmpty()) refreshProfile();
         } finally { if (!committed) revoke(received); }
     }
-    private synchronized void finish(Attempt a, String message) { if (active == a) { active = null; error = message; a.close(); } }
+    private synchronized void finish(Attempt a, String message) { if (active == a) { prefs.edit().remove(PENDING).commit(); active = null; error = message; a.close(); } }
     synchronized void cancelLogin() { if (active != null) finish(active, ""); }
     private synchronized String deviceId() throws Exception {
         String id = prefs.getString("device", null);
@@ -299,7 +412,7 @@ final class DshAccountHost {
         String[] lines = new String(buf.toByteArray(), StandardCharsets.US_ASCII).split("\r\n");
         String[] words = lines[0].split(" ");
         if (words.length != 3 || !words[0].equals("GET") || !words[1].startsWith("/oauth/callback?") || words[1].contains("#")) return null;
-        String expected = "127.0.0.1:" + a.server.getLocalPort(); int hosts = 0;
+        String expected = "127.0.0.1:" + a.port; int hosts = 0;
         for (String line : lines) if (line.regionMatches(true,0,"Host:",0,5)) { if (!expected.equals(line.substring(5).trim())) return null; hosts++; }
         if (hosts != 1) return null;
         Uri uri = Uri.parse("http://" + expected + words[1]);
@@ -378,5 +491,15 @@ final class DshAccountHost {
             JSONObject result = business.optJSONObject("biz_data"); return result == null ? new JSONObject() : result;
         } finally { connection.disconnect(); }
     }
-    synchronized void close() { sessionListener = null; closed = true; cancelLogin(); workers.shutdown(); }
+    synchronized void close() {
+        sessionListener = null;
+        closed = true;
+        if (active != null) {
+            Attempt a = active;
+            a.detached = a.receivedCode == null && prefs.contains(PENDING);
+            active = null;
+            a.close();
+        }
+        workers.shutdown();
+    }
 }

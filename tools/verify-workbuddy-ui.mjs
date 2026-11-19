@@ -1,4 +1,4 @@
-// Pass the web assets extracted from the signed APK. Normal runs use the signed-out state. One opt-in local fixture exercises account balances.
+// Pass the web assets extracted from the signed APK. Normal runs use the signed-out state. Local native-bridge fixtures cover account routing and balances.
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -21,7 +21,7 @@ const server = createServer(async (req, res) => {
 await new Promise(done => server.listen(0, '127.0.0.1', done))
 const origin = `http://127.0.0.1:${server.address().port}`
 const browser = await chromium.launch({ executablePath: process.env.CHROME_EXECUTABLE_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' })
-const walletCopy = /Credits and usage|View on WorkBuddy|Available credits|Daily automatic check-in|My credits|WorkBuddy account|Sign in to WorkBuddy/i
+const walletCopy = /Credits and usage|View on WorkBuddy|Available credits|Daily automatic check-in|My credits/i
 
 async function assertPrivate(page) {
   assert.equal(await page.locator('[data-wb-panel],[data-wb-balance],[data-wb-auto]').count(), 0)
@@ -50,9 +50,8 @@ async function inspectPanel(page, fixture) {
     await row.getByText('Sign in to view', { exact: true }).waitFor()
     assert.equal(await row.locator('output').innerText(), '—')
     assert.equal(await row.getByRole('button', { name: 'Refresh credits' }).count(), 0)
-    await panel.getByRole('button', { name: 'Desktop sign-in', exact: true }).waitFor()
-    await panel.getByText('Signed out', { exact: true }).waitFor()
   }
+  assert.equal(await panel.locator('#wb-channel-heading, [data-wb-account-page]').count(), 0, 'Private wallet must contain wallet controls only')
   const text = await panel.innerText()
   assert.doesNotMatch(text, /checked in today|available today/i)
   assert.doesNotMatch(text, /API[\s_-]*key|access token|secret key/i, 'account login must be the only WorkBuddy credential flow')
@@ -62,27 +61,100 @@ async function inspectPanel(page, fixture) {
 }
 
 // Simulate only account metadata and wallet status/refresh in a separate localhost context.
-function installWalletFixture() {
-  window.fixtureState = { balance: 0 }
+function installWalletFixture(mode) {
+  const signedIn = mode === 'signed-in'
+  let pending = false
+  window.fixtureState = { balance: signedIn ? 0 : null }
+  window.DshNative = { postMessage(raw) {
+    if (JSON.parse(raw).op !== 'status') throw Error('Unexpected DeepSeek fixture operation')
+    queueMicrotask(() => this.onmessage({ data: JSON.stringify({ type: 'account', signedIn: false }) }))
+  } }
   window.CapacitorPlatforms = { currentPlatform: { getPlatform: () => 'android', isNativePlatform: () => false } }
   window.Capacitor = {
     PluginHeaders: [{ name: 'WorkBuddyWallet', methods: ['status', 'refresh'].map(name => ({ name, rtype: 'promise' })) }],
     async nativePromise(plugin, method) {
       if (plugin !== 'WorkBuddyWallet' || !['status', 'refresh'].includes(method)) throw Error('Unexpected wallet fixture operation')
       const { balance } = window.fixtureState
-      return { source: 'account', state: balance === null ? 'unavailable' : 'account-page', balance, checkIn: 'unknown',
+      return { source: signedIn ? 'account' : 'signed-out', state: !signedIn ? 'login-required' : balance === null ? 'unavailable' : 'account-page', balance, checkIn: 'unknown',
         canAutoCheckIn: false, autoCheckIn: false, observedAt: balance === null ? null : Date.now() }
     },
   }
   window.WorkBuddyChat = { postMessage(raw) {
     const { id, op } = JSON.parse(raw)
-    if (op !== 'status') throw Error('Unexpected account fixture operation')
-    queueMicrotask(() => this.onmessage({ data: JSON.stringify({ id, type: 'status', model: 'deepseek-v4.1-flash',
-      revision: '00000000-0000-4000-8000-000000000001', name: 'Local fixture' }) }))
+    if (op === 'begin') pending = true
+    else if (op === 'cancelLogin') pending = false
+    else if (op !== 'status' && op !== 'poll') throw Error('Unexpected account fixture operation')
+    const metadata = signedIn ? { model: 'deepseek-v4.1-flash',
+      revision: '00000000-0000-4000-8000-000000000001', name: 'Local fixture' } : {}
+    queueMicrotask(() => this.onmessage({ data: JSON.stringify({ id, type: 'status', pending, ...metadata }) }))
   } }
 }
 
-async function run(colorScheme, reducedMotion, desktop = false, fixture = false) {
+async function publicAccount(page, mode, desktop) {
+  const entry = page.locator('[data-wb-account-entry]')
+  if (!mode) {
+    assert.equal(await entry.count(), 0, 'Web browsers without the Android bridge must hide account entry')
+    return
+  }
+  await entry.waitFor()
+  await entry.scrollIntoViewIfNeeded()
+  const order = await entry.evaluate((button, desktop) => {
+    const dshButton = document.querySelector('[data-dsh-account]')
+    const dsh = desktop ? dshButton?.parentElement : dshButton
+    const row = desktop ? button.parentElement : button
+    if (!dsh || !row) return false
+    return dsh.nextElementSibling === row && dsh.getBoundingClientRect().bottom <= row.getBoundingClientRect().top + 2
+  }, desktop)
+  assert.ok(order, 'WorkBuddy entry must appear immediately below DeepSeek account')
+  const size = await entry.boundingBox()
+  assert.ok(size.width > 40 && size.height >= (desktop ? 28 : 40), 'Account action must be readable and tappable')
+  const readable = await entry.evaluate(button => {
+    const bounds = button.getBoundingClientRect()
+    const text = document.createTreeWalker(button, NodeFilter.SHOW_TEXT)
+    let labels = 0
+    while (text.nextNode()) {
+      if (!text.currentNode.textContent.trim()) continue
+      labels++
+      const range = document.createRange()
+      range.selectNodeContents(text.currentNode)
+      const rect = range.getBoundingClientRect()
+      const fontSize = parseFloat(getComputedStyle(text.currentNode.parentElement).fontSize)
+      if (fontSize < 12 || rect.width < 1 || rect.height < 1 || rect.left < bounds.left - 1 ||
+          rect.right > bounds.right + 1 || rect.top < bounds.top - 1 || rect.bottom > bounds.bottom + 1) return false
+    }
+    return labels > 0
+  })
+  assert.ok(readable, 'Account entry text must fit the button at a legible size')
+  if (mode === 'signed-out') assert.match(await entry.innerText(), /Sign in to WorkBuddy/)
+  else {
+    await entry.getByText('Manage account', { exact: true }).waitFor()
+    assert.match(await entry.innerText(), /WorkBuddy account/)
+  }
+  await entry.click()
+  const account = page.locator('[data-wb-account-page]')
+  await account.waitFor()
+  if (desktop) await page.getByRole('dialog', { name: 'WorkBuddy account', exact: true }).waitFor()
+  else await page.locator('[data-settings-route="workbuddyAccount"][data-route-position="front"]').waitFor()
+  await assertPrivate(page)
+  if (mode === 'signed-in') {
+    await account.getByText('Local fixture', { exact: true }).waitFor()
+    await account.getByRole('button', { name: 'Sign out', exact: true }).waitFor()
+  } else {
+    await account.getByText('Signed out', { exact: true }).waitFor()
+    await account.getByRole('button', { name: 'Desktop sign-in', exact: true }).click()
+    await account.getByText('Waiting for Tencent approval', { exact: true }).waitFor()
+    await account.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await account.getByText('Signed out', { exact: true }).waitFor()
+  }
+  if (desktop) await page.keyboard.press('Escape')
+  else await page.evaluate(() => history.back())
+  await account.waitFor({ state: 'detached' })
+  const after = await entry.boundingBox()
+  assert.ok(after && Math.abs(size.y - after.y) <= 2, 'Returning from the public account must restore Settings')
+  await assertPrivate(page)
+}
+
+async function run(colorScheme, reducedMotion, desktop = false, mode = null) {
   const context = await browser.newContext({ locale: 'en-US', colorScheme, reducedMotion,
     hasTouch: !desktop, viewport: desktop ? { width: 1280, height: 900 } : { width: 390, height: 730 }, serviceWorkers: 'block' })
   try {
@@ -98,7 +170,7 @@ async function run(colorScheme, reducedMotion, desktop = false, fixture = false)
       return url.origin === origin && req.method() === 'GET' ? route.continue() : route.abort()
     })
     await context.addInitScript(() => localStorage.setItem('chat-demo:locale', 'en-US'))
-    if (fixture) await context.addInitScript(installWalletFixture)
+    if (mode) await context.addInitScript(installWalletFixture, mode)
     const page = await context.newPage()
     page.setDefaultTimeout(6000)
     page.on('pageerror', error => errors.push(error.message))
@@ -108,14 +180,20 @@ async function run(colorScheme, reducedMotion, desktop = false, fixture = false)
     assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), reducedMotion === 'reduce')
     // A clean browser has no chat credentials, so the app opens its ordinary API settings on startup.
     const onboarding = page.getByRole('dialog', { name: 'Settings', exact: true })
-    await onboarding.waitFor()
-    await assertPrivate(page)
-    await page.keyboard.press('Escape')
-    await onboarding.waitFor({ state: 'detached' })
+    if (!mode) {
+      await onboarding.waitFor()
+      await assertPrivate(page)
+      await page.keyboard.press('Escape')
+      await onboarding.waitFor({ state: 'detached' })
+    }
     const settingsButton = page.getByRole('button', { name: 'Settings', exact: true })
-    if (!(await settingsButton.isVisible())) await page.getByRole('button', { name: 'Open sidebar', exact: true }).click()
+    const sidebarButton = page.getByRole('button', { name: 'Open sidebar', exact: true })
+    await settingsButton.or(sidebarButton).first().waitFor()
+    if (!(await settingsButton.isVisible())) await sidebarButton.click()
     await assertPrivate(page)
     await settingsButton.click()
+    if (desktop) await page.getByRole('tab').first().click()
+    await publicAccount(page, mode, desktop)
     let originalSection
     if (desktop) {
       const tabs = page.getByRole('tab')
@@ -144,7 +222,7 @@ async function run(colorScheme, reducedMotion, desktop = false, fixture = false)
       assert.equal(await page.locator('[data-wb-panel]').count(), 0, `opened on tap ${i + 1}`)
     }
     await hit()
-    await inspectPanel(page, fixture)
+    await inspectPanel(page, mode === 'signed-in')
     if (desktop) await page.keyboard.press('Escape')
     else await page.evaluate(() => history.back())
     await page.locator('[data-wb-panel]').waitFor({ state: 'detached' })
@@ -155,17 +233,18 @@ async function run(colorScheme, reducedMotion, desktop = false, fixture = false)
     await assertPrivate(page)
     assert.deepEqual(errors, [])
     assert.deepEqual(keyRequests, [], 'Unexpected credential request during WorkBuddy navigation')
-    if (fixture) console.log('PASS local account fixture: in-app zero → 127.5 → unavailable, refresh stays in WorkBuddy')
+    if (mode) console.log(`PASS ${desktop ? 'desktop' : 'mobile'} public WorkBuddy account below DeepSeek (${mode}), private credits inaccessible, Back restores Settings`)
+    if (mode === 'signed-in') console.log('PASS local account fixture: in-app zero → 127.5 → unavailable, refresh stays in WorkBuddy')
     console.log(`PASS ${desktop ? 'desktop' : 'mobile'} ${colorScheme}/${reducedMotion}: six taps hidden; seventh opens private wallet, unknown balance, check-in off; Back restores ${originalSection || 'Settings at version footer'}`)
   } finally { await context.close() }
 }
 
 try {
+  await run('dark', 'reduce', true, 'signed-out')
   for (const colorScheme of ['light', 'dark']) {
-    for (const reducedMotion of ['no-preference', 'reduce']) await run(colorScheme, reducedMotion)
+    for (const reducedMotion of ['no-preference', 'reduce']) await run(colorScheme, reducedMotion, false, reducedMotion === 'reduce' ? 'signed-out' : null)
   }
-  await run('dark', 'reduce', true)
-  await run('light', 'reduce', false, true)
+  await run('light', 'reduce', false, 'signed-in')
 } finally {
   await browser.close()
   await new Promise(done => server.close(done))

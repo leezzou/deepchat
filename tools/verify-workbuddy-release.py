@@ -30,6 +30,8 @@ RELEASE_CODE = re.search(r'^\s*versionCode\s+(\d+)', GRADLE, re.M)[1]
 VERSION = r'(?:版本|Version)\s*' + re.escape(RELEASE_NAME)
 BALANCE = r'剩余积分|Available credits'
 AUTO = r'.*(?:每日自动签到|Daily automatic check-in).*'
+ACCOUNT = r'登录 WorkBuddy 账号|Sign in to WorkBuddy'
+DSH = r'登录 DeepSeek 账号|Sign in to DeepSeek'
 
 
 def run(args, timeout=45):
@@ -173,7 +175,7 @@ def consent_check():
         qr_image = any(re.search(r'二维码|QR code', s, re.I) for n in nodes for s in labels(n))
         header = match(nodes, r'www\.workbuddy\.cn')
         back = match(nodes, r'返回 DeepChat|Return to DeepChat')
-        if seen == set(required) and header is not None and back is not None :
+        if seen == set(required) and header is not None and back is not None:
             break
     else:
         raise AssertionError(f'Consent indicators {sorted(seen)}')
@@ -195,7 +197,7 @@ def consent_check():
     while time.monotonic() < end:
         nodes = tree()
         cancel = match(nodes, '取消|Cancel')
-        if match(nodes, 'WorkBuddy') is not None and cancel is not None:
+        if match(nodes, r'WorkBuddy 账号|WorkBuddy account') is not None and cancel is not None:
             tap(cancel)
             break
     else:
@@ -266,6 +268,24 @@ def exercise_ui(reached):
     settings, drawer = wait_for('Settings|设置')
     assert_private(drawer)
     tap(settings)
+    account, root = wait_for(ACCOUNT)
+    assert_private(root)
+    dsh = match(root, DSH)
+    assert dsh is not None, 'Expected DeepSeek account immediately above WorkBuddy'
+    _, top, _, bottom = map(int, re.findall(r'\d+', account.get('bounds')))
+    dsh_bottom = int(re.findall(r'\d+', dsh.get('bounds'))[-1])
+    assert -10 <= top - dsh_bottom <= 30 and bottom - top >= 80, 'Account order or touch target changed'
+    tap(account)
+    _, public_page = wait_for('电脑版登录|Desktop sign-in')
+    assert_private(public_page)
+    assert match(public_page, r'未登录|Signed out') is not None
+    if reached is not None:
+        consent_check()
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    restored_account, root = wait_for(ACCOUNT)
+    assert_private(root)
+    assert restored_account.get('bounds') == account.get('bounds'), 'Public account Back changed Settings position'
+    print(f'PASS {SERIAL}: public WorkBuddy account below DeepSeek, signed-out login, Back to same Settings position', flush=True)
     version, original = wait_for(VERSION, allow_scroll=True)
     assert_private(original)
     left, _, right, _ = map(int, re.findall(r'\d+', version.get('bounds')))
@@ -282,13 +302,12 @@ def exercise_ui(reached):
     tap(version, 7)
     _, panel = wait_for(BALANCE)
     assert match(panel, r'.*(?:在官网查看|View on WorkBuddy).*') is None, 'Wallet must stay in the app'
-    assert match(panel, r'(?:未登录|Signed out)') is not None
+    assert match(panel, r'登录后显示|Sign in to view') is not None
+    assert match(panel, r'电脑版登录|Desktop sign-in') is None
     assert match(panel, AUTO) is not None
     switches = [n for n in panel if n.get('class') == 'android.widget.Switch' and any(re.search(AUTO, s, re.I) for s in labels(n))]
     assert len(switches) == 1 and switches[0].get('checked') == 'false' and switches[0].get('enabled') == 'false', 'Expected a disabled, unchecked switch'
     assert not any(re.search(r'API[\s_-]*Key|密钥|访问令牌|access token', s, re.I) for n in panel for s in labels(n)), 'Unexpected WorkBuddy API key flow'
-    if reached is not None:
-        consent_check()
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     restored, returned = wait_for(VERSION)
     assert_private(returned)

@@ -59,5 +59,8 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
   if (template) {
     return { text: template, presentation: 'response' }
   }
+  if (reply.workBuddyReasoningUnavailable) {
+    return { text: translate('workBuddyReasoningUnavailable') }
+  }
   return null
 }

@@ -326,7 +326,9 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
               <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
             </button>
           </Tooltip>
-          <Tooltip content={t('deactivatedSearchTooltip')}>
+          <Tooltip content={route.workbuddy
+            ? english ? 'Search WorkBuddy with this question before answering' : '先用本轮问题在 WorkBuddy 搜索，再结合来源回答'
+            : t('deactivatedSearchTooltip')}>
             <button
               type="button"
               className={clsx(styles.toggle, route.search && search && styles.selected)}

@@ -2,7 +2,10 @@ import type { ChatAccess } from '../api/access.js'
 import type { CreateMessageRequest, MessageStreamEvent, StopReason } from '../api/types.js'
 import { readServerSentEvents } from '../api/sse.js'
 import { workBuddyFetch } from './bridge.js'
+import { searchQuestion, searchSources, withSearchEvidence } from './search.js'
+import { createId } from '../../utils/id.js'
 import { isWorkBuddyModel } from './models.js'
+import { observeFlashLimit, observeFlashReply } from './quota.js'
 
 export function workBuddyMessages(body: CreateMessageRequest) {
   const rows: { role: string; content: string }[] = []
@@ -62,20 +65,93 @@ export async function* streamWorkBuddy(
   if (!isWorkBuddyModel(access.model)) {
     throw new Error('WorkBuddy · Unsupported model')
   }
-  const messages = workBuddyMessages(body)
+  let messages = workBuddyMessages(body)
+  const thinking = body.thinking.type === 'enabled'
+  const search = body.tools.some((tool) => tool.type === 'deepseek_web_search')
+  const requestId = `wb-${createId()}`
+  let index = -1
+  signal.throwIfAborted()
+  yield { type: 'message_start', message: { id: requestId, model: access.model } }
+  if (search) {
+    const question = searchQuestion(messages)
+    const toolId = `wb-search-${requestId}`
+    yield {
+      type: 'content_block_start',
+      index: ++index,
+      content_block: {
+        type: 'server_tool_use',
+        id: toolId,
+        name: 'deepseek_web_search',
+        kind: 'search',
+        caller: { type: 'direct' },
+        input: { action: 'search', queries: [question.query] },
+      },
+    }
+    yield { type: 'content_block_stop', index }
+    let sources
+    try {
+      const response = await workBuddyFetch(
+        access.model,
+        access.revision,
+        { op: 'search', query: question.query },
+        signal
+      )
+      const data = await response.json().catch(() => null)
+      if (!response.ok || data?.error || (data?.code != null && data.code !== 0)) {
+        throw serviceError(data, response.status)
+      }
+      sources = searchSources(data)
+    } catch (error) {
+      signal.throwIfAborted()
+      yield {
+        type: 'content_block_start',
+        index: ++index,
+        content_block: {
+          type: 'web_search_tool_result',
+          tool_use_id: toolId,
+          kind: 'search',
+          content: [{ type: 'web_search_tool_result_error', error_code: 'unavailable' }],
+        },
+      }
+      yield { type: 'content_block_stop', index }
+      throw new Error(
+        `WorkBuddy 搜索 / Search · ${error instanceof Error ? error.message : String(error)}`
+      )
+    }
+    yield {
+      type: 'content_block_start',
+      index: ++index,
+      content_block: {
+        type: 'web_search_tool_result',
+        tool_use_id: toolId,
+        kind: 'search',
+        content: sources,
+      },
+    }
+    yield { type: 'content_block_stop', index }
+    messages = withSearchEvidence(messages, question.index, sources)
+  }
   signal.throwIfAborted()
   onDispatch?.()
-  const response = await workBuddyFetch(access.model, access.revision, messages, signal)
+  const startedAt = Date.now()
+  const response = await workBuddyFetch(
+    access.model,
+    access.revision,
+    { op: 'chat', messages, thinking },
+    signal
+  )
   if (
     !response.ok ||
     !response.body ||
     !response.headers.get('Content-Type')?.toLowerCase().includes('text/event-stream')
   ) {
-    throw serviceError(await response.json().catch(() => null), response.status)
+    const error = await response.json().catch(() => null)
+    observeFlashLimit(access, error, response.status)
+    throw serviceError(error, response.status)
   }
-  yield { type: 'message_start', message: { id: `wb-${Date.now()}`, model: access.model } }
+  let reportedTokens: number | undefined
   let block: 'text' | 'thinking' | undefined
-  let index = -1
+  let sawThinking = false
   let finished = false
   let reason: StopReason = 'end_turn'
   for await (const frame of readServerSentEvents(response.body, signal)) {
@@ -87,11 +163,16 @@ export async function* streamWorkBuddy(
     if (!chunk || typeof chunk !== 'object') {
       throw new Error('WorkBuddy · Invalid response')
     }
-    if (frame.event === 'error' || chunk.error || (chunk.code != null && chunk.code !== 0)) {
-      throw serviceError(chunk)
-    }
     if (chunk.model != null && chunk.model !== access.model) {
       throw new Error('WorkBuddy · 腾讯返回了不同的模型 / Model mismatch')
+    }
+    if (frame.event === 'error' || chunk.error || (chunk.code != null && chunk.code !== 0)) {
+      observeFlashLimit(access, chunk, response.status)
+      throw serviceError(chunk)
+    }
+    // A stream may repeat cumulative usage. Count only its final total once.
+    if (Number.isSafeInteger(chunk.usage?.total_tokens) && chunk.usage.total_tokens >= 0) {
+      reportedTokens = chunk.usage.total_tokens
     }
     const choice = chunk.choices?.[0]
     if (!choice) {
@@ -110,6 +191,9 @@ export async function* streamWorkBuddy(
       const text = kind === 'thinking' ? choice.delta?.reasoning_content : choice.delta?.content
       if (typeof text !== 'string' || !text) {
         continue
+      }
+      if (kind === 'thinking') {
+        sawThinking = true
       }
       if (block !== kind) {
         if (block) {
@@ -146,6 +230,11 @@ export async function* streamWorkBuddy(
   if (!block && reason !== 'refusal') {
     throw new Error('WorkBuddy · 腾讯未返回回复内容 / Empty reply')
   }
-  yield { type: 'message_delta', delta: { stop_reason: reason, stop_sequence: null } }
+  observeFlashReply(access, reportedTokens, startedAt)
+  yield {
+    type: 'message_delta',
+    delta: { stop_reason: reason, stop_sequence: null },
+    ...(thinking && !sawThinking && reason !== 'refusal' ? { workBuddyReasoningUnavailable: true } : {}),
+  }
   yield { type: 'message_stop' }
 }

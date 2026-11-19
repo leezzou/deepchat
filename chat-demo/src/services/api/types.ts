@@ -228,6 +228,8 @@ export type MessageStreamEvent =
         stop_details?: StopDetails
         title?: string
       }
+      /** Local adapter observation for the UI, kept separate from model-generated content. */
+      workBuddyReasoningUnavailable?: true
       /** 流式服务可只回传累计输出，其余计数沿用同一次请求的 message_start。 */
       usage?: Partial<MessageUsage> & Pick<MessageUsage, 'output_tokens'>
     }

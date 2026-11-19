@@ -39,6 +39,9 @@ export const en = {
   credentialWriteFailed: 'Could not save your API configuration. Unlock the app and try again.',
   dshAccountExpired: 'Your session expired. Sign in again.',
   dshAccountInsufficient: 'Your account has insufficient balance. Check your balance or top up.',
+  workBuddyAccount: 'WorkBuddy account',
+  workBuddyLogin: 'Sign in to WorkBuddy',
+  workBuddyManage: 'Manage account',
   dshAccountLogin: 'Sign in to DeepSeek',
   dshAccount: 'DeepSeek account',
   dshAccountManage: 'Balance & top-up',
@@ -341,6 +344,7 @@ export const en = {
   apiProfileDeleteDescription: 'Its key will be removed as well; you will need to enter it again.',
   apiProfileHint:
     'Tap a row to switch profiles. Leave the endpoint empty for the official DeepSeek API, or point it at a compatible gateway.',
+  workBuddyReasoningUnavailable: 'Deep thinking was requested. WorkBuddy returned the answer without visible reasoning.',
   deactivatedSearchTooltip: 'Search the web when necessary',
   search: 'Search',
   uploadFile: 'Upload files',

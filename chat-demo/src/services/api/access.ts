@@ -37,7 +37,7 @@ export function getConversationRoute(sessionId?: string | null, override?: Conve
       protocol: 'openai' as const, origin: WORKBUDDY_ORIGIN, model, nativeModel: 'deepseek-flash' as ChatModel,
       destination, missing: !metadata || !isWorkBuddyModel(model),
       needsApproval: sessionId !== undefined && !override && (prior ? prior !== destination : Boolean(selected.profileId)),
-      contextWindow: 128_000, thinking: false, search: false, speech: false, files: false,
+      contextWindow: 128_000, thinking: !!metadata && isWorkBuddyModel(model), search: !!metadata && isWorkBuddyModel(model), speech: false, files: false,
     }
   }
   const account = profileId === ACCOUNT_PROFILE

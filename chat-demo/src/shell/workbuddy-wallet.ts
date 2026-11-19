@@ -4,6 +4,8 @@ export type WorkBuddyWalletSnapshot = {
   source: 'signed-out' | 'account'
   state: 'login-required' | 'account-page' | 'access-denied' | 'unavailable'
   balance: number | null
+  revision?: string
+  model?: string
   checkIn:
     | 'unknown'
     | 'available'

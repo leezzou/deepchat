@@ -72,7 +72,8 @@ import { DataSettings, type MobileDataProps } from './DataSettings.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
 import { closeSettings, coverSettings, finishSettingsExit, openSettings, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
 import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
-import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
+import { hasWorkBuddyBridge, useWorkBuddyState } from '../../services/workbuddy/provider.js'
+import { WorkBuddyChannel } from './WorkBuddyChannel.js'
 import { WorkBuddyPanel, WorkBuddyVersion } from './WorkBuddyPanel.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
@@ -118,7 +119,7 @@ type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
 const SettingsContent = ({ historyImport, initialSection }: ImportProps & { initialSection: SettingsSection }) => {
   const t = useTranslate()
   const [section, setSection] = useState<SettingsSection>(initialSection === 'apiKey' ? 'data' : initialSection)
-  const [workBuddyOpen, setWorkBuddyOpen] = useState(false)
+  const [workBuddyPage, setWorkBuddyPage] = useState<'account' | 'wallet' | null>(null)
   const version = readAppVersion()
   // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
@@ -157,7 +158,7 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
         <div role="tabpanel" className={styles.content}>
           {section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
-              {hasAccountBridge ? <AccountSettings /> : null}
+              <AccountSettings onWorkBuddy={() => setWorkBuddyPage('account')} />
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
@@ -190,12 +191,12 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
               />
             </>
           )}
-          {version && <WorkBuddyVersion version={version} onOpen={() => setWorkBuddyOpen(true)} />}
+          {version && <WorkBuddyVersion version={version} onOpen={() => setWorkBuddyPage('wallet')} />}
         </div>
       </Modal>
-      <ModalPresence>{workBuddyOpen && (
-        <Modal title={t('workbuddyTitle')} closable onClose={() => setWorkBuddyOpen(false)}>
-          <WorkBuddyPanel />
+      <ModalPresence>{workBuddyPage && (
+        <Modal title={t(workBuddyPage === 'account' ? 'workBuddyAccount' : 'workbuddyTitle')} closable onClose={() => setWorkBuddyPage(null)}>
+          {workBuddyPage === 'account' ? <WorkBuddyAccountPage /> : <WorkBuddyPanel />}
         </Modal>
       )}</ModalPresence>
       <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
@@ -220,13 +221,14 @@ type MobilePage =
   | 'profile'
   | 'location'
   | 'workbuddy'
+  | 'workbuddyAccount'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
-  profile: 'settingsProfile', location: 'settingsLocation', workbuddy: 'workbuddyTitle',
+  profile: 'settingsProfile', location: 'settingsLocation', workbuddy: 'workbuddyTitle', workbuddyAccount: 'workBuddyAccount',
 }
 
 /** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
@@ -385,6 +387,7 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
                 selectSession(sessionId)
               }} />}
               {page === 'workbuddy' && <WorkBuddyPanel />}
+              {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
               {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
               {page === 'personalize' && <MobilePersonalizeContent />}
@@ -433,6 +436,7 @@ const MobileRow = ({
   disabled?: boolean
   external?: boolean
   'data-api-usage-entry'?: boolean
+  'data-wb-account-entry'?: boolean
 }) => (
   <button {...attributes} type="button" className={styles.row} disabled={disabled} onClick={onClick}>
     <span className={styles.rowIcon} aria-hidden="true">{icon}</span>
@@ -470,18 +474,20 @@ const MobileSelectRow = ({
 )
 
 /** The account panel never displays or edits an API profile. */
-const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
+const WorkBuddyAccountPage = () => <div className="wb-settings" data-wb-account-page><WorkBuddyChannel /></div>
+
+const AccountSettings = ({ mobile = false, onWorkBuddy }: { mobile?: boolean; onWorkBuddy: () => void }) => {
   const t = useTranslate()
   const signedIn = useSettings((state) => state.accountSignedIn)
   const hasKey = useSettings((state) => Boolean(state.apiKey))
   const source = useSettings((state) => state.chatSource)
   const workBuddy = useWorkBuddyState(s => s.metadata)
   const options = [
-    { value: 'account', label: t('dshAccountBalance') },
+    ...(hasAccountBridge ? [{ value: 'account' as const, label: t('dshAccountBalance') }] : []),
     { value: 'api', label: 'API Key' },
     ...(workBuddy || source === 'workbuddy' ? [{ value: 'workbuddy' as const, label: 'WorkBuddy' }] : []),
   ] as const
-  const showChoice = Boolean(workBuddy || source === 'workbuddy' || (source === 'account' ? hasKey : signedIn))
+  const showChoice = (hasAccountBridge || hasWorkBuddyBridge) && Boolean(workBuddy || source === 'workbuddy' || (source === 'account' ? hasKey : signedIn))
   const picker = (
     <Select
       ariaLabel={t('dshChatUses')}
@@ -490,29 +496,43 @@ const AccountSettings = ({ mobile = false }: { mobile?: boolean }) => {
       options={[...options]}
       onChange={(choice) => {
         setChatSource(choice)
-        if (choice === 'account' && !signedIn) openAccount()
+        if (choice === 'account' && !signedIn) {
+          openAccount()
+        }
       }}
     />
   )
   const label = t(signedIn ? 'dshAccount' : 'dshAccountLogin')
-  if (!mobile) return (
-    <>
-      <SettingCell label={t('dshAccount')} status={null} action={
-        <Button data-dsh-account variant="outlined" size="m" onClick={openAccount}>
-          {signedIn ? t('dshAccountManage') : t('dshAccountLogin')}
-        </Button>
-      } />
-      {showChoice ? <SettingCell label={t('dshChatUses')} status={null} action={picker} /> : null}
-    </>
-  )
+  if (!mobile) {
+    return (
+      <>
+        {hasAccountBridge && <SettingCell label={t('dshAccount')} status={null} action={
+          <Button data-dsh-account variant="outlined" size="m" onClick={openAccount}>
+            {signedIn ? t('dshAccountManage') : t('dshAccountLogin')}
+          </Button>
+        } />}
+        {hasWorkBuddyBridge && <SettingCell label={t('workBuddyAccount')} status={null} action={
+          <Button data-wb-account-entry variant="outlined" size="m" onClick={onWorkBuddy}>
+            {t(workBuddy ? 'workBuddyManage' : 'workBuddyLogin')}
+          </Button>
+        } />}
+        {showChoice ? <SettingCell label={t('dshChatUses')} status={null} action={picker} /> : null}
+      </>
+    )
+  }
   return (
     <>
-      <button data-dsh-account type="button" className={styles.row} onClick={openAccount}>
+      {hasAccountBridge && <button data-dsh-account type="button" className={styles.row} onClick={openAccount}>
         <span className={styles.rowIcon}><SettingsIcon name="account" /></span>
         <span className={styles.rowLabel}>{label}</span>
         {signedIn ? <span className={styles.rowValue}>{t('dshAccountManage')}</span> : null}
         <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
-      </button>
+      </button>}
+      {hasWorkBuddyBridge && (
+        <MobileRow data-wb-account-entry icon={<SettingsIcon name="work" />}
+          label={t(workBuddy ? 'workBuddyAccount' : 'workBuddyLogin')}
+          value={workBuddy ? t('workBuddyManage') : undefined} onClick={onWorkBuddy} />
+      )}
       {showChoice ? (
         <MobileSelectRow icon={<SettingsIcon name="source" />} label={t('dshChatUses')} value={source === 'workbuddy' ? 'WorkBuddy' : source === 'api' ? 'API Key' : t('dshAccountBalance')}>
           {picker}
@@ -571,7 +591,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   return (
     <>
       <MobileGroup title={t('settingsAccountGroup')}>
-        {hasAccountBridge ? <AccountSettings mobile /> : null}
+        <AccountSettings mobile onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
         <MobileRow
           icon={<SettingsIcon name="key" />}
           label={t('settingsKeysTitle')}

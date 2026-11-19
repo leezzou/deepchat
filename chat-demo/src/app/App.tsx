@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { hasAccountBridge, initializeAccount } from '../shell/account.js'
 import { useSettings } from '../services/settings.js'
+import { hasWorkBuddyBridge, refreshWorkBuddy } from '../services/workbuddy/provider.js'
 import { useIsMobile, useMobileViewport } from './viewport.js'
 import {
   bindChatPersistence,
@@ -120,6 +121,10 @@ export const App = () => {
   useEffect(() => {
     void initChat()
     void initDrafts()
+    if (hasWorkBuddyBridge) {
+      // Read native routing metadata even if WebView storage was cleared since sign-in.
+      void refreshWorkBuddy().catch(() => {})
+    }
     if (hasAccountBridge) {
       initializeAccount((account) =>
         useSettings.setState({

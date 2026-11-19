@@ -30,7 +30,7 @@ const fixture = (globalThis.__contextTest = {
 })
 const mocks = new Map(
   Object.entries({
-    '/services/settings.ts': `export const useSettings = { getState: () => globalThis.__contextTest.settings }`,
+    '/services/settings.ts': `export const useSettings = { getState: () => globalThis.__contextTest.settings }; export const setChatSource = (source) => { globalThis.__contextTest.settings.chatSource = source }`,
     '/services/api/origin.ts': `export const defaultApiModel="deepseek-flash", defaultApiOrigin="https://api.deepseek.com"; export const getApiConfig = () => globalThis.__contextTest.config`,
     '/services/api/client.ts': `export class ApiError extends Error { constructor(kind,message,status) { super(typeof message === 'string' ? message : message.key); this.kind=kind; this.status=status; this.localMessage=typeof message==='object'?message:undefined } } export const streamMessage = (...args) => globalThis.__contextTest.stream(...args)`,
     '/services/api/errors.ts': `export const extractFileIds=()=>[]; export const getFileErrorCode=()=>null; export const isRetryableApiError=()=>false; export const isContextOverflow=()=>false`,

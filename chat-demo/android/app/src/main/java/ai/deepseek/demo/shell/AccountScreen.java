@@ -603,7 +603,7 @@ public final class AccountScreen {
                 break;
             case PENDING:
                 page.heading(exchanging ? "正在完成登录" : "等待授权", 24);
-                body(exchanging ? "已收到授权回调，正在确认账户状态。" : "请在浏览器中完成 DeepSeek 账号授权。返回这里后会自动检查结果。", 12);
+                body(exchanging ? "已收到授权回调，正在确认账户状态。" : "请在浏览器中完成授权。如果本机返回页一直加载，请复制地址栏的网址，返回这里点「手动完成授权」。", 12);
                 errors();
                 if (!exchanging) page.button(page.body, "手动完成授权", TONAL, 24,
                         action == Action.NONE ? this::openManualPrompt : null);

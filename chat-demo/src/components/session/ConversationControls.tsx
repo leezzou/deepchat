@@ -286,7 +286,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
               </p>
             )}
             <p className="conversation-mode-hint">
-              {route.profileId === WORKBUDDY_PROFILE ? (en ? 'Text only. Model availability depends on your WorkBuddy account.' : '仅支持文字。可用模型以腾讯账号权限为准。') : route.protocol === 'openai'
+              {route.profileId === WORKBUDDY_PROFILE ? (en ? 'Search uses your question and WorkBuddy account. Model access and charges depend on your plan.' : '开启搜索后会用本轮问题向 WorkBuddy 检索。模型权限与费用以腾讯账号套餐为准。') : route.protocol === 'openai'
                 ? en
                   ? 'Search and thinking switches are unavailable. Attachments require a provider that supports the Files API and file references.'
                   : '此协议无法使用联网搜索与深度思考开关。发送附件需服务商支持文件上传接口及文件引用。'

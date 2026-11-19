@@ -38,6 +38,9 @@ export const zh = {
   credentialWriteFailed: '未能可靠保存 API 配置，请解锁后重试。',
   dshAccountExpired: '账号登录已过期，请重新登录。',
   dshAccountInsufficient: '账号余额不足，请查看余额或充值。',
+  workBuddyAccount: 'WorkBuddy 账号',
+  workBuddyLogin: '登录 WorkBuddy 账号',
+  workBuddyManage: '管理账号',
   dshAccountLogin: '登录 DeepSeek 账号',
   dshAccount: 'DeepSeek 账号',
   dshAccountManage: '余额与充值',
@@ -321,6 +324,7 @@ export const zh = {
   apiProfileDeleteDescription: '删除后这条配置里的 Key 也会一起移除，需要重新填写才能再用。',
   apiProfileHint:
     '点一行即可切换当前使用的配置；接口地址留空表示使用 DeepSeek 官方地址，填中转地址可走兼容网关。',
+  workBuddyReasoningUnavailable: '已开启深度思考。WorkBuddy 返回了回答，但未提供可展示的思考过程。',
   deactivatedSearchTooltip: '按需搜索网页',
   search: '智能搜索',
   uploadFile: '上传文件',

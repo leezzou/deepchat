@@ -96,12 +96,12 @@ export function WorkBuddyChannel() {
   return (
     <section className="wb-group" aria-labelledby="wb-channel-heading">
       <h3 id="wb-channel-heading" className="wb-group-title">
-        {en ? 'DeepSeek chat' : 'DeepSeek 对话'}
+        {en ? 'WorkBuddy sign-in' : 'WorkBuddy 登录'}
       </h3>
       <div className="wb-card">
         <div className="wb-row">
           <span className="wb-label">
-            {en ? 'Chat account' : '对话账号'}
+            {en ? 'Personal account' : '个人账号'}
             <small className="wb-caption">
               {metadata
                 ? name || (en ? 'Signed in' : '已登录')
