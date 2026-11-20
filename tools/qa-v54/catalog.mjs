@@ -27,6 +27,8 @@ export async function catalog({ page, phone, motion, shot, check, result }, { se
   await item.press('Enter')
   const field = panel.locator('[data-context-window]')
   const source = panel.locator('a[href^="https://opencode.ai/"]')
+  const limits = panel.getByText('上限与来源', { exact: true })
+  await limits.click()
   await source.first().waitFor()
   const value = await field.inputValue()
   check(value === '200000', 'OpenCode Zen Big Pickle exposes sourced 200,000-token default')
@@ -70,6 +72,7 @@ export async function catalog({ page, phone, motion, shot, check, result }, { se
   await browse.click()
   await filter.fill('generalv3')
   await page.locator('[data-model-id="generalv3"]').click()
+  await limits.click()
   check(
     (await field.inputValue()) === '8192' && /输入上限/.test(await panel.innerText()),
     'Spark Pro uses its published 8,192 input limit when total context is unknown'

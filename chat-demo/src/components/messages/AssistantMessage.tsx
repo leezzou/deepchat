@@ -162,7 +162,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         <div className={styles.bottom} data-message-actions>
           <BranchSwitcher versions={versions} disabled={busy} onSelect={onSelectVersion} />
           <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
-            {copyText ? <CopyButton text={copyText} /> : null}
+            {copyText ? <CopyButton text={copyText} markdown /> : null}
             {responseText && !refused ? (
               <ReadAloudButton sessionId={sessionId} messageId={message.id} text={responseText} />
             ) : null}

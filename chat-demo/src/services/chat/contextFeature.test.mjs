@@ -876,3 +876,26 @@ test('cold chat send enforces the exact provider input cap before dispatch', asy
   assert.equal(blocked.error.localMessage.key, 'contextRequestTooLarge')
   assert.equal(fixture.requests.length, 0)
 })
+
+
+test('sending with refreshed tiers uses the highest deployed tier, then a lower manual value and the independent input cap', async () => {
+  const { profileWindowKey, withProfileWindow } = await import('../api/contextOverrides.ts')
+  const origin = 'https://tiered.invalid/v1'
+  const model = 'tiered-chat'
+  const key = profileWindowKey(origin, model, 'openai')
+  const profile = { id: 'p', apiKey: 'scoped', origin, protocol: 'openai', model,
+    discoveredWindows: { [key]: 20000 }, discoveredWindowDetails: { [key]: { tiers: [2000, 20000], input: 15000 } } }
+  const attempt = async (selected, expected) => {
+    fixture.settings.apiProfiles = [selected]
+    fixture.draft = { text: 'x'.repeat(16000), files: [] }
+    const value = session([])
+    assert.equal(contextWindowTokens(value.id), expected)
+    return (await lastReplyAfter(value, () => store.sendMessage(value.id))).status
+  }
+  assert.equal(await attempt(profile, 20000), 'done')
+  const lower = withProfileWindow(profile, key, 2000)
+  assert.equal(await attempt(lower, 2000), 'error')
+  assert.equal(await attempt(withProfileWindow(lower, key), 20000), 'done')
+  assert.equal(await attempt({ ...profile, discoveredWindowDetails: { [key]: { tiers: [2000, 20000], input: 2000 } } }, 20000), 'error')
+  assert.equal(fixture.requests.length, 2)
+})

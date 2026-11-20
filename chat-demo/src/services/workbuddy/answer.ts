@@ -12,7 +12,8 @@ export class AnswerBlocks {
   constructor(
     private index: number,
     private hits: SearchHit[],
-    private ids: Set<string>
+    private ids: Set<string>,
+    private searched = false
   ) {}
 
   private *stop(): Generator<MessageStreamEvent> {
@@ -54,7 +55,7 @@ export class AnswerBlocks {
   }
 
   *push(kind: 'text' | 'thinking', text: string): Generator<MessageStreamEvent> {
-    if (kind !== 'text' || !this.hits.length) {
+    if (kind !== 'text' || !this.searched) {
       if (this.fragment) {
         yield* this.append('text', this.fragment)
         this.fragment = ''

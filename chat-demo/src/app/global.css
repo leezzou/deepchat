@@ -3,8 +3,15 @@
   --nav-enter: 230ms;
   --nav-exit: 180ms;
   --nav-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --settings-feedback: 160ms;
   --message-list-max-width: 840px;
   --message-list-padding-horizontal: 44px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --settings-feedback: 0ms;
+  }
 }
 
 @supports (height: 100dvh) {

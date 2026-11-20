@@ -11,6 +11,9 @@ declare const styles: {
   readonly text: string
   readonly label: string
   readonly uploadButton: string
+  readonly collapseSetting: string
+  readonly collapseText: string
+  readonly profileName: string
   readonly locationCell: string
   readonly locationSelectors: string
   readonly provinceSelect: string
@@ -19,7 +22,9 @@ declare const styles: {
   readonly theme: string
   readonly themeOptions: string
   readonly themeOption: string
-  readonly themeOptionSelected: string
+  readonly themePreview: string
+  readonly themeMark: string
+  readonly dangerGroup: string
   readonly description: string
   readonly error: string
   readonly apiKey: string

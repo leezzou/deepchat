@@ -41,6 +41,22 @@ final class WorkBuddyCatalog {
         return false;
     }
 
+    // Tencent's personal model configuration exposes a display multiplier, e.g. "x0.79 credits".
+    // Empty strings occur on real model rows. Only an explicit zero multiplier denotes free use.
+    private static final String DECIMAL = "([0-9]{1,5}(?:\\.[0-9]{1,8})?)";
+    private static final java.util.regex.Pattern CREDITS = java.util.regex.Pattern.compile(
+            "(?:[x×]\\s*" + DECIMAL + "(?:\\s+credits)?|" + DECIMAL + "\\s*[x×])", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    static JSONObject creditRate(Object raw) throws Exception {
+        if (!(raw instanceof String)) return null;
+        java.util.regex.Matcher match = CREDITS.matcher(((String) raw).trim());
+        if (!match.matches()) return null;
+        double multiplier = Double.parseDouble(match.group(1) != null ? match.group(1) : match.group(2));
+        JSONObject rate = new JSONObject().put("multiplier", multiplier);
+        if (multiplier == 0) rate.put("free", true);
+        return rate;
+    }
+
     private static JSONObject model(JSONObject row, String id) throws Exception {
         String name = row.optString("name", id);
         JSONObject entry = new JSONObject().put("id", id).put("name", name.isEmpty() || name.length() > 160 ? id : name);
@@ -53,13 +69,14 @@ final class WorkBuddyCatalog {
             if (n > 0 && (max == 0 || n <= max)) tiers.add(n);
         }
         int budget = max;
-        if (tiers.size() >= 2) {
-            int def = tokens(context.opt("defaultLength"));
-            budget = tiers.contains(def) ? def : tiers.first();
+        if (!tiers.isEmpty()) {
+            budget = tiers.last();
             entry.put("contextTiers", new JSONArray(tiers));
         }
+        if (max > 0) entry.put("maxInputTokens", max);
         if (budget > 0) entry.put("contextWindow", budget);
         if (row.opt("supportsReasoning") instanceof Boolean) entry.put("reasoning", row.getBoolean("supportsReasoning"));
+        entry.put("rate", creditRate(row.opt("credits")));
         return entry;
     }
 
@@ -80,6 +97,7 @@ final class WorkBuddyCatalog {
             String id = row.getString("id");
             if (byId.put(id, row) != null) duplicate.add(id);
         }
+        java.util.Map<String, JSONArray> promotions = WorkBuddyPromotion.byModel(data.optJSONArray("modelPromotions"));
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < roster.length(); i++) {
             if (!(roster.opt(i) instanceof String)) continue;
@@ -91,9 +109,25 @@ final class WorkBuddyCatalog {
                     || (available != null && !contains(available, id))) continue;
             JSONArray output = row.optJSONArray("outputModalities");
             if (output != null && !contains(output, "text")) continue;
-            clean.put(model(row, id));
+            clean.put(model(row, id).put("promotions", promotions.get(id)));
         }
         return clean;
+    }
+
+    static void describeCache(JSONObject saved, JSONObject status, long now) throws org.json.JSONException {
+        long updatedAt = saved.optLong("catalogUpdatedAt");
+        boolean failed = saved.optBoolean("catalogError");
+        long age = now - updatedAt, sinceCheck = now - saved.optLong("catalogCheckedAt");
+        boolean stale = failed || updatedAt <= 0 || age < 0 || age >= 300_000;
+        status.put("catalog", saved.optJSONArray("catalog")).put("catalogUpdatedAt", updatedAt)
+                .put("catalogError", failed).put("catalogStale", stale)
+                .put("catalogRefresh", stale && (!failed || sinceCheck < 0 || sinceCheck >= 30_000));
+    }
+
+    static void recordAttempt(JSONObject saved, JSONArray catalog, long now) throws org.json.JSONException {
+        // A successful empty roster revokes every model. A failed attempt retains the last good snapshot.
+        if (catalog != null) saved.put("catalog", catalog).put("catalogUpdatedAt", now);
+        saved.put("catalogError", catalog == null).put("catalogCheckedAt", now);
     }
 
     static JSONArray fetch(JSONObject account) throws Exception {

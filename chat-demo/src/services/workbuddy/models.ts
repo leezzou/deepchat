@@ -1,3 +1,6 @@
+import { positiveTokens, windowTiers } from '../api/windowTiers.js'
+import { promotionRate } from './promotions.js'
+
 export const WORKBUDDY_PROFILE = '@workbuddy'
 export const WORKBUDDY_ORIGIN = 'https://copilot.tencent.com'
 // The three explicit models supported by previous releases and the vendor's offline product config.
@@ -12,7 +15,9 @@ export type WorkBuddyModelInfo = {
   name: string
   contextWindow?: number
   contextTiers?: number[]
+  maxInputTokens?: number
   reasoning?: boolean
+  rate?: { multiplier: number; free?: true }
   source: 'bundled' | 'account'
 }
 const bundled: WorkBuddyModelInfo[] = WORKBUDDY_MODELS.map((id) => ({
@@ -25,9 +30,24 @@ const bundled: WorkBuddyModelInfo[] = WORKBUDDY_MODELS.map((id) => ({
 let current = bundled
 export const validWorkBuddyId = (id: unknown): id is string =>
   typeof id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(id)
-const positive = (n: unknown): n is number =>
-  typeof n === 'number' && Number.isSafeInteger(n) && n > 0
+function parseCreditRate(value: unknown): WorkBuddyModelInfo['rate'] {
+  if (!value || typeof value !== 'object' || !('multiplier' in value)) {
+    return
+  }
+  const multiplier = value.multiplier
+  if (typeof multiplier !== 'number' || !Number.isFinite(multiplier) || multiplier < 0) {
+    return
+  }
+  return multiplier === 0 ? { multiplier, free: true } : { multiplier }
+}
+let snapshot: unknown
+let nextPriceChange = Infinity
+export const getNextWorkBuddyPriceChange = () => nextPriceChange
+export const repriceWorkBuddyCatalog = () => setWorkBuddyCatalog(snapshot)
 export function setWorkBuddyCatalog(raw: unknown): WorkBuddyModelInfo[] {
+  snapshot = raw
+  nextPriceChange = Infinity
+  const now = Date.now()
   if (!Array.isArray(raw)) {
     return (current = bundled)
   }
@@ -36,12 +56,20 @@ export function setWorkBuddyCatalog(raw: unknown): WorkBuddyModelInfo[] {
     if (!row || !validWorkBuddyId(row.id) || typeof row.name !== 'string') {
       continue
     }
+    const limit = positiveTokens(row.maxInputTokens) ? row.maxInputTokens : undefined
+    // Cached v1.0.54 catalogs stored a lower default alongside the complete tier list.
+    const tiers = windowTiers(row.contextTiers, limit)
+    const window = tiers?.at(-1) ?? limit ?? (positiveTokens(row.contextWindow) ? row.contextWindow : undefined)
+    const { rate, nextChange } = promotionRate(parseCreditRate(row.rate)?.multiplier, row.promotions, now)
+    nextPriceChange = Math.min(nextPriceChange, nextChange)
     models.set(row.id, {
       id: row.id,
       name: row.name || row.id,
       source: 'account',
-      ...(positive(row.contextWindow) && { contextWindow: row.contextWindow }),
-      ...(Array.isArray(row.contextTiers) && { contextTiers: row.contextTiers.filter(positive) }),
+      ...(rate && { rate }),
+      ...(window && { contextWindow: window }),
+      ...(tiers && { contextTiers: tiers }),
+      ...(limit && { maxInputTokens: limit }),
       ...(typeof row.reasoning === 'boolean' && { reasoning: row.reasoning }),
     })
   }

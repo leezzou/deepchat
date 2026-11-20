@@ -9,6 +9,7 @@ import {
   securityState,
   subscribeSecurity,
 } from '../../services/security/bridge.js'
+import '../library/localSwitch.css'
 import './securitySettings.css'
 
 export function SecuritySettings() {
@@ -58,12 +59,12 @@ export function SecuritySettings() {
   return (
     <div className="security-settings">
       <section aria-labelledby="security-lock-title">
-        <button type="button" role="switch" className="security-setting-row security-toggle"
-          aria-labelledby="security-lock-title" aria-describedby="security-lock-hint"
-          aria-checked={lock.enabled} disabled={!lock.available || busy} onClick={() => void toggle()}>
+        <label className="security-setting-row security-toggle">
           <span id="security-lock-title">{t('应用锁', 'App lock')}</span>
-          <span aria-hidden="true" className="security-toggle-track"><span /></span>
-        </button>
+          <input type="checkbox" role="switch" className="dc-local-switch"
+            aria-labelledby="security-lock-title" aria-describedby="security-lock-hint"
+            checked={lock.enabled} disabled={!lock.available || busy} onChange={() => void toggle()} />
+        </label>
         <p id="security-lock-hint">{explanation}</p>
         {busy && <p role="status">{t('等待系统验证…', 'Waiting for system verification…')}</p>}
         {!!failure && (

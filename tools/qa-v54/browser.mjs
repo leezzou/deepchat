@@ -128,7 +128,7 @@ try {
               .getAttribute('content')
             assert.ok(!report.version || report.version === version)
             report.version = version
-            if (report.stage === 'published-apk') assert.equal(version, '1.0.54')
+            if (report.stage === 'published-apk') assert.equal(version, process.env.QA_EXPECT_VERSION || '1.0.54')
             assert.equal(
               await page.evaluate(() => matchMedia('(prefers-reduced-motion:reduce)').matches),
               motion === 'reduce'

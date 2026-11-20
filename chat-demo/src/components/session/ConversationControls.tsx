@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { ProviderModelPicker } from '../settings/ProviderModelPicker.js'
+import { WorkBuddyModelPicker } from '../settings/WorkBuddyModelPicker.js'
 import { allowsKeylessLocal, endpointProvider } from '../../services/api/modelWindows.js'
 import type { DiscoveredModel } from '../../services/api/modelDiscovery.js'
 import { reasoningWire } from '../../services/api/providerParity.js'
@@ -407,7 +408,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                     ...(!choice.profileId
                       ? [{ value: '', label: en ? 'Default API' : '默认 API' }]
                       : []),
-                    ...(route.missing && choice.profileId
+                    ...(route.missing && choice.profileId && !(choice.profileId === WORKBUDDY_PROFILE && workBuddy)
                       ? [{ value: choice.profileId, label: en ? 'Removed provider' : '方案已移除' }]
                       : []),
                     ...(hasAccountBridge || choice.profileId === ACCOUNT_PROFILE
@@ -418,7 +419,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                           },
                         ]
                       : []),
-                    ...(workBuddy && !(route.missing && choice.profileId === WORKBUDDY_PROFILE)
+                    ...(workBuddy
                       ? [{ value: WORKBUDDY_PROFILE, label: 'WorkBuddy' }]
                       : []),
                     ...profiles.map((p) => ({ value: p.id, label: p.name })),
@@ -428,23 +429,17 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
               </div>
               <div
                 className={
-                  route.protocol !== 'deepseek' && route.profileId !== WORKBUDDY_PROFILE
+                  route.protocol !== 'deepseek'
                     ? 'conversation-mode-model'
                     : 'conversation-mode-row'
                 }
               >
                 <span>{en ? 'Model' : '模型'}</span>
                 {route.profileId === WORKBUDDY_PROFILE ? (
-                  <Select
-                    className="conversation-choice"
-                    ariaLabel={en ? 'Model' : '模型'}
+                  <WorkBuddyModelPicker
+                    en={en}
+                    label={en ? 'Model' : '模型'}
                     value={route.model}
-                    disabled={workBuddyModels.length === 0}
-                    placeholder={en ? 'Choose an available model' : '选择可用模型'}
-                    options={workBuddyModels.map(({ id, name }) => ({
-                      value: id,
-                      label: name === id ? id : `${name} · ${id}`,
-                    }))}
                     onChange={selectModel}
                   />
                 ) : route.protocol === 'deepseek' ? (
@@ -470,11 +465,11 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                       discover={discover}
                       onChange={selectModel}
                       onAvailable={consumeModels}
-                      onDiscovered={(id, contextWindow, source, reasoning) => {
+                      onDiscovered={(id, contextWindow, source, reasoning, windowDetails) => {
                         if (profile) {
                           setFact({
                             profile,
-                            row: { id, name: id, contextWindow, source, reasoning },
+                            row: { id, name: id, contextWindow, source, reasoning, windowDetails },
                           })
                         }
                       }}

@@ -119,13 +119,31 @@ test('only exact and independently authorized WorkBuddy routes are available', a
 })
 test('preserves reported WorkBuddy usage after finish, with errors kept distinct from completed answers', async () => {
   const sse = (...chunks) => chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')
-  respond(200, sse(
-    { choices: [{ delta: { reasoning: '比较两款屏幕。', reasoning_content: '比较两款屏幕。' } }] },
-    { choices: [{ delta: { content: '结果相同' }, finish_reason: 'stop' }] },
-    { choices: [], usage: { prompt_tokens: 90, completion_tokens: 17, prompt_tokens_details: { cached_tokens: 25 } } }
-  ))
+  respond(
+    200,
+    sse(
+      {
+        choices: [{ delta: { reasoning: '比较两款屏幕。', reasoning_content: '比较两款屏幕。' } }],
+      },
+      { choices: [{ delta: { content: '结果相同' }, finish_reason: 'stop' }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 90,
+          completion_tokens: 17,
+          prompt_tokens_details: { cached_tokens: 25 },
+        },
+      }
+    )
+  )
   const events = await drain(access, { ...body, thinking: { type: 'enabled' } })
-  assert.equal(events.filter((event) => event.delta?.type === 'thinking_delta').map((event) => event.delta.thinking).join(''), '比较两款屏幕。')
+  assert.equal(
+    events
+      .filter((event) => event.delta?.type === 'thinking_delta')
+      .map((event) => event.delta.thinking)
+      .join(''),
+    '比较两款屏幕。'
+  )
   const done = events.find((event) => event.type === 'message_delta')
   assert.equal(done.delta.stop_reason, 'end_turn')
   assert.equal(done.usage.cache_read_input_tokens, 25)
@@ -427,7 +445,13 @@ test('resolves follow-up with same-grant planner; isolates private history, read
       )
     }
   }
-  const events = await drain(access, comparison)
+  const events = await drain(access, {
+    ...comparison,
+    messages: [
+      ...comparison.messages.slice(0, -1),
+      { role: 'user', content: '那这两款的官方续航规格和独立测评相比呢？' },
+    ],
+  })
   const sent = calls.slice(start).filter((x) => x.op !== 'cancel')
   const planner = sent[0]
   assert.equal(planner.purpose, 'search_plan')
@@ -476,7 +500,7 @@ test('single plain query gets a bounded second search only if needed; denied rea
               url: `https://docs.example/${n}`,
               readKey: `read-${n}`,
               snippet: sufficient
-                ? 'Independent and substantive primary release notes covering the new product.'
+                ? `新品动态：发布说明第 ${n} 期包含完整产品规格及上市时间。`
                 : '保留的摘要',
             })),
           })
@@ -497,19 +521,33 @@ test('single plain query gets a bounded second search only if needed; denied rea
       .at(-1)
       .messages.find((row) => row.content.startsWith('WorkBuddy search results')).content
     assert.doesNotMatch(evidence, /"page"/)
-    assert.match(evidence, sufficient ? /primary release notes/ : /保留的摘要/)
+    assert.match(sent.at(-1).messages[0].content, /0 retrieved page excerpt.*Only search listings/s)
+    if (!sufficient) {
+      const fetchResults = events
+        .map((event) => event.content_block)
+        .filter((block) => block?.type === 'web_fetch_tool_result')
+      assert.equal(fetchResults.length, 1)
+      assert.equal(fetchResults[0].content.type, 'web_fetch_tool_result_error')
+    }
+    assert.match(evidence, sufficient ? /发布说明/ : /保留的摘要/)
     assert.equal(viewOf(events).answer.text, '文档已更新')
   }
 })
 
 test('planner errors fall back to current safe question, explicit privacy abstention and sensitive input make zero search calls', async () => {
-  for (const mode of ['malformed', 'abstain', 'sensitive-plan', 'sensitive-question']) {
+  for (const mode of [
+    'malformed',
+    'unresolved',
+    'abstain',
+    'sensitive-plan',
+    'sensitive-question',
+  ]) {
     const start = calls.length
     reply = ({ id, op, purpose }) => {
       if (purpose === 'search_plan') {
         return sendPlan(
           id,
-          mode === 'malformed'
+          mode === 'malformed' || mode === 'unresolved'
             ? 'not a plan'
             : { queries: mode === 'sensitive-plan' ? ['API key abcxyz'] : [] }
         )
@@ -530,11 +568,19 @@ test('planner errors fall back to current safe question, explicit privacy absten
               { role: 'user', content: '请查询私有项目及密码 hunter2' },
             ],
           }
-        : comparison
+        : mode === 'malformed'
+          ? {
+              ...comparison,
+              messages: [
+                ...comparison.messages.slice(0, -1),
+                { role: 'user', content: '查询 MiraLoop X2 国内公开售价' },
+              ],
+            }
+          : comparison
     await drain(access, content)
     const sent = calls.slice(start).filter((req) => req.op === 'search')
     if (mode === 'malformed') {
-      assert.equal(sent[0].query, comparison.messages.at(-1).content.normalize('NFKC'))
+      assert.equal(sent[0].query, content.messages.at(-1).content.normalize('NFKC'))
     } else {
       assert.equal(sent.length, 0)
     }
@@ -661,6 +707,172 @@ test('text-only WorkBuddy rejects attachment requests before any search or plann
   }
   await assert.rejects(drain(access, content), /Text messages only/)
   assert.equal(calls.length, start)
+})
+
+test('recent Chinese comparison follows each model to dated facts and selects the relevant passage after navigation', async () => {
+  const start = calls.length
+  const now = new Date(),
+    month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const subjects = ['MiraLoop X2', 'Kubo Air']
+  const query = subjects.map((name) => `${name} 国内售价`)
+  const make = (key, title, snippet, date) => ({
+    title,
+    snippet,
+    date,
+    url: `https://${key}.example/story`,
+    readKey: key,
+  })
+  const stale = make('old', 'MiraLoop X2 开箱', '发布会价格为 1499 元。'.repeat(8), '2021-01-12')
+  const ad = make(
+    'unrelated',
+    '本网站使用条款',
+    '注册登录关闭弹窗后查看全部新闻资讯与推荐活动。'.repeat(5),
+    month + '-01'
+  )
+  const current = subjects.map((name, i) =>
+    make(`shop${i}`, `${name} 国内售价更新`, `${name} 最新到手价见评测正文。`, month + '-01')
+  )
+  reply = ({ id, op, purpose, query: text, readKey }) => {
+    if (purpose === 'search_plan') {
+      return sendPlan(id, { queries: query, subjects, multi: false, read: false })
+    }
+    if (op === 'search') {
+      return delivery(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({
+          results: text.includes(subjects[1]) ? [current[1]] : [ad, stale, current[0]],
+        })
+      )
+    }
+    if (op === 'read') {
+      const idx = Number(readKey.slice(-1))
+      const page =
+        `首页 | 注册 | 登录 | 订阅\n`.repeat(140) +
+        `\n${subjects[idx]} 国内售价 ${idx ? 799 : 999} 元，含税；活动截至 ${month}。`
+      return delivery(id, 200, 'application/json', JSON.stringify({ text: page }))
+    }
+    if (op === 'chat') {
+      return delivery(id, 200, 'text/event-stream', answer)
+    }
+  }
+  await drain(access, {
+    ...comparison,
+    messages: [
+      ...comparison.messages.slice(0, -1),
+      { role: 'user', content: '那这两款最近在国内各卖多少钱？' },
+    ],
+  })
+  const sent = calls.slice(start).filter((req) => req.op !== 'cancel')
+  const searches = sent.filter((req) => req.op === 'search')
+  assert.ok(
+    searches.some((req) => req.query.includes(subjects[0])) &&
+      searches.some((req) => req.query.includes(subjects[1]))
+  )
+  assert.ok(searches.every((req) => req.query.includes(month)))
+  const reads = sent.filter((req) => req.op === 'read').map((req) => req.readKey)
+  assert.deepEqual(new Set(reads), new Set(['shop0', 'shop1']))
+  const ref = sent
+    .at(-1)
+    .messages.find((row) => row.content.startsWith('WorkBuddy search results')).content
+  assert.match(ref, /999 元/)
+  assert.match(ref, /799 元/)
+})
+
+test('empty web results cannot produce source citations from the model', async () => {
+  let instruction
+  reply = ({ id, op, messages }) => {
+    if (op === 'search') {
+      return delivery(id, 200, 'application/json', '{"results":[]}')
+    }
+    instruction = messages[0].content
+    return delivery(
+      id,
+      200,
+      'text/event-stream',
+      'data: {"choices":[{"delta":{"content":"公开资料不足[S1]。"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+    )
+  }
+  const events = await drain(access, {
+    ...body,
+    tools: [searchTool],
+    messages: [{ role: 'user', content: '公开资料' }],
+  })
+  assert.match(instruction, /No public evidence/)
+  assert.equal(viewOf(events).answer.text, '公开资料不足。')
+  assert.deepEqual(viewOf(events).sources, [])
+})
+
+test('variant names remain distinct and battery evidence retains playback conditions instead of storage numbers', async () => {
+  const { assessHits, pagePassage, taskSignals } = await import('./quality.ts')
+  const { searchSources } = await import('./search.ts')
+  const focus = {
+    signals: taskSignals('那这两款的续航呢？'),
+    subjects: ['iPhone 15', 'iPhone 15 Plus'],
+    queries: ['iPhone 15 续航', 'iPhone 15 Plus 续航'],
+  }
+  const hits = searchSources(
+    {
+      results: [
+        { title: 'iPhone 15 Plus 技术规格', url: 'https://support.apple.com/zh-cn/111830' },
+      ],
+    },
+    new Set()
+  )
+  assert.deepEqual(assessHits(hits, focus)[0].subjects, ['iPhone 15 Plus'])
+  const body =
+    'iPhone 15 Plus 技术规格 128 GB 256 GB 512 GB 显示屏。'.repeat(60) +
+    '\n电源和电池\n视频播放：最长可达 26 小时\n流媒体视频播放：最长可达 20 小时\n'
+  const excerpt = pagePassage(body, focus, 800)
+  assert.match(excerpt, /视频播放：最长可达 26 小时/)
+  assert.match(excerpt, /流媒体视频播放：最长可达 20 小时/)
+})
+
+test('two denied page reads use an available backup query once and label all remaining evidence as listings', async () => {
+  const start = calls.length
+  const subjects = ['红桥 A1', '青禾 B2']
+  reply = ({ id, op, purpose, query }) => {
+    if (purpose === 'search_plan') {
+      return sendPlan(id, {
+        subjects,
+        queries: ['红桥 A1 青禾 B2 价格', '红桥 A1 青禾 B2 在售 报价'],
+        read: false,
+        multi: false,
+      })
+    }
+    if (op === 'read') {
+      return delivery(id, 403, 'application/json', '{"error":{"message":"reader denied"}}')
+    }
+    if (op === 'search') {
+      const round = query.includes('在售') ? 1 : 0
+      return delivery(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({
+          results: subjects.map((name, i) => ({
+            title: name,
+            snippet: `${name} 有公开的价格记录，详细的售价和生效日期见正文。`,
+            url: `https://shop${i}.example/${round}`,
+            readKey: `only-${i}`,
+          })),
+        })
+      )
+    }
+    return delivery(id, 200, 'text/event-stream', answer)
+  }
+  await drain(access, {
+    ...body,
+    tools: [searchTool],
+    messages: [{ role: 'user', content: '红桥 A1 和青禾 B2 现在各卖多少钱？' }],
+  })
+  const sent = calls.slice(start).filter((call) => call.op !== 'cancel')
+  assert.deepEqual(
+    sent.map((call) => call.op),
+    ['chat', 'search', 'read', 'read', 'search', 'chat']
+  )
+  assert.match(sent.at(-1).messages[0].content, /4 source\(s\), 0 retrieved page excerpt/)
 })
 
 test('model quota refusals still reach the chat for both HTTP and SSE', async () => {

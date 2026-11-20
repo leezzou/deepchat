@@ -1,5 +1,6 @@
 import { defaultApiOrigin, normalizeOrigin } from '../api/origin.js'
 import { allowsKeylessLocal, validWindow } from '../api/modelWindows.js'
+import { windowDetails, type WindowDetails } from '../api/windowTiers.js'
 import { decodeWindows } from '../api/contextOverrides.js'
 import { restoreClaudeFacts } from '../api/anthropicOfficial.js'
 import type { ApiProfile } from '../settings.js'
@@ -24,6 +25,11 @@ function decodeList(text: string): ApiProfile[] {
     const reasoning = Object.entries(raw.discoveredReasoning ?? {}).filter(([key, v]) =>
       key.startsWith('[') && (v === 'toggle' || v === 'fixed' || v === 'none'))
     const discoveredWindows = decodeWindows(raw.discoveredWindows, false) as Record<string, number> | undefined
+    const details: Record<string, WindowDetails> = {}
+    for (const [key, value] of Object.entries(raw.discoveredWindowDetails ?? {})) {
+      const clean = discoveredWindows?.[key] && windowDetails(value, discoveredWindows[key])
+      if (clean) { details[key] = clean }
+    }
     const kinds = Object.entries(raw.discoveredWindowKinds ?? {}).filter(([key, kind]) =>
       discoveredWindows?.[key] && ['input', 'endpoint', 'instance', 'model'].includes(String(kind)))
     return {
@@ -37,6 +43,7 @@ function decodeList(text: string): ApiProfile[] {
       ...(decodeWindows(raw.contextWindows) && { contextWindows: decodeWindows(raw.contextWindows) }),
       ...(reasoning.length && { discoveredReasoning: Object.fromEntries(reasoning) as ApiProfile['discoveredReasoning'] }),
       ...(discoveredWindows && { discoveredWindows }),
+      ...(Object.keys(details).length && { discoveredWindowDetails: details }),
       ...(kinds.length && { discoveredWindowKinds: Object.fromEntries(kinds) as ApiProfile['discoveredWindowKinds'] }),
       ...(typeof raw.providerId === 'string' && { providerId: raw.providerId }),
       apiKey: raw.apiKey,

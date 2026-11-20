@@ -48,6 +48,26 @@ test('explicit metadata only, including nested context fields, unknown private i
   )
 })
 
+test('only explicit choices for one model become tiers and a hard ceiling filters them', async () => {
+  const rows = [
+    { id: 'by-tier', context_window: { default_length: 4096, supported_lengths: [4096, 32768, 8192, '8193', 8192, -3, 4.5] }, max_context_length: 16384, max_input_tokens: 6000 },
+    { id: 'single', contextWindow: { supportedLengths: [8192, 16384] }, maxInputTokens: 8192 },
+    { id: 'deployment-routes', endpoints: [{ context_length: 128000 }, { context_length: 32768 }] },
+    { id: 'invalid', supported_context_windows: [-1, 1.5, 25000], max_context_window: 16000 },
+  ]
+  await fixture(async () => Response.json({ data: rows }), async () => {
+    const [tiered, single, deployments, invalid] = await discoverModels(profile('custom','https://edge.invalid/v1'), signal())
+    assert.equal(tiered.contextWindow, 8192)
+    assert.deepEqual(tiered.windowDetails, { tiers: [4096, 8192], input: 6000 })
+    assert.equal(single.contextWindow, 8192)
+    assert.deepEqual(single.windowDetails.tiers, [8192])
+    assert.equal(deployments.windowDetails, undefined)
+    assert.equal(deployments.contextWindow, undefined)
+    assert.equal(invalid.windowDetails, undefined)
+    assert.equal(invalid.contextWindow, 16000)
+  })
+})
+
 test('official OpenAI lists authorized chat and Responses IDs and excludes adjacent non-chat APIs',async()=>{
   await fixture(async(url,init)=>{
     assert.equal(url,'https://api.openai.com/v1/models');assert.equal(init.headers.Authorization,'Bearer fixture');

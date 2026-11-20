@@ -1,8 +1,8 @@
 {
-  "version": "1.0.54",
+  "version": "1.0.55",
   "publishedAt": "2026-11-20",
-  "notes": "首问自动生成会话标题，顶栏与历史列表同步显示。选中供应商会读取可用模型，可查看、修改和恢复每个型号的上下文。各渠道共用聊天操作，设置内可按供应商和模型查看每次请求的输入、输出与缓存命中。缩小停止键白色方块。WorkBuddy 能理解追问、补搜和阅读网页，保留完整来源。每十轮后台备份一次，可在设置中关闭或删除已有自动备份。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.54",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.54/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.54/deepchat.apk"
+  "notes": "分享预览和长图按正文样式排版，Markdown 导出保留源文。设置首页可直接切换外观。模型用量新增趋势图、渠道与型号排行、输入与输出缓存命中图。多档上下文默认使用当前最高档。WorkBuddy 模型和积分倍率随腾讯更新，免费项单独标记，联网搜索改进了追问与正文核对。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.55",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.55/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.55/deepchat.apk"
 }

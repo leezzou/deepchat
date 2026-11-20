@@ -2,6 +2,8 @@ import { claudeHeaders, isAnthropicOrigin, observeClaudeModel } from './anthropi
 import { isOpenAiOrigin, isOpenAiChatModel } from './openAiModels.js'
 import { androidShell, nativeModelRequest } from '../security/bridge.js'
 
+import { windowTiers, type WindowDetails } from './windowTiers.js'
+
 type Json = Record<string, unknown>
 export type DiscoveryProfile = { providerId: string; endpoint: string; apiKey: string }
 export type DiscoveredModel = {
@@ -10,6 +12,7 @@ export type DiscoveredModel = {
   reasoning?: import('./providerParity.js').ReasoningSupport
   inspected?: boolean
   contextWindow?: number
+  windowDetails?: WindowDetails
   source: 'endpoint' | 'instance' | 'model' | 'input'
 }
 type Auth = 'bearer' | 'anthropic' | 'gemini'
@@ -81,7 +84,7 @@ function kindFor(profile: DiscoveryProfile, base: URL): ListKind {
   if (base.origin === 'https://tokenhub.tencentmaas.com' && path === '/v1') {
     return 'tokenhub'
   }
-  if (isOpenAiOrigin(base.href)) return 'openai'
+  if (isOpenAiOrigin(base.href)) {return 'openai'}
   if (isAnthropicOrigin(base.href)) {
     return 'anthropic'
   }
@@ -232,6 +235,7 @@ function row(raw: Json, kind: ListKind): DiscoveredModel | undefined {
     return
   }
   const contextWindow = [
+    raw.contextWindow,
     raw.context_window,
     raw.context_length,
     raw.max_context_length,
@@ -247,7 +251,17 @@ function row(raw: Json, kind: ListKind): DiscoveredModel | undefined {
   ]
     .map(tokens)
     .find(Boolean)
-  const input = kind === 'gemini' ? tokens(raw.inputTokenLimit) : tokens(raw.max_input_tokens)
+  const input = kind === 'gemini' ? tokens(raw.inputTokenLimit) : tokens(raw.max_input_tokens) ?? tokens(raw.maxInputTokens)
+  // Only lists declared as window choices on this very model qualify. Endpoint lists,
+  // output budgets, hardware variants and loaded local instances have other semantics.
+  const config = asRecord(raw.contextWindow ?? raw.context_window)
+  const limit = [raw.max_context_length, raw.max_model_len, raw.max_context_window, raw.max_context_window_tokens]
+    .map(tokens).filter((n): n is number => n !== undefined)
+  const maxWindow = limit.length ? Math.min(...limit) : undefined
+  const choices = windowTiers(config.supportedLengths ?? config.supported_lengths ??
+    raw.supported_context_lengths ?? raw.supported_context_windows, maxWindow ?? tokens(raw.maxInputTokens))
+  const selectedWindow = choices?.at(-1) ?? (contextWindow && maxWindow ? Math.min(contextWindow, maxWindow) : contextWindow)
+  const details = choices || input ? { ...(choices && { tiers: choices }), ...(input && { input }) } : undefined
   let reasoning: DiscoveredModel['reasoning'] = kind === 'anthropic' ? observeClaudeModel(id, raw) : undefined
   if (kind === 'openrouter') {
     const metadata = asRecord(raw.reasoning)
@@ -279,8 +293,9 @@ function row(raw: Json, kind: ListKind): DiscoveredModel | undefined {
   return {
     id,
     name: str(raw.display_name) || str(raw.displayName) || str(raw.name) || id,
-    contextWindow: contextWindow ?? input,
-    source: !contextWindow && input ? 'input' : 'endpoint',
+    contextWindow: selectedWindow ?? input,
+    source: !selectedWindow && input ? 'input' : 'endpoint',
+    ...(details && { windowDetails: details }),
     ...(reasoning && { reasoning }),
   }
 }
@@ -339,7 +354,7 @@ async function listCloud(
             ? body.last_id
             : undefined
     if (!next) {
-      if (kind === 'anthropic' && body.has_more === true) throw new Error('pagination')
+      if (kind === 'anthropic' && body.has_more === true) {throw new Error('pagination')}
       return [...rows.values()]
     }
     const cursor = str(next)

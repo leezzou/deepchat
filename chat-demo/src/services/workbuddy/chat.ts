@@ -96,7 +96,7 @@ export async function* streamWorkBuddy(
     const error = await response.json().catch(() => null)
     throw serviceError(error, response.status)
   }
-  const blocks = new AnswerBlocks(nextIndex - 1, hits, ids)
+  const blocks = new AnswerBlocks(nextIndex - 1, hits, ids, search)
   let finished = false
   let reason: StopReason = 'end_turn'
   let usage: MessageUsage | undefined

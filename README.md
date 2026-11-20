@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.54/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.55/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
   <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
 </p>
@@ -65,14 +65,14 @@
 | --- | --- |
 | **熟悉的移动端界面** | 首页、聊天输入框、会话抽屉与分层设置；系统返回键逐层返回，横滑打开或关闭会话列表。 |
 | **自己的 API** | 保存多条配置，为不同会话选择供应商和型号。支持官方 API、兼容网关和本地部署。 |
-| **模型用量** | 打开设置可按渠道、模型和日期查看输入、输出 token，各自的缓存命中与命中率。逐条请求列出对话、续写、重新生成、标题和摘要的用量。 |
+| **模型用量** | 打开设置即可查看输入与输出 token 趋势和缓存命中率，点选渠道或型号排行可筛选图表及各次请求的明细。 |
 | **读得舒服** | 流式回复、Markdown、代码高亮、数学公式与 Mermaid 图表；浅色、深色和跟随系统主题。 |
-| **调成喜欢的样子** | 七档聊天字号，拖动滑块实时预览；思考内容自动折叠开关；本地头像与昵称，登录 DeepSeek 账号后自动使用账号头像和昵称。 |
+| **调成喜欢的样子** | 在设置中直接点选跟随系统、浅色或深色预览。可调整七档聊天字号、思考折叠、头像和昵称。 |
 | **说出来，也听得到** | DeepSeek 官方接口提供语音转文字和海星、暗潮朗读。其他渠道可使用设备上已安装的离线识别和朗读音色。 |
-| **继续编辑与分享** | 编辑提问、重新生成回复、切换消息分支，删除单条消息及其后续分支；复制内容或打开 Android 系统分享面板。 |
+| **继续编辑与分享** | 编辑提问、重新生成回复、切换消息分支。多选消息可预览并导出排版长图，导出 Markdown 可保留原文。复制和系统分享使用可读文本。 |
 | **带着历史继续聊** | 首条消息自动生成话题名，顶栏与历史列表同步显示。重新打开旧对话时会补全标题。可手动重命名、搜索消息原文，或选取历史轮次和生成摘要。 |
 
-DeepSeek 专用接口还支持联网搜索、链接阅读与附件处理。收到真实思考内容时，聊天界面才显示思考过程。Android 的 WorkBuddy 通道可以结合上文规划搜索，按需补搜和阅读网页，再把引用关联到相应来源。
+DeepSeek 专用接口还支持联网搜索、链接阅读与附件处理。收到真实思考内容时，聊天界面才显示思考过程。Android 的 WorkBuddy 通道会随腾讯账号更新可选模型和积分倍率。腾讯明确返回零费率时显示「免费」。联网追问可结合上文补全指代，比较多个对象时可分别检索、阅读相关原文，再把引用关联到相应来源。
 
 <a id="start"></a>
 

@@ -49,6 +49,7 @@ export type ApiProfile = {
   contextWindows?: Record<string, number | null>
   discoveredReasoning?: Record<string, import('./api/providerParity.js').ReasoningSupport>
   discoveredWindows?: Record<string, number>
+  discoveredWindowDetails?: Record<string, import('./api/windowTiers.js').WindowDetails>
   claudeModelFacts?: ClaudeModelFacts
   discoveredWindowKinds?: Record<string, 'input' | 'endpoint' | 'instance' | 'model'>
   apiKey: string
@@ -367,7 +368,8 @@ export const saveProfileDiscovery = (expected: ApiProfile, model: DiscoveredMode
   const context = validWindow(model.contextWindow) ? model.contextWindow : undefined
   const kind = context ? model.source : undefined
   const facts = selectedClaudeFacts(profile.origin, model.id, profile.claudeModelFacts)
-  if (JSON.stringify(facts?.[model.id]) === JSON.stringify(profile.claudeModelFacts?.[model.id]) && profile.discoveredWindows?.[key] === context && profile.discoveredWindowKinds?.[key] === kind &&
+  if (JSON.stringify(profile.discoveredWindowDetails?.[key]) === JSON.stringify(model.windowDetails) &&
+      JSON.stringify(facts?.[model.id]) === JSON.stringify(profile.claudeModelFacts?.[model.id]) && profile.discoveredWindows?.[key] === context && profile.discoveredWindowKinds?.[key] === kind &&
       profile.discoveredReasoning?.[key] === model.reasoning) { return }
   const replace = <T,>(map: Record<string, T> | undefined, value: T | undefined) => value === undefined
     ? Object.fromEntries(Object.entries(map ?? {}).filter(([id]) => id !== key))
@@ -375,6 +377,7 @@ export const saveProfileDiscovery = (expected: ApiProfile, model: DiscoveredMode
   const next: ApiProfile = { ...profile,
     claudeModelFacts: facts,
     discoveredWindows: replace(profile.discoveredWindows, context),
+    discoveredWindowDetails: replace(profile.discoveredWindowDetails, model.windowDetails),
     discoveredWindowKinds: replace(profile.discoveredWindowKinds, kind),
     discoveredReasoning: replace(profile.discoveredReasoning, model.reasoning),
   }

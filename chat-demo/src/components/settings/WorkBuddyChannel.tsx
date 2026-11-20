@@ -13,7 +13,7 @@ import {
   useWorkBuddyState,
 } from '../../services/workbuddy/provider.js'
 import { Button } from '../base/Button.js'
-import { Select } from '../base/Select.js'
+import { WorkBuddyModelPicker } from './WorkBuddyModelPicker.js'
 
 function signInMessage(raw: string, en: boolean): string {
   switch (raw.replace(/^WorkBuddy · /, '')) {
@@ -42,7 +42,7 @@ function signInMessage(raw: string, en: boolean): string {
 export function WorkBuddyChannel() {
   const en = useSettings((s) => resolveLocale(s.locale) !== 'zh-CN')
   const active = useSettings((s) => s.chatSource === 'workbuddy')
-  const { metadata, models, name, pending } = useWorkBuddyState()
+  const { metadata, name, pending } = useWorkBuddyState()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const mounted = useRef(false),
@@ -138,25 +138,13 @@ export function WorkBuddyChannel() {
         </div>
         {metadata && (
           <>
-            <div className="wb-row">
+            <div className="wb-row wb-model-field">
               <span className="wb-label">{en ? 'Default model' : '默认模型'}</span>
-              <Select
-                disabled={busy || models.length === 0}
-                placeholder={
-                  models.length
-                    ? en
-                      ? 'Choose a model'
-                      : '选择模型'
-                    : en
-                      ? 'No available models'
-                      : '暂无可用模型'
-                }
-                ariaLabel={en ? 'WorkBuddy model' : 'WorkBuddy 模型'}
+              <WorkBuddyModelPicker
+                disabled={busy}
+                en={en}
+                label={en ? 'WorkBuddy model' : 'WorkBuddy 模型'}
                 value={metadata.model}
-                options={models.map(({ id, name }) => ({
-                  value: id,
-                  label: name === id ? id : `${name} · ${id}`,
-                }))}
                 onChange={(model) => void run(() => selectWorkBuddyModel(model))}
               />
             </div>

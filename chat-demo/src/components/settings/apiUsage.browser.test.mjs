@@ -5,6 +5,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { chromium } from '../../../../tools/node_modules/playwright/index.mjs'
+import { installFixture } from '../../../../tools/qa-v54/fixture.mjs'
+import { scenarios } from '../../../../tools/qa-v54/scenarios.mjs'
 
 const dist = process.env.API_USAGE_DIST ?? fileURLToPath(new URL('../../../dist', import.meta.url))
 const origin = 'https://usage.test'
@@ -170,11 +172,21 @@ for (const [locale, width, dark] of [
           id: 'other',
           at: now - 3,
           provider: 'Local',
-          model: 'local:model',
+          model: 'qa-model',
           input: 10,
           output: 10,
           outputHit: 5,
         })
+        for (let index = 0; index < 5; index++) {
+          rows.put({
+            ...base,
+            id: `provider-${index}`,
+            provider: `Extra ${index}`,
+            model: `Extra model ${index}`,
+            at: now - 20 - index,
+            ...(index === 0 && {input: 0, output: 0}),
+          })
+        }
         for (let index = 0; index < 11; index++)
           rows.put({ ...base, id: 'missing' + index, at: now - index - 10, status: 'failed' })
         await new Promise((resolve, reject) => {
@@ -193,9 +205,29 @@ for (const [locale, width, dark] of [
       const summary = report.locator('[data-usage-summary]')
       const metric = (el, key) =>
         el.locator(`[data-usage-metric="${key}"]`).getAttribute('data-value')
-      await report.locator('[data-usage-filter="provider"]').selectOption('QA API')
-      await report.locator('[data-usage-filter="model"]').selectOption('qa-model')
+      const rank = (kind, id) => report.locator(`[data-usage-rank="${kind}"][data-rank-id="${id}"]`)
+      assert.equal(await report.locator('select').count(), 0)
+      const providerRanks = report.locator('[data-rank-group="provider"]')
+      assert.equal(await providerRanks.locator('[data-usage-rank]').count(), 4)
+      await providerRanks.locator('button:not([data-usage-rank])').click()
+      assert.equal(await providerRanks.locator('[data-usage-rank]').count(), 8)
+      await rank('provider', 'Extra 4').click()
+      await report.locator('[data-usage-total="missing"]').waitFor()
+      assert.equal(await report.locator('[data-usage-series]').count(), 0)
+      assert.equal(await report.locator('[data-cache-chart="input"]').getAttribute('data-rate'), 'missing')
+      await rank('provider', 'Extra 0').click()
+      await report.locator('[data-usage-total="0"]').waitFor()
+      for (const series of ['input','output']) {
+        const zero = report.locator(`[data-usage-series="${series}"][data-value="0"]`)
+        assert.ok((await zero.boundingBox()).height >= 1)
+      }
+      await report.locator('[data-usage-reset]').click()
+      await rank('model', 'qa-model').click()
+      await report.locator('[data-usage-total="1120"]').waitFor()
+      assert.equal(await rank('model', 'qa-model').getAttribute('aria-pressed'), 'true')
+      await rank('provider', 'QA API').click()
       await report.locator('[data-usage-total="1100"]').waitFor()
+      await summary.locator(':scope > summary').click()
       assert.equal(await metric(summary, 'input'), '1000')
       assert.equal(await metric(summary, 'inputHit'), '59')
       assert.equal(await metric(summary, 'inputRate'), '50')
@@ -225,7 +257,8 @@ for (const [locale, width, dark] of [
       const missing = requests.locator('[data-usage-row]').first()
       await missing.locator('summary').click()
       assert.equal(await metric(missing, 'outputHit'), 'missing')
-      await report.locator('[data-usage-filter="provider"]').selectOption('legacy')
+      await report.locator('[data-usage-reset]').click()
+      await rank('provider', 'legacy').click()
       await report.locator('[data-usage-days="1"]').click()
       await report.locator('[data-usage-total="100"]').waitFor()
       await report.locator('[data-usage-days="30"]').click()
@@ -281,6 +314,130 @@ for (const [locale, width, dark] of [
       await browser.close()
     }
   })
+}
+
+// The app creates the ledger through ordinary API profile configuration and four real dispatches.
+for (const width of [320, 390, 1280]) {
+  for (const theme of ['light', 'dark']) {
+    test(`Usage charts from chat dispatches at ${width}px in ${theme}`, async () => {
+      const browser = await chromium.launch({
+        executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      })
+      try {
+        const phone = width < 500
+        const context = await browser.newContext({
+          viewport: {width, height: 844}, locale: 'zh-CN', hasTouch: phone, isMobile: phone,
+          timezoneId: 'Asia/Shanghai', colorScheme: theme, reducedMotion: 'reduce', serviceWorkers: 'block',
+        })
+        await serveOffline(context)
+        await context.addInitScript(installFixture)
+        const page = await context.newPage()
+        const errors = []
+        page.on('pageerror', error => errors.push(error.message))
+        page.setDefaultTimeout(6000)
+        await page.goto(origin)
+        const result = {}
+        const shot = async tag => {
+          if (!process.env.API_USAGE_SHOTS) {
+            return
+          }
+          await page.evaluate(() => Promise.allSettled(document.getAnimations()
+            .filter(animation => Number.isFinite(animation.effect?.getComputedTiming().endTime))
+            .map(animation => animation.finished)))
+          await page.screenshot({path: path.join(process.env.API_USAGE_SHOTS, `chart-${width}-${theme}-${tag}.png`)})
+        }
+        await scenarios['usage-proxy']({page, phone, result, shot, check: (ok, text) => assert.ok(ok, text)})
+        assert.equal(result.usage.records.length, 4)
+        const report = page.locator('[data-api-usage]:visible')
+        // Compare the painted pixels with the very same patch of chart background.
+        // A CSS background can be valid at parse time and still paint nothing when a token is missing.
+        for (const series of ['input', 'output']) {
+          for (const selector of [`[data-swatch="${series}"]`, `[data-usage-series="${series}"]:not([data-value="0"])`]) {
+            const mark = report.locator('[data-usage-trend]').locator(selector).first()
+            const ink = await mark.screenshot({ animations: 'disabled' })
+            await mark.evaluate(el => { el.style.opacity = '0' })
+            const paper = await mark.screenshot({ animations: 'disabled' })
+            await mark.evaluate(el => { el.style.removeProperty('opacity') })
+            assert.ok(!ink.equals(paper), `Invisible ${series} mark in ${theme} at ${width}px: ${selector}`)
+          }
+        }
+        for (const target of ['[data-usage-trend]', '[data-rank-group="provider"]', '[data-cache-chart="input"]']) {
+          const section = report.locator(target)
+          await section.scrollIntoViewIfNeeded()
+          const box = await section.boundingBox()
+          assert.ok(box && box.width > 0 && box.x >= 0 && box.x + box.width <= width + 1, `Chart overflows ${width}px: ${target}`)
+          await shot(target.includes('rank') ? 'rankings' : target.includes('cache') ? 'cache-rates' : 'trend')
+        }
+        if (width === 390 && theme === 'light') {
+          await checkSharedModel(page, result.usage.provider, shot)
+        }
+        assert.deepEqual(errors, [])
+      } finally {
+        await browser.close()
+      }
+    })
+  }
+}
+
+// Add a second real conversation routed to a different provider with the same deployment ID.
+async function checkSharedModel(page, originalProvider, shot) {
+  const model = 'qa-private-deployment'
+  const api = 'https://api.openai.com/v1'
+  const dispatched = []
+  await page.route(`${api}/**`, async route => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({json: {data: [{id: model}]}})
+    }
+    const request = route.request()
+    dispatched.push({url: request.url(), model: request.postDataJSON().model})
+    const event = data => `data: ${JSON.stringify(data)}\n\n`
+    return route.fulfill({
+      contentType: 'text/event-stream',
+      body: event({choices:[{delta:{content:'湖滨步道。'}, finish_reason:'stop'}]}) +
+        event({choices:[], usage:{prompt_tokens:11, completion_tokens:0}}) + 'data: [DONE]\n\n',
+    })
+  })
+  const button = name => page.getByRole('button', {name, exact: typeof name === 'string'})
+  const settings = async () => {
+    if (!await button('设置').isVisible()) {
+      await button(/^打开边栏/).click()
+    }
+    await button('设置').click()
+  }
+  await page.reload()
+  await settings()
+  await button(/API Key 管理/).click()
+  await button('添加 API Key').click()
+  await button('服务商').click()
+  await page.getByRole('listbox', {name:'服务商'}).getByRole('option', {name:'OpenAI', exact:true}).click()
+  await page.locator('#api-profile-name').fill('第二渠道')
+  await page.locator('#api-profile-model').fill(model)
+  await page.locator('#api-profile-key').fill('qa-secondary-provider')
+  await button('保存并启用').click()
+  await button('添加 API Key').waitFor()
+  await page.reload()
+  await button('开启新对话').first().click()
+  await page.locator('textarea:visible').first().fill('湖滨路线')
+  await button('发送').click()
+  await page.getByText('湖滨步道。', {exact:true}).waitFor()
+  assert.deepEqual(dispatched, [{url: `${api}/chat/completions`, model}])
+  await settings()
+  await page.locator('[data-settings-group="models"] [data-usage-home-entry]').click()
+  const report = page.locator('[data-api-usage]:visible')
+  const rank = (group, id) => report.locator(`[data-usage-rank="${group}"][data-rank-id="${id}"]`)
+  await report.locator('[data-usage-total="183"]').waitFor()
+  await rank('model', model).click()
+  assert.equal(await report.locator('[data-usage-rank="provider"]').count(), 2)
+  await rank('provider', 'OpenAI').click()
+  await report.locator('[data-usage-total="11"]').waitFor()
+  assert.equal(await report.locator('[data-usage-series="output"][data-value="0"]').count(), 1)
+  await rank('provider', originalProvider).click()
+  await report.locator('[data-usage-total="172"]').waitFor()
+  await report.locator('[data-usage-reset]').click()
+  await report.locator('[data-usage-total="183"]').waitFor()
+  assert.equal(await report.locator('[data-usage-rank][aria-pressed="true"]').count(), 0)
+  await report.locator('[data-rank-group="provider"]').scrollIntoViewIfNeeded()
+  await shot('two-providers-one-deployment')
 }
 
 for (const reducedMotion of ['no-preference', 'reduce']) {

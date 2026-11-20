@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { hasAccountBridge, initializeAccount } from '../shell/account.js'
 import { useSettings } from '../services/settings.js'
-import { hasWorkBuddyBridge, refreshWorkBuddy } from '../services/workbuddy/provider.js'
+import { hasWorkBuddyBridge, watchWorkBuddyCatalog } from '../services/workbuddy/provider.js'
 import { useIsMobile, useMobileViewport } from './viewport.js'
 import {
   bindChatPersistence,
@@ -132,10 +132,7 @@ export const App = () => {
     if (takeUpdateReturn()) {
       openSettings('general')
     }
-    if (hasWorkBuddyBridge) {
-      // Read native routing metadata even if WebView storage was cleared since sign-in.
-      void refreshWorkBuddy().catch(() => {})
-    }
+    const stopCatalogWatch = hasWorkBuddyBridge ? watchWorkBuddyCatalog() : undefined
     if (hasAccountBridge) {
       initializeAccount((account) =>
         useSettings.setState({
@@ -149,6 +146,7 @@ export const App = () => {
       // WorkBuddy restores its authorized model list asynchronously and uses its own sign-in.
       ensureApiKey()
     }
+    return stopCatalogWatch
   }, [])
 
   return (

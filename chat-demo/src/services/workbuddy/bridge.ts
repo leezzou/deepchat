@@ -11,6 +11,9 @@ type Frame = {
   revision?: unknown
   catalog?: unknown
   catalogRefresh?: boolean
+  catalogUpdatedAt?: number
+  catalogError?: boolean
+  catalogStale?: boolean
   code?: string
   name?: string
   pending?: boolean

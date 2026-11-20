@@ -68,7 +68,7 @@ async function emitAnswer(page, route, text, counts, finish = 'stop') {
 export async function usage(kind, { page, phone, check, shot, result }, { settings, choose, send, activeMessage, eventually }) {
   const route = usageRoutes[kind]
   const actualSize = page.viewportSize()
-  await page.setViewportSize({ width: 390, height: 844 }) // The full profile editor is available through mobile settings.
+  if (!phone) await page.setViewportSize({ width: 390, height: 844 }) // The full profile editor is available through mobile settings.
   const androidBridge = process.env.QA_ANDROID_ACCOUNT_BRIDGE === '1'
   if (androidBridge) await page.addInitScript(installUsageAndroid, route)
   await page.addInitScript(installUsageFixture, route)
@@ -82,8 +82,8 @@ export async function usage(kind, { page, phone, check, shot, result }, { settin
   await settings(page)
   await page.locator('[data-usage-home-entry]').click()
   const blank = page.getByRole('dialog').filter({ has: page.locator('[data-api-usage]') })
-  await blank.getByText('暂无用量记录', { exact: true }).waitFor()
-  check(true, 'Settings opens the empty usage report before any key or chat is configured')
+  await blank.locator('[data-usage-trend]').getByRole('status').waitFor()
+  check(await blank.locator('[data-usage-total], [data-usage-series]').count() === 0, 'The empty usage chart displays guidance before any key or chat is configured')
   await blank.getByRole('button', { name: '返回', exact: true }).click()
   await page.getByRole('button', { name: /API Key 管理/ }).click()
   await page.getByRole('button', { name: '添加 API Key', exact: true }).click()
@@ -103,10 +103,17 @@ export async function usage(kind, { page, phone, check, shot, result }, { settin
   const row = activeMessage(page)
   const waitCall = n => eventually(() => page.evaluate(n => window.usageFixture.log.length === n, n), `Usage request ${n}`)
   const completed = () => row.locator('[data-message-actions]').waitFor()
+  // Change only the displayed browser date. Fetch, IndexedDB and animation timers still run normally.
+  const today = new Date()
+  today.setHours(12, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setDate(today.getDate() - 1)
+  await page.clock.setFixedTime(yesterday)
   await send(page, '九溪步行路线')
   await waitCall(1)
   const write = route.native ? 2 : 0
   await emitAnswer(page, route, '先到九溪。', { input: 80, read: 20, write, output: 14, ...(kind === 'proxy' && { outputHit: 7 }) }, 'length')
+  await page.clock.setFixedTime(today)
   await row.getByRole('button', { name: '继续生成' }).click()
   await waitCall(2)
   await emitAnswer(page, route, '再到梅家坞。', { input: 51, read: 0, write: 0, output: 7 })
@@ -122,9 +129,9 @@ export async function usage(kind, { page, phone, check, shot, result }, { settin
   await emitAnswer(page, route, '最后一段。', null)
   await completed()
   await settings(page)
-  if (phone) await page.locator('[data-usage-home-entry]').click()
+  if (phone) await page.locator('[data-settings-group="models"] [data-usage-home-entry]').click()
   else {
-    await page.getByRole('tab', { name: '数据管理', exact: true }).click()
+    await page.getByRole('tab', { name: '模型与用量', exact: true }).click()
     await page.locator('[data-api-usage-entry]').click()
   }
   const report = page.locator('[data-api-usage]:visible')
@@ -166,9 +173,26 @@ export async function usage(kind, { page, phone, check, shot, result }, { settin
   const expectedProviders = kind === 'proxy' ? [new URL(route.base).hostname, route.label] : [route.label]
   check(expectedProviders.includes(records[0].provider), 'The recorded provider matches the configured deployment')
   await shot('request-details')
+  const trend = report.locator('[data-usage-trend]')
+  const buckets = await trend.locator('[data-usage-bucket]').evaluateAll(elements => elements.filter(el => Number(el.dataset.requests) > 0).map(el => ({
+    requests: Number(el.dataset.requests),
+    input: el.querySelector('[data-usage-series="input"]')?.dataset.value,
+    output: el.querySelector('[data-usage-series="output"]')?.dataset.value,
+  })))
+  assert.deepEqual(buckets, [{ requests: 1, input: String(100 + write), output: '14' }, { requests: 3, input: '51', output: '7' }])
+  check(true, 'Daily chart preserves independent dispatch dates, counts and reported input/output')
+  await trend.scrollIntoViewIfNeeded()
+  await shot('daily-trend')
+  const cache = async direction => report.locator(`[data-cache-chart="${direction}"]`).evaluate(el => ({ rate: el.dataset.rate, hits: el.dataset.hits, base: el.dataset.base, paired: el.dataset.paired }))
+  const inputCache = await cache('input')
+  const outputCache = await cache('output')
+  check(inputCache.hits === '20' && inputCache.base === String(151 + write) && inputCache.paired === '2', 'Input cache chart uses only reported pairs in the denominator')
+  check(kind === 'proxy' ? outputCache.rate === '50' && outputCache.base === '14' : outputCache.rate === 'missing', 'Output cache chart distinguishes reported hits from missing evidence')
+  await report.locator('[data-usage-days="1"]').click()
+  check((await cache('input')).rate === '0' && (await cache('output')).rate === 'missing', 'Today shows zero input hit rate and unreported output hit rate')
   await report.locator('[data-usage-days="all"]').click()
-  await report.locator('[data-usage-filter="provider"]').selectOption(records[0].provider)
-  await report.locator('[data-usage-filter="model"]').selectOption(route.model)
+  await report.locator(`[data-usage-rank="provider"][data-rank-id="${records[0].provider}"]`).click()
+  await report.locator(`[data-usage-rank="model"][data-rank-id="${route.model}"]`).click()
   const summary = report.locator('[data-usage-summary]')
   const metrics = await summary.locator('[data-usage-metric]').evaluateAll(elements => Object.fromEntries(elements.map(el => [el.dataset.usageMetric, el.dataset.value])))
   check(metrics.input === String(151 + write) && metrics.output === '21' && metrics.inputHit === '20', 'All-time provider and model filters keep the correct known totals')

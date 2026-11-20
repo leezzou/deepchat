@@ -496,30 +496,30 @@ export function DataSettings({
         </p>
       )}
       {mobile && (
-        <Group title={zh ? '本机历史' : 'Local history'}>
-          <Row
-            icon="summaries"
-            title={t('compactedEntry')}
-            hint={
-              zh
-                ? `查看摘要或恢复完整上下文 · ${listCompactions().length} 个对话`
-                : `View summaries or restore full context · ${listCompactions().length} chats`
-            }
-            onClick={mobile.onOpenCompacted}
-          />
-          <Row
-            icon="delete"
-            danger
-            title={t('deleteAllHistory')}
-            hint={
-              zh
-                ? '清空前会保存可恢复的本机安全快照。'
-                : 'A local safety snapshot is saved before clearing.'
-            }
-            disabled={busy || empty}
-            onClick={mobile.onDeleteAll}
-          />
-        </Group>
+        <>
+          <Group title={zh ? '本机历史' : 'Local history'}>
+            <Row
+              icon="summaries"
+              title={t('compactedEntry')}
+              hint={
+                zh
+                  ? `查看摘要或恢复完整上下文 · ${listCompactions().length} 个对话`
+                  : `View summaries or restore full context · ${listCompactions().length} chats`
+              }
+              onClick={mobile.onOpenCompacted}
+            />
+          </Group>
+          <Group title={t('settingsClearGroup')}>
+            <Row
+              icon="delete"
+              danger
+              title={t('deleteAllHistory')}
+              hint={t('settingsClearHint')}
+              disabled={busy || empty}
+              onClick={mobile.onDeleteAll}
+            />
+          </Group>
+        </>
       )}
       <ModalPresence>
         {restoreOpen && safety && (

@@ -157,6 +157,26 @@ test('valid legacy overrides survive upgrade, independence and reset per exact m
   assert.equal(again.contextWindows[key], null)
 })
 
+test('discovered choices and lower manual preferences survive reload; reset tracks the latest available tier', () => {
+  const origin = 'https://private.invalid/v1'
+  const key = profileWindowKey(origin, 'private', 'openai')
+  const [profile] = decodeLegacy(JSON.stringify([{ id: 'id', model: 'private', origin, protocol: 'openai', apiKey: 'key',
+    discoveredWindows: { [key]: 32000 }, discoveredWindowKinds: { [key]: 'endpoint' },
+    discoveredWindowDetails: { [key]: { tiers: [16000, -1, 32000, 16000, 64000], input: 27000 } },
+  }]), null)
+  const resolve = profile => resolveWindow({ profile, model: profile.model })
+  assert.deepEqual(resolve(profile).spec.tiers, [16000, 32000])
+  assert.equal(resolve(profile).spec.input, 27000)
+  assert.equal(resolve(profile).window, 32000)
+  const [saved] = decodeLegacy(JSON.stringify([withProfileWindow(profile, key, 16000)]), null)
+  assert.equal(resolve(saved).window, 16000)
+  const reset = withProfileWindow(saved, key)
+  assert.equal(resolve(reset).window, 32000)
+  const reduced = { ...saved, discoveredWindows: { [key]: 8000 }, discoveredWindowDetails: {} }
+  assert.equal(resolve(reduced).window, 8000)
+  assert.equal(resolve(reduced).manual, 16000)
+})
+
 test('native account and WorkBuddy grant preferences cannot cross channels, accounts or models', async () => {
   const account = { channel: 'account', model: 'deepseek-v4-pro', grant: 'a' }
   const wb = { channel: 'workbuddy', model: account.model, grant: 'a' }
@@ -168,17 +188,25 @@ test('native account and WorkBuddy grant preferences cannot cross channels, acco
     { id: 'gateway-only', name: 'Gateway' },
   ])
   try {
-    assert.equal(resolveWindow(wb).window, 22000)
+    assert.equal(resolveWindow(wb).window, 44000)
     assert.deepEqual(resolveWindow(wb).spec.tiers, [22000, 44000])
     assert.equal(resolveWindow({ ...wb, model: 'gateway-only' }).spec.basis, 'fallback')
     saveBuiltinWindow(wb, 12000)
-    assert.equal(resolveWindow({ ...wb, grant: 'b' }).window, 22000)
+    assert.equal(resolveWindow({ ...wb, grant: 'b' }).window, 44000)
     assert.equal(resolveWindow(account).window, 1048576)
     saveBuiltinWindow(account, 8_000)
     assert.equal(resolveWindow({ ...account, model: 'deepseek-flash' }).window, 1048576)
     const reloaded = await import('./contextOverrides.ts?reload=1')
     assert.equal(reloaded.resolveWindow(account).window, 8000)
     assert.equal(reloaded.resolveWindow(wb).window, 12000)
+    saveBuiltinWindow(wb)
+    assert.equal(resolveWindow(wb).window, 44000)
+    setWorkBuddyCatalog([{ id: wb.model, name: 'Pro', contextWindow: 9000, maxInputTokens: 30000, contextTiers: [44000, -10, 22000, '11999', 22000] }])
+    assert.deepEqual(resolveWindow(wb).spec.tiers, [22000])
+    assert.equal(resolveWindow(wb).window, 22000)
+    saveBuiltinWindow(wb, 50000)
+    assert.equal(resolveWindow(wb).manual, 50000)
+    assert.equal(resolveWindow(wb).window, 22000)
   } finally {
     setWorkBuddyCatalog(null)
     saveBuiltinWindow(wb)

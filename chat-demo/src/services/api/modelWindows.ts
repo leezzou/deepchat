@@ -1,11 +1,11 @@
 import { loadCatalogModels, resolveCatalogModel, type CatalogModel } from './modelCatalog.js'
 import { providerPresets } from './providerPresets.js'
 import { getWorkBuddyModel } from '../workbuddy/models.js'
+import { positiveTokens as validWindow } from './windowTiers.js'
 
 export const nativeModels = ['deepseek-flash', 'deepseek-v4-pro'] as const
 export const fallbackWindow = 128_000
-export const validWindow = (n: unknown): n is number =>
-  typeof n === 'number' && Number.isSafeInteger(n) && n > 0
+export { positiveTokens as validWindow } from './windowTiers.js'
 export function parseWindow(text: string) {
   const n = Number(text)
   return /^\d+$/.test(text) && validWindow(n) ? n : undefined
@@ -135,7 +135,7 @@ export function endpointProvider(origin: string, configured?: string) {
     return configured
   }
   const endpoint = origin.trim().replace(/\/+$/, '')
-  if (endpoint === 'https://api.anthropic.com') return 'anthropic'
+  if (endpoint === 'https://api.anthropic.com') {return 'anthropic'}
   if (endpoint === 'https://api.deepseek.com/v1') {
     return 'deepseek'
   }
@@ -161,6 +161,7 @@ export function getModelWindow(provider: string | undefined, model: string): Win
           name: row.name,
           window: row.contextWindow,
           tiers: row.contextTiers,
+          input: row.maxInputTokens,
           basis: row.source === 'account' ? 'discovered' : 'bundled',
           urls: [wbDocs],
         }

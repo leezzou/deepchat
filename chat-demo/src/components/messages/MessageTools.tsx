@@ -9,6 +9,7 @@ import { useIsMobile } from '../../app/viewport.js'
 import type { Message } from '../../services/chat/types.js'
 import { isFavorite, toggleFavorite } from '../../services/library/index.js'
 import { shareEntry } from '../../services/shareImage/content.js'
+import { asPlainText } from '../../services/shareImage/plainText.js'
 import { useBackLayer } from '../../shell/navigationMotion.js'
 import { copyText } from '../../utils/clipboard.js'
 import { Button } from '../base/Button.js'
@@ -184,7 +185,7 @@ export function useMessageTools(sessionId: string, messages: Message[]) {
             {(body || menu.selection) && (
               <button
                 onClick={() => {
-                  void copy(menu.selection || body, en)
+                  void copy(menu.selection || (message.role === 'assistant' ? asPlainText(body) : body), en)
                   setMenu(null)
                 }}
               >

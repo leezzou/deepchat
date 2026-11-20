@@ -19,7 +19,7 @@ type Props = {
   endpoint?: string
   apiKey?: string
   discover?: boolean
-  onDiscovered?: (id: string, tokens: number | undefined, source: DiscoveredModel['source'], reasoning?: DiscoveredModel['reasoning']) => void
+  onDiscovered?: (id: string, tokens: number | undefined, source: DiscoveredModel['source'], reasoning?: DiscoveredModel['reasoning'], details?: DiscoveredModel['windowDetails']) => void
   onAvailable?: (rows: readonly DiscoveredModel[]) => void
   onCatalogReady?: () => void
 }
@@ -148,7 +148,8 @@ function Picker({
         value.trim(),
         currentLive?.contextWindow,
         currentLive?.source ?? 'endpoint',
-        currentLive?.reasoning
+        currentLive?.reasoning,
+        currentLive?.windowDetails
       )
     }
   }, [currentLive, value, status])

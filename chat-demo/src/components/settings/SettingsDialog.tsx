@@ -1,4 +1,5 @@
 import { isAnthropicOrigin } from '../../services/api/anthropicOfficial.js'
+import { WindowTierChoices } from './WindowTierChoices.js'
 import { ContextModelSettings } from './ContextModelSettings.js'
 import { allowsKeylessLocal, endpointProvider, nativeModels, parseWindow } from '../../services/api/modelWindows.js'
 import { ProviderModelPicker } from './ProviderModelPicker.js'
@@ -6,16 +7,13 @@ import { modelEndpoint } from '../../services/api/modelDiscovery.js'
 import { profileWindowKey, resolveWindow, withProfileWindow } from '../../services/api/contextOverrides.js'
 import { providerPresets, providerLabelsEn } from '../../services/api/providerPresets.js'
 import clsx from 'clsx'
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   IconCheckOutline16,
   IconChevronRightOutline14,
   IconRightUpOutline14,
   IconEllipsisOutline16,
-  IconDarkOutline16,
-  IconFollowsystemOutline16,
-  IconLightOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
 import {
@@ -78,14 +76,15 @@ import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback
 import { closeSettings, coverSettings, finishSettingsExit, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
 import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
 import { hasWorkBuddyBridge, useWorkBuddyState } from '../../services/workbuddy/provider.js'
+import { useUpdateSafety } from '../../services/updateSafety.js'
 import { WorkBuddyAccountPage } from './WorkBuddyAccountPage.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
+import '../library/localSwitch.css'
 import styles from './Settings.module.css'
 
 /**
  * 设置：桌面端为居中弹窗、左侧导航；移动端为覆盖整个视口的整页（顶栏返回 + 分组卡片 + 二级页）。
- * 「通用设置」含主题、语言、朗读音色、位置；「数据管理」含 API Key、导入、导出、清空数据。
  */
 export const SettingsDialog = () => {
   const visits = useSettingsDialog((state) => state.visits)
@@ -110,20 +109,29 @@ const SettingsVisitView = ({ visit, mobile, historyImport }: ImportProps & { vis
   )
 }
 
-const sections: { value: SettingsSection; label: TranslationKey; icon: SettingsIconName }[] = [
-  { value: 'general', label: 'settingDialogAsideGeneralOptionLabel', icon: 'general' },
-  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: 'data' },
-  { value: 'memory', label: 'libMemory', icon: 'memory' },
+type DesktopSection = SettingsSection | 'account' | 'about'
+const sections: { value: DesktopSection; label: TranslationKey; icon: SettingsIconName; startGroup?: boolean }[] = [
+  { value: 'general', label: 'settingsAppGroup', icon: 'appearance' },
+  { value: 'account', label: 'settingsAccountGroup', icon: 'account' },
+  { value: 'apiKey', label: 'settingsModelsGroup', icon: 'key', startGroup: true },
   { value: 'contextModels', label: 'modelContextTitle', icon: 'source' },
+  { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: 'data', startGroup: true },
+  { value: 'memory', label: 'libMemory', icon: 'memory' },
   { value: 'security', label: 'previewSecurity', icon: 'lock' },
   { value: 'webdav', label: 'previewWebDav', icon: 'cloud' },
+  { value: 'about', label: 'settingsAboutGroup', icon: 'help', startGroup: true },
 ]
 
 type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
 
 const SettingsContent = ({ historyImport, initialSection }: ImportProps & { initialSection: SettingsSection }) => {
   const t = useTranslate()
-  const [section, setSection] = useState<SettingsSection>(initialSection === 'apiKey' ? 'data' : initialSection)
+  const [section, setSection] = useState<DesktopSection>(() =>
+    initialSection === 'general' && useUpdateSafety.getState().resumePanel ? 'about' : initialSection
+  )
+  const tabId = useId()
+  const [helpOpen, setHelpOpen] = useState(false)
+  const signedIn = useSettings((state) => state.accountSignedIn)
   const [workBuddyOpen, setWorkBuddyOpen] = useState(false)
   const version = useUpdateNotice((state) => state.version)
   // 切换分组不丢失正在输入的 API Key 与导入状态
@@ -145,12 +153,32 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
           }
         }}
       >
-        <div role="tablist" className={styles.navigation}>
+        <div role="tablist" aria-label={t('settings')} aria-orientation="vertical" className={styles.navigation}
+          onKeyDown={(event) => {
+            const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+            const index = tabs.indexOf(event.target as HTMLButtonElement)
+            if (index < 0) {
+              return
+            }
+            const next = { ArrowDown: (index + 1) % tabs.length, ArrowUp: (index + tabs.length - 1) % tabs.length,
+              Home: 0, End: tabs.length - 1 }[event.key]
+            if (next === undefined) {
+              return
+            }
+            event.preventDefault()
+            tabs[next].focus()
+            tabs[next].click()
+          }}>
           {sections.map((item) => (
             <button
               key={item.value}
               type="button"
               role="tab"
+              id={`${tabId}-${item.value}`}
+              aria-controls={`${tabId}-panel`}
+              tabIndex={section === item.value ? 0 : -1}
+              data-settings-tab={item.value}
+              data-group-start={item.startGroup || undefined}
               data-context-settings-entry={item.value === 'contextModels' || undefined}
               aria-selected={section === item.value}
               className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
@@ -161,17 +189,31 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
             </button>
           ))}
         </div>
-        <div role="tabpanel" className={styles.content}>
+        <div role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${section}`} className={styles.content} key={section}>
           {section === 'contextModels' ? <ContextModelSettings /> : section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
-              <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
               <ThemeSetting />
               <LocaleSetting />
+              <ThinkingCollapseSetting />
               <TtsVoiceSetting />
-              <LocationSetting />
-              {version && <SettingsUpdate />}
             </>
-          ) : (
+          ) : section === 'account' ? (
+            <>
+              <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
+              <ProfileNameSetting />
+              <LocationSetting />
+              {hasAccountBridge && signedIn && <SettingCell label={t('dshAccount')} status={null} action={
+                <Button data-dsh-logout variant="outlined" onClick={requestAccountLogout}>{t('settingsSignOut')}</Button>
+              } />}
+            </>
+          ) : section === 'about' ? (
+            <>
+              {version && <SettingsUpdate />}
+              <SettingCell label={t('settingsHelp')} status={null} action={
+                <Button variant="outlined" onClick={() => setHelpOpen(true)}>{t('settingsOpenHelp')}</Button>
+              } />
+            </>
+          ) : section === 'apiKey' ? (
             <>
               <ApiKeyField editor={apiKeyEditor} />
               <SettingCell label={t('usageTitle')} status={null} action={
@@ -179,28 +221,25 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
                   {t('usageView')}
                 </Button>
               } />
+            </>
+          ) : (
+            <>
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
               <ExportHistory disabled={historyBusy} />
-              <SettingCell
-                label={t('deleteAllSessions')}
-                status={null}
-                action={
-                  <Button
-                    variant="dangerOutlined"
-                    size="m"
-                    className={styles.cellButton}
-                    disabled={historyBusy}
-                    onClick={historyDelete.open}
-                  >
+              <section className={styles.dangerGroup} data-settings-group="danger">
+                <h2>{t('settingsClearGroup')}</h2>
+                <SettingCell label={t('deleteAllHistory')} description={t('settingsClearHint')} status={null} action={
+                  <Button variant="dangerOutlined" size="m" disabled={historyBusy} onClick={historyDelete.open}>
                     {t('delete')}
                   </Button>
-                }
-              />
+                } />
+              </section>
             </>
           )}
           {version && <div className={styles.versionFooter} data-app-version>{t('settingsVersion', { version })}</div>}
         </div>
       </Modal>
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ModalPresence>{workBuddyOpen && (
         <Modal title={t('workBuddyAccount')} closable onClose={() => setWorkBuddyOpen(false)}>
           <WorkBuddyAccountPage />
@@ -222,9 +261,7 @@ type MobilePage =
   | 'memory'
   | 'security'
   | 'webdav'
-  | 'appearance'
   | 'fontSize'
-  | 'personalize'
   | 'profile'
   | 'location'
   | 'workbuddyAccount'
@@ -234,7 +271,7 @@ type MobilePage =
 const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   contextModels: 'modelContextTitle', root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
-  appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
+  fontSize: 'settingsFontSize',
   profile: 'settingsProfile', location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
 }
 
@@ -263,9 +300,6 @@ const nearestFontLevel = (scale: number) => {
   })
   return best
 }
-
-/** 外观页顺序与官方一致：跟随系统 / 浅色 / 深色 */
-const mobileThemeOrder: ThemePreference[] = ['system', 'light', 'dark']
 
 const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
   system: 'avatarMenuSettingsDialogThemeSelectSystemOption',
@@ -391,9 +425,7 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
               }} />}
               {page === 'contextModels' && <ContextModelSettings />}
               {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
-              {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
-              {page === 'personalize' && <MobilePersonalizeContent />}
               {page === 'profile' && <MobileProfileContent onOpenLocation={() => push('location')} />}
               {page === 'location' && <MobileLocationContent />}
             </RoutePage>
@@ -407,21 +439,19 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
 }
 
 /** 分组：标题 + 单独一张圆角卡片 */
-const MobileGroup = ({
-  title,
-  wide = false,
-  children,
-}: {
+const MobileGroup = ({ title, group, children }: {
   title?: string
-  /** 独立卡片（帮助与反馈、清除数据）与上方卡片留更大间距 */
-  wide?: boolean
+  group?: string
   children: ReactNode
-}) => (
-  <div className={clsx(styles.group, wide && styles.groupWide)}>
-    {title ? <h2 className={styles.groupTitle}>{title}</h2> : null}
-    <div className={styles.card}>{children}</div>
-  </div>
-)
+}) => {
+  const id = useId()
+  return (
+    <section className={styles.group} data-settings-group={group} aria-labelledby={title ? id : undefined}>
+      {title && <h2 id={id} className={styles.groupTitle}>{title}</h2>}
+      <div className={styles.card}>{children}</div>
+    </section>
+  )
+}
 
 const MobileRow = ({
   icon,
@@ -438,6 +468,7 @@ const MobileRow = ({
   onClick: () => void
   disabled?: boolean
   external?: boolean
+  'data-usage-home-entry'?: boolean
   'data-api-usage-entry'?: boolean
   'data-wb-account-entry'?: boolean
   'data-context-settings-entry'?: boolean
@@ -543,13 +574,11 @@ const AccountSettings = ({ mobile = false, onWorkBuddy }: { mobile?: boolean; on
   )
 }
 
-/** 设置根页：账户 / 应用 / 语音 / 关于，再加帮助与反馈、清除数据两张独立卡片 */
 const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
   const apiKey = useSettings((state) => state.apiKey)
   const displayName = useSettings((state) => state.displayName)
   const locale = useSettings((state) => state.locale)
-  const themePreference = useSettings((state) => state.themePreference)
   const ttsVoice = useSettings((state) => state.ttsVoice)
   const fontScale = useSettings((state) => state.fontScale)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -558,33 +587,8 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   const version = useUpdateNotice((state) => state.version)
   return (
     <>
-      <MobileGroup title={t('settingsAccountGroup')}>
-        <AccountSettings mobile onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
-        <MobileRow data-usage-home-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
-        <MobileRow data-context-settings-entry icon={<SettingsIcon name="source" />} label={t('modelContextTitle')} onClick={() => onOpenPage('contextModels')} />
-        <MobileRow
-          icon={<SettingsIcon name="key" />}
-          label={t('settingsKeysTitle')}
-          value={t(apiKey ? 'settingsConfigured' : 'settingsNotSet')}
-          onClick={() => onOpenPage('apiKey')}
-        />
-        <MobileRow
-          icon={<SettingsIcon name="profile" />}
-          label={t('settingsProfile')}
-          value={displayName === 'DeepSeek 用户' ? t('settingsDefaultUser') : displayName}
-          onClick={() => onOpenPage('profile')}
-        />
-      </MobileGroup>
-      <MobileGroup title={t('settingsPrivacyGroup')}>
-        <MobileRow
-          icon={<SettingsIcon name="data" />}
-          label={t('settingDialogAsideDataOptionLabel')}
-          onClick={() => onOpenPage('data')}
-        />
-        <MobileRow icon={<SettingsIcon name="lock" />} label={t('previewSecurity')} onClick={() => onOpenPage('security')} />
-        <MobileRow icon={<SettingsIcon name="memory" />} label={t('libMemory')} onClick={() => onOpenPage('memory')} />
-      </MobileGroup>
-      <MobileGroup title={t('settingsAppGroup')}>
+      <MobileGroup group="preferences" title={t('settingsAppGroup')}>
+        <ThemeSetting />
         <MobileSelectRow
           icon={<SettingsIcon name="language" />}
           label={t('settingsLocalePreference')}
@@ -609,24 +613,12 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           />
         </MobileSelectRow>
         <MobileRow
-          icon={<SettingsIcon name="appearance" />}
-          label={t('settingsAppearance')}
-          value={t(themeLabelKeys[themePreference])}
-          onClick={() => onOpenPage('appearance')}
-        />
-        <MobileRow
           icon={<SettingsIcon name="fontSize" />}
           label={t('settingsFontSize')}
           value={t(fontSizeLabelKeys[nearestFontLevel(fontScale)])}
           onClick={() => onOpenPage('fontSize')}
         />
-        <MobileRow
-          icon={<SettingsIcon name="personalize" />}
-          label={t('settingsPersonalize')}
-          onClick={() => onOpenPage('personalize')}
-        />
-      </MobileGroup>
-      <MobileGroup title={t('settingsVoiceGroup')}>
+        <ThinkingCollapseSetting mobile />
         <MobileRow
           icon={<SettingsIcon name="voice" />}
           label={t('settingsTtsVoice')}
@@ -634,34 +626,45 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           onClick={() => setVoiceOpen(true)}
         />
       </MobileGroup>
-      {version ? (
-        <MobileGroup title={t('settingsAboutGroup')}>
-          <SettingsUpdate mobile />
-        </MobileGroup>
-      ) : null}
-      <MobileGroup wide>
-        <button type="button" className={styles.row} onClick={() => setHelpOpen(true)}>
-          <span className={styles.rowIcon}>
-            <SettingsIcon name="help" />
-          </span>
-          <span className={styles.rowLabel}>{t('settingsHelp')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
+      <MobileGroup group="account" title={t('settingsAccountGroup')}>
+        <MobileRow
+          icon={<SettingsIcon name="profile" />}
+          label={t('settingsProfile')}
+          value={displayName === 'DeepSeek 用户' ? t('settingsDefaultUser') : displayName}
+          onClick={() => onOpenPage('profile')}
+        />
+        <AccountSettings mobile onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
+        {hasAccountBridge && signedIn && (
+          <button data-dsh-logout type="button" className={styles.row} onClick={requestAccountLogout}>
+            <span className={styles.rowIcon}><SettingsIcon name="signOut" /></span>
+            <span className={styles.rowLabel}>{t('settingsSignOut')}</span>
+          </button>
+        )}
       </MobileGroup>
-      {hasAccountBridge && signedIn && <MobileGroup wide>
-        <button data-dsh-logout type="button" className={styles.row} onClick={requestAccountLogout}>
-          <span className={styles.rowIcon}>
-            <SettingsIcon name="signOut" />
-          </span>
-          <span className={styles.rowLabel}>{t('settingsSignOut')}</span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-      </MobileGroup>}
-      {version && <div className={styles.versionFooter} data-app-version>{t('settingsVersion', { version })}</div>}
+      <MobileGroup group="models" title={t('settingsModelsGroup')}>
+        <MobileRow data-usage-home-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
+        <MobileRow data-context-settings-entry icon={<SettingsIcon name="source" />} label={t('modelContextTitle')} onClick={() => onOpenPage('contextModels')} />
+        <MobileRow
+          icon={<SettingsIcon name="key" />}
+          label={t('settingsKeysTitle')}
+          value={t(apiKey ? 'settingsConfigured' : 'settingsNotSet')}
+          onClick={() => onOpenPage('apiKey')}
+        />
+      </MobileGroup>
+      <MobileGroup group="privacy" title={t('settingsPrivacyGroup')}>
+        <MobileRow
+          icon={<SettingsIcon name="data" />}
+          label={t('settingDialogAsideDataOptionLabel')}
+          onClick={() => onOpenPage('data')}
+        />
+        <MobileRow icon={<SettingsIcon name="lock" />} label={t('previewSecurity')} onClick={() => onOpenPage('security')} />
+        <MobileRow icon={<SettingsIcon name="memory" />} label={t('libMemory')} onClick={() => onOpenPage('memory')} />
+      </MobileGroup>
+      <MobileGroup group="about" title={t('settingsAboutGroup')}>
+        {version && <SettingsUpdate mobile />}
+        <MobileRow icon={<SettingsIcon name="help" />} label={t('settingsHelp')} onClick={() => setHelpOpen(true)} />
+      </MobileGroup>
+      {version && <div className={styles.meta} data-app-version>{t('settingsVersion', { version })}</div>}
       <ModalPresence>{voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
@@ -716,21 +719,19 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           </div>
         </Modal>
       ) : null}</ModalPresence>
-      <ModalPresence>{helpOpen ? (
-        <Modal
-          title={t('settingsHelp')}
-          placement="bottom"
-          onClose={() => setHelpOpen(false)}
-          footer={
-            <Button variant="outlined" size="m" onClick={() => setHelpOpen(false)}>
-              {t('close')}
-            </Button>
-          }
-        >
-          <div className={styles.helpText}>{t('settingsHelpDetails')}{'\n'}{t('backupHelpClear')}</div>
-        </Modal>
-      ) : null}</ModalPresence>
+      <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} mobile />
     </>
+  )
+}
+
+const HelpDialog = ({ open, onClose, mobile = false }: { open: boolean; onClose: () => void; mobile?: boolean }) => {
+  const t = useTranslate()
+  return (
+    <ModalPresence>{open && (
+      <Modal title={t('settingsHelp')} closable placement={mobile ? 'bottom' : 'center'} onClose={onClose}>
+        <div className={styles.helpText}>{t('settingsHelpDetails')}{'\n'}{t('backupHelpClear')}</div>
+      </Modal>
+    )}</ModalPresence>
   )
 }
 
@@ -864,11 +865,12 @@ const MobileApiProfileForm = ({
   const [model, setModel] = useState(profile.model)
   const [discoveredReasoning, setDiscoveredReasoning] = useState(profile.discoveredReasoning ?? {})
   const [discoveredWindows, setDiscoveredWindows] = useState(profile.discoveredWindows ?? {})
+  const [discoveredWindowDetails, setDiscoveredWindowDetails] = useState(profile.discoveredWindowDetails ?? {})
   const [discoveredWindowKinds, setDiscoveredWindowKinds] = useState(profile.discoveredWindowKinds ?? {})
   const targetModel = model.trim() || 'deepseek-flash'
   const targetOrigin = normalizeOrigin(origin)
   const targetKey = profileWindowKey(targetOrigin, targetModel, protocol)
-  const effective = resolveWindow({ profile: { ...profile, providerId: preset, discoveredWindows, discoveredWindowKinds }, origin: targetOrigin, protocol, model: targetModel })
+  const effective = resolveWindow({ profile: { ...profile, providerId: preset, discoveredWindows, discoveredWindowKinds, discoveredWindowDetails }, origin: targetOrigin, protocol, model: targetModel })
   const [windowDraft, setWindowDraft] = useState<{ key: string; text: string } | null>(null)
   const contextWindow = windowDraft?.key === targetKey ? windowDraft.text : String(effective.manual ?? '')
   const invalidWindow = Boolean(contextWindow && !parseWindow(contextWindow))
@@ -913,7 +915,7 @@ const MobileApiProfileForm = ({
     setVerifying(true)
     setFailure(null)
     try {
-      const assembledProfile = { ...profile, providerId: preset, name: name.trim(), protocol, origin: targetOrigin, model: model.trim(), discoveredReasoning, discoveredWindows, discoveredWindowKinds, apiKey: key }
+      const assembledProfile = { ...profile, providerId: preset, name: name.trim(), protocol, origin: targetOrigin, model: model.trim(), discoveredReasoning, discoveredWindows, discoveredWindowKinds, discoveredWindowDetails, apiKey: key }
       await saveApiProfile(windowDraft?.key === targetKey ? withProfileWindow(assembledProfile, targetKey, parseWindow(contextWindow)) : assembledProfile)
       onDone()
     } catch (e) {
@@ -975,9 +977,13 @@ const MobileApiProfileForm = ({
             endpoint={endpoint} apiKey={apiKey.trim()} discover={validEndpoint && (Boolean(apiKey.trim()) || publicList || allowsKeylessLocal(endpoint, protocol))}
             onCatalogReady={() => catalogReady(n => n + 1)}
             onChange={id => { setModel(id); setProtocol(editableProtocol(id)) }}
-            onDiscovered={(id, tokens, source, reasoning) => {
+            onDiscovered={(id, tokens, source, reasoning, details) => {
               const key = profileWindowKey(targetOrigin, id, editableProtocol(id))
-              setDiscoveredReasoning(prev => {
+              setDiscoveredWindowDetails(prev => {
+                 if (JSON.stringify(prev[key]) === JSON.stringify(details)) { return prev }
+                 return details ? { ...prev, [key]: details } : Object.fromEntries(Object.entries(prev).filter(([id]) => id !== key))
+               })
+               setDiscoveredReasoning(prev => {
                 if (prev[key] === reasoning) return prev
                 if (reasoning) return { ...prev, [key]: reasoning }
                 return Object.fromEntries(Object.entries(prev).filter(([entry]) => entry !== key))
@@ -999,6 +1005,9 @@ const MobileApiProfileForm = ({
           <label className={styles.fieldLabel} htmlFor="api-profile-window">
             {t('apiProfileContextWindow')}
           </label>
+          <WindowTierChoices tiers={effective.spec.tiers} en={english}
+            selected={contextWindow ? parseWindow(contextWindow) : effective.window}
+            onSelect={n => setWindowDraft({ key: targetKey, text: String(n) })} />
           <input
             id="api-profile-window"
             className={styles.fieldInput}
@@ -1023,7 +1032,7 @@ const MobileApiProfileForm = ({
             placeholder={t('apiKeyPlaceholder')}
             autoComplete="off"
             spellCheck={false}
-            onChange={(event) => { setKeyCleared(false); setApiKey(event.target.value); setDiscoveredReasoning({}); setDiscoveredWindows({}); setDiscoveredWindowKinds({}) }}
+            onChange={(event) => { setKeyCleared(false); setApiKey(event.target.value); setDiscoveredReasoning({}); setDiscoveredWindows({}); setDiscoveredWindowKinds({}); setDiscoveredWindowDetails({}) }}
           />
           {keyCleared && <div className={styles.profileHint}>{english ? 'Enter the key for this endpoint.' : '接口已切换，请填写当前接口的密钥。'}</div>}
         </div>
@@ -1234,29 +1243,21 @@ const MobileFontSizeContent = () => {
   )
 }
 
-/** 个性化：照官方——只有「思考内容自动折叠」一个开关和说明 */
-const MobilePersonalizeContent = () => {
+const ThinkingCollapseSetting = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
-  const autoCollapseThinking = useSettings((state) => state.autoCollapseThinking)
+  const checked = useSettings((state) => state.autoCollapseThinking)
+  const id = useId()
   return (
-    <>
-      <MobileGroup>
-        <div className={clsx(styles.row, styles.rowStatic)}>
-          <span className={styles.rowLabel}>{t('personalizeCollapseThinking')}</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={autoCollapseThinking}
-            aria-label={t('personalizeCollapseThinking')}
-            className={clsx(styles.fontSwitch, autoCollapseThinking && styles.fontSwitchOn)}
-            onClick={() => setAutoCollapseThinking(!autoCollapseThinking)}
-          >
-            <span className={styles.fontSwitchKnob} />
-          </button>
-        </div>
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('personalizeCollapseHint')}</div>
-    </>
+    <label className={clsx(styles.collapseSetting, mobile ? styles.row : styles.cell)}>
+      {mobile && <span className={styles.rowIcon}><SettingsIcon name="personalize" /></span>}
+      <span className={styles.collapseText}>
+        <span id={`${id}-label`}>{t('personalizeCollapseThinking')}</span>
+        <span id={`${id}-hint`}>{t('personalizeCollapseHint')}</span>
+      </span>
+      <input data-collapse-thinking type="checkbox" role="switch" className="dc-local-switch"
+        aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`} checked={checked}
+        onChange={event => setAutoCollapseThinking(event.target.checked)} />
+    </label>
   )
 }
 
@@ -1349,35 +1350,6 @@ const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }
       </MobileGroup>
       <div className={styles.profileHint}>{t('personalizeHint')}</div>
     </>
-  )
-}
-
-/** 外观：单列三个选项，当前项右侧显示蓝色对勾 */
-const MobileAppearanceContent = () => {
-  const t = useTranslate()
-  const themePreference = useSettings((state) => state.themePreference)
-  return (
-    <div className={styles.group}>
-      <div className={styles.card} role="radiogroup" aria-label={t('settingsAppearance')}>
-        {mobileThemeOrder.map((value) => (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={themePreference === value}
-            className={clsx(styles.row, styles.optionRow)}
-            onClick={() => setThemePreference(value)}
-          >
-            <span className={styles.rowLabel}>{t(themeLabelKeys[value])}</span>
-            {themePreference === value ? (
-              <span className={styles.optionCheck}>
-                <IconCheckOutline16 />
-              </span>
-            ) : null}
-          </button>
-        ))}
-      </div>
-    </div>
   )
 }
 
@@ -1530,6 +1502,17 @@ const useHistoryDelete = () => {
   }
 }
 
+const ProfileNameSetting = () => {
+  const t = useTranslate()
+  const displayName = useSettings((state) => state.displayName)
+  const [name, setName] = useState(displayName)
+  return <SettingCell label={t('personalizeName')} status={null} action={
+    <input className={styles.profileName} aria-label={t('personalizeName')}
+      value={name} onChange={event => setName(event.target.value)}
+      onBlur={() => { setDisplayName(name); setName(useSettings.getState().displayName) }} />
+  } />
+}
+
 const LocationSetting = () => {
   const t = useTranslate()
   const locale = resolveLocale(useSettings((state) => state.locale))
@@ -1606,6 +1589,7 @@ const LocaleSetting = () => {
           ariaLabel={t('settingsLocalePreference')}
           value={locale}
           options={[
+            { value: 'system', label: t('settingsLocaleSystem') },
             { value: 'zh-CN', label: t('settingsLocaleZhCN'), lang: 'zh-CN' },
             { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' },
           ]}
@@ -1666,54 +1650,28 @@ const ImportConfirm = ({
   )
 }
 
-const themeOptions: { value: ThemePreference; label: TranslationKey; icon: ReactNode }[] = [
-  {
-    value: 'light',
-    label: 'avatarMenuSettingsDialogThemeSelectLightOption',
-    icon: <IconLightOutline16 />,
-  },
-  {
-    value: 'dark',
-    label: 'avatarMenuSettingsDialogThemeSelectDarkOption',
-    icon: <IconDarkOutline16 />,
-  },
-  {
-    value: 'system',
-    label: 'avatarMenuSettingsDialogThemeSelectSystemOption',
-    icon: <IconFollowsystemOutline16 />,
-  },
-]
+const themeChoices: ThemePreference[] = ['light', 'dark', 'system']
 
-/**
- * 主题项：标题下方浅色 / 深色 / 跟随系统三个选块。
- * 与下方语言选项连续排列。
- */
+/** Native radios supply one Tab stop, arrow-key selection and the announced checked state. */
 const ThemeSetting = () => {
   const t = useTranslate()
-  const themePreference = useSettings((state) => state.themePreference)
-  const label = t('avatarMenuSettingsDialogThemeItemLabel')
+  const preference = useSettings((state) => state.themePreference)
+  const name = useId()
   return (
-    <div className={styles.theme}>
-      {label}
-      <div role="radiogroup" aria-label={label} className={styles.themeOptions}>
-        {themeOptions.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            role="radio"
-            aria-checked={themePreference === option.value}
-            className={clsx(
-              styles.themeOption,
-              themePreference === option.value && styles.themeOptionSelected
-            )}
-            onClick={() => setThemePreference(option.value)}
-          >
-            {option.icon}
-            {t(option.label)}
-          </button>
+    <fieldset className={styles.theme} data-theme-picker>
+      <legend>{t('settingsAppearance')}</legend>
+      <div className={styles.themeOptions}>
+        {themeChoices.map((choice) => (
+          <label key={choice} data-theme-choice={choice} className={styles.themeOption}>
+            <input type="radio" name={name} value={choice} checked={preference === choice}
+              onChange={() => setThemePreference(choice)} />
+            <span aria-hidden="true" className={styles.themePreview}><i /><i /></span>
+            <span>{t(themeLabelKeys[choice])}</span>
+            <span aria-hidden="true" className={styles.themeMark}><IconCheckOutline16 /></span>
+          </label>
         ))}
       </div>
-    </div>
+    </fieldset>
   )
 }
 

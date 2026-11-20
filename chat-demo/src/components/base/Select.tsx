@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { Modal, ModalPresence } from './Modal.js'
@@ -9,7 +9,12 @@ import { IconCheckOutline16, IconChevronDownOutline14 } from './icons.js'
 import styles from './Select.module.css'
 import motion from './popoverMotion.module.css'
 
-export type SelectOption<T extends string> = { value: T; label: string; lang?: string }
+export type SelectOption<T extends string> = {
+  value: T
+  label: string
+  lang?: string
+  content?: ReactNode
+}
 
 type SelectProps<T extends string> = {
   value: T
@@ -57,6 +62,7 @@ const TouchSelect = <T extends string>({
         className={clsx(styles.trigger, className)}
         disabled={disabled}
         aria-label={ariaLabel}
+        aria-description={current?.content ? current.label : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -68,7 +74,7 @@ const TouchSelect = <T extends string>({
           }
         }}
       >
-        <span lang={current?.lang}>{current?.label ?? placeholder}</span>
+        <span lang={current?.lang}>{current?.content ?? current?.label ?? placeholder}</span>
         <span className={styles.arrow}>
           <IconChevronDownOutline14 />
         </span>
@@ -116,6 +122,8 @@ const TouchSelect = <T extends string>({
                 <button
                   type="button"
                   role="option"
+                  data-option-value={option.value}
+                  aria-label={option.content ? option.label : undefined}
                   aria-selected={option.value === value}
                   key={option.value}
                   className={styles.sheetOption}
@@ -125,7 +133,7 @@ const TouchSelect = <T extends string>({
                     setOpen(false)
                   }}
                 >
-                  <span>{option.label}</span>
+                  <span>{option.content ?? option.label}</span>
                   <span className={styles.mark}>
                     {option.value === value && <IconCheckOutline16 />}
                   </span>
@@ -160,6 +168,7 @@ const DesktopSelect = <T extends string>({
         type="button"
         className={clsx(styles.trigger, menu.open && styles.open, className)}
         aria-label={ariaLabel}
+        aria-description={current?.content ? current.label : undefined}
         aria-haspopup="listbox"
         aria-expanded={menu.open}
         disabled={disabled}
@@ -172,7 +181,7 @@ const DesktopSelect = <T extends string>({
         }}
       >
         {current ? (
-          <span lang={current.lang}>{current.label}</span>
+          <span lang={current.lang}>{current.content ?? current.label}</span>
         ) : (
           <span className={styles.placeholder}>{placeholder}</span>
         )}
@@ -197,12 +206,14 @@ const DesktopSelect = <T extends string>({
                   type="button"
                   tabIndex={-1}
                   role="option"
+                  data-option-value={option.value}
+                  aria-label={option.content ? option.label : undefined}
                   lang={option.lang}
                   aria-selected={option.value === value}
                   className={styles.option}
                   onClick={() => menu.choose(() => onChange(option.value))}
                 >
-                  <span>{option.label}</span>
+                  <span>{option.content ?? option.label}</span>
                   {option.value === value ? <IconCheckOutline16 /> : null}
                 </button>
               ))}

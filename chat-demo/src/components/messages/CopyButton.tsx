@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
+import { asPlainText } from '../../services/shareImage/plainText.js'
 import { IconCheckOutline16, IconCopyOutline16 } from '../base/icons.js'
 import { IconButton } from '../base/IconButton.js'
 import { showToast } from '../base/toastState.js'
@@ -7,7 +8,7 @@ import { copyText } from '../../utils/clipboard.js'
 import styles from './MessageActions.module.css'
 
 /** 复制成功后图标换成对勾 1 秒，期间再次点击不重复复制 */
-export const CopyButton = ({ text }: { text: string }) => {
+export const CopyButton = ({ text, markdown = false }: { text: string; markdown?: boolean }) => {
   const t = useTranslate()
   const [copied, setCopied] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -23,7 +24,7 @@ export const CopyButton = ({ text }: { text: string }) => {
         if (copied) {
           return
         }
-        if (!(await copyText(text))) {
+        if (!(await copyText(markdown ? asPlainText(text) : text))) {
           showToast({ key: 'copyFailed' })
           return
         }

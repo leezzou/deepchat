@@ -6,6 +6,7 @@ import { backupEnglish } from './backup-en.mjs'
 import { titles } from './titles.mjs'
 import { parity } from './parity.mjs'
 import { modePanel } from './mode-panel.mjs'
+import { workBuddyRates } from './workbuddy-rates.mjs'
 import { stop } from './stop.mjs'
 import { usage, usageRoutes } from './usage.mjs'
 import { deployedFileAttachments, fileAttachments } from './files.mjs'
@@ -126,10 +127,12 @@ async function thinking({ page, phone, shot, check, motion, result }) {
   )
   await restoreHistoricalThinking({ page, phone, check, shot }, eventually)
 }
-async function search({ page, shot, check, result }) {
+async function search({ page, shot, check, result }, thorough = false) {
   await button(page, '深度思考').click()
   await button(page, /智能搜索|联网搜索/).click()
-  const question = '查找两款产品的官方续航规格，并比较独立测评。'
+  const question = thorough
+    ? '查找两款产品的官方续航规格，并逐篇核对每篇独立测评的正文。'
+    : '查找两款产品的官方续航规格，并比较独立测评。'
   await send(page, question)
   const seen = new Set(),
     sources = new Map(),
@@ -261,8 +264,13 @@ async function contextSettings({ page, shot, check, result }) {
   const save = panel.locator('[data-context-save]'),
     reset = panel.locator('[data-context-reset]')
   const wb = async () => choose(page, panel, '服务方案', /WorkBuddy/)
-  const models = async (id) =>
-    choose(page, panel, '模型', new RegExp(id.replaceAll('.', '\\.') + '$', 'i'))
+  const models = async (id) => {
+    await button(panel, '模型').click()
+    const menu = page.getByRole('listbox', { name: '模型' })
+    await menu.locator(`[data-option-value="${id}"]`).click()
+    await menu.waitFor({ state: 'detached' })
+    await paint(page)
+  }
   await wb()
   await models('deepseek-v4.1-flash')
   const initial = await field.inputValue()
@@ -504,10 +512,17 @@ async function backup({ page, phone, shot, check, result }) {
     'Ten completed turns while disabled leave the auto slot empty and counter at zero'
   )
 }
+async function openWorkBuddySettings(page) {
+  await settings(page)
+  const tab = page.locator('[data-settings-tab="account"]')
+  const entry = page.locator('[data-wb-account-entry]')
+  await tab.or(entry).first().waitFor()
+  if (await tab.isVisible()) await tab.click()
+  await entry.click()
+}
 async function roster({ page, check, shot, result }) {
   const extra = 'qa-workbuddy-added'
-  await settings(page)
-  await page.locator('[data-wb-account-entry]').click()
+  await openWorkBuddySettings(page)
   const panel = page.locator('[data-wb-account-page]')
   await button(panel, 'WorkBuddy 模型').click()
   const menu = page.getByRole('listbox', { name: 'WorkBuddy 模型' })
@@ -532,8 +547,10 @@ async function roster({ page, check, shot, result }) {
 }
 export const scenarios = {
   modePanel: (ui) => modePanel(ui, { choose, eventually }),
+  workBuddyRates: (ui) => workBuddyRates(ui, { openWorkBuddySettings }),
   thinking,
   search,
+  searchPerPage: (ui) => search(ui, true),
   fileAttachments: env => fileAttachments(env, { call, answer, eventually }),
   ...Object.fromEntries(['official', 'router', 'custom'].map(kind => [`files-${kind}`, env => deployedFileAttachments(kind, env, { eventually })])),
   context: contextSettings,

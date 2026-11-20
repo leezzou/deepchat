@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { windowDetails } from './windowTiers.js'
 import type { ApiProfile } from '../settings.js'
 import { endpointProvider, getModelWindow, validWindow, type WindowSpec } from './modelWindows.js'
 
@@ -47,7 +48,9 @@ export function saveBuiltinWindow(target: ContextTarget, value?: number) {
   const values = Object.fromEntries(
     Object.entries(useWindowOverrides.getState().values).filter(([id]) => id !== key)
   )
-  if (value !== undefined) {values[key] = value}
+  if (value !== undefined) {
+    values[key] = value
+  }
   localStorage.setItem(STORAGE, JSON.stringify(values))
   useWindowOverrides.setState({ values })
 }
@@ -89,7 +92,18 @@ export function resolveWindow(target: ContextTarget) {
     } else if (kind === 'input') {
       spec = { ...spec, input: discovered, window: discovered, basis: 'input' }
     } else {
-      spec = { window: discovered, basis: 'discovered', urls: [] }
+      const details = windowDetails(profile?.discoveredWindowDetails?.[key], discovered)
+      const budget =
+        provider === 'openrouter' && spec.basis === 'variable'
+          ? Math.min(spec.window, discovered)
+          : discovered
+      spec = {
+        window: details?.tiers?.at(-1) ?? budget,
+        basis: 'discovered',
+        urls: [],
+        tiers: details?.tiers,
+        input: details?.input ?? spec.input,
+      }
     }
   }
   const builtins = useWindowOverrides.getState().values
@@ -99,5 +113,9 @@ export function resolveWindow(target: ContextTarget) {
   const manual = profile
     ? profileOverride(profile, key)
     : builtins[builtinKey({ ...target, provider })]
-  return { spec, key, manual, inheritedWindow, window: manual ?? inheritedWindow ?? spec.window }
+  const preference = manual ?? inheritedWindow ?? spec.window
+  // A preference survives a temporary reduction in deployment capacity or account entitlement.
+  const constrained = spec.basis === 'discovered' || spec.basis === 'input'
+  const window = constrained ? Math.min(preference, spec.window) : preference
+  return { spec, key, manual, inheritedWindow, window }
 }

@@ -56,8 +56,7 @@
   background: var(--settings-surface);
 }
 .report button,
-.report summary,
-.filters select {
+.report summary {
   box-sizing: border-box;
   min-width: 44px;
   min-height: 48px;
@@ -114,13 +113,6 @@
   width: 18px;
   height: 18px;
 }
-.filters {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  margin: 14px 16px 8px;
-}
-.filters label,
 .official small,
 .empty p,
 .updated,
@@ -135,41 +127,6 @@
   color: var(--settings-muted);
   font-size: 14px;
   line-height: 1.4;
-}
-.filters label {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.filters select {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  padding: 0 8px;
-  background: var(--settings-control);
-  border-radius: 8px;
-  color: var(--settings-ink);
-  font-size: 15px;
-  text-overflow: ellipsis;
-  color-scheme: inherit;
-}
-.overview {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: 4px 12px;
-  margin: 16px 16px 0;
-  padding: 16px 0 10px;
-  border-top: 1px solid var(--dsw-alias-border-l1);
-}
-.overview strong {
-  font-size: 22px;
-  line-height: 1.2;
-  text-align: end;
-  font-weight: 600;
-}
-.overview small {
-  grid-column: 1 / -1;
 }
 .breakdown {
   margin: 0 16px;
@@ -301,4 +258,31 @@
 }
 .report :is(summary, button):active:not(:disabled) {
   background-color: var(--dsw-alias-interactive-bg-active);
+}
+
+.filterSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 6px 16px 0;
+  color: var(--settings-muted);
+  font-size: 14px;
+}
+.filterSummary button {
+  flex: none;
+  color: var(--dsw-alias-brand-primary);
+  font-size: 14px;
+}
+.rankHint {
+  margin: 0;
+  padding: 16px 16px 4px;
+  color: var(--settings-muted);
+  font-size: 14px;
+}
+.leaders {
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+.leaders > section:first-of-type {
+  border-top: none;
 }

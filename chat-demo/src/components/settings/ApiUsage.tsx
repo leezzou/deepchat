@@ -13,6 +13,7 @@ import { MobileSettingsHeader } from './MobileSettingsHeader.js'
 import { useRouteBack, useRouteMotion } from './routeMotion.js'
 import settings from './Settings.module.css'
 import styles from './ApiUsage.module.css'
+import { CacheCharts, UsageRanks, UsageTrend, usageRouteLabel } from './UsageCharts.js'
 
 const usageEvent = 'deepchat:open-api-usage'
 export const openApiUsage = () => window.dispatchEvent(new Event(usageEvent))
@@ -166,23 +167,17 @@ const statusNames = {
   pending: 'usagePending',
   interrupted: 'usageInterrupted',
 } as const
-// A legacy receipt can lack a model ID. Keep that filter separate from All models.
-const unknownModel = '\u0001unknown'
 const pageSize = 10
 const midnight = (at: number, offset = 0) => {
   const date = new Date(at)
   return +new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset)
 }
-const displayRoute = (id: string, t: ReturnType<typeof useTranslate>) =>
-  id === 'legacy' || !id ? t('usageUnknown') : id === 'DeepSeek account' ? t('usageAccount') : id
-const unique = (values: string[]) => Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
-
 function UsageReport() {
   const t = useTranslate()
   const locale = useSettings((s) => resolveLocale(s.locale))
   const [period, setPeriod] = useState<Period>(7)
-  const [provider, setProvider] = useState('')
-  const [model, setModel] = useState('')
+  const [provider, setProvider] = useState<string | null>(null)
+  const [model, setModel] = useState<string | null>(null)
   const [snapshot, setSnapshot] = useState<{ rows: UsageRow[]; at: number }>()
   const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -222,29 +217,27 @@ function UsageReport() {
       })
     return () => controller.abort()
   }, [revision])
-  const providers = useMemo(() => unique((snapshot?.rows ?? []).map((r) => r.provider)), [snapshot])
-  const models = useMemo(
-    () =>
-      unique(
-        (snapshot?.rows ?? [])
-          .filter((r) => !provider || r.provider === provider)
-          .map((r) => r.model)
-      ),
-    [provider, snapshot]
-  )
-  const rows = useMemo(() => {
+  const periodRows = useMemo(() => {
     if (!snapshot) {
       return []
     }
     const start = period === 'all' ? -Infinity : midnight(snapshot.at, 1 - period)
-    return snapshot.rows.filter(
-      (r) =>
-        r.at >= start &&
-        r.at <= snapshot.at &&
-        (!provider || provider === r.provider) &&
-        (!model || model === (r.model || unknownModel))
-    )
-  }, [snapshot, period, provider, model])
+    return snapshot.rows.filter((row) => row.at >= start && row.at <= snapshot.at)
+  }, [snapshot, period])
+  const byProvider = useMemo(
+    () => (provider === null ? periodRows : periodRows.filter((r) => r.provider === provider)),
+    [periodRows, provider]
+  )
+  const byModel = useMemo(
+    () => (model === null ? periodRows : periodRows.filter((r) => r.model === model)),
+    [periodRows, model]
+  )
+  const rows = useMemo(
+    () => (model === null ? byProvider : byProvider.filter((r) => r.model === model)),
+    [byProvider, model]
+  )
+  const counts = useMemo(() => summarizeUsage(rows), [rows])
+  const filtered = provider !== null || model !== null
   const dateTime = useMemo(
     () => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
     [locale]
@@ -285,41 +278,26 @@ function UsageReport() {
               </button>
             ))}
           </div>
-          {snapshot && (
-            <div className={styles.filters}>
-              <label>
-                {t('usageProvider')}
-                <select
-                  data-usage-filter="provider"
-                  value={provider}
-                  onChange={(e) => {
-                    setProvider(e.target.value)
-                    setModel('')
-                  }}
-                >
-                  <option value="">{t('usageAllProviders')}</option>
-                  {providers.filter(Boolean).map((id) => (
-                    <option key={id} value={id}>
-                      {displayRoute(id, t)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                {t('usageModel')}
-                <select
-                  data-usage-filter="model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                >
-                  <option value="">{t('usageAllModels')}</option>
-                  {models.map((id) => (
-                    <option key={id} value={id || unknownModel}>
-                      {displayRoute(id, t)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+          {filtered && (
+            <div className={styles.filterSummary}>
+              <span aria-live="polite">
+                {[
+                  provider !== null && usageRouteLabel(provider, t, 'provider'),
+                  model !== null && usageRouteLabel(model, t, 'model'),
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </span>
+              <button
+                data-usage-reset
+                type="button"
+                onClick={() => {
+                  setProvider(null)
+                  setModel(null)
+                }}
+              >
+                {t('usageReset')}
+              </button>
             </div>
           )}
           {error && (
@@ -334,17 +312,45 @@ function UsageReport() {
           )}
           {snapshot && (
             <div data-usage-loaded="">
-              {rows.length ? (
-                <ReportResults
-                  key={JSON.stringify([period, provider, model])}
-                  rows={rows}
-                  locale={locale}
-                />
-              ) : (
-                <div className={styles.empty} role="status">
-                  <strong>{t('usageEmpty')}</strong>
-                  <p>{t(snapshot.rows.length ? 'usageFilteredEmpty' : 'usageEmptyHint')}</p>
+              <UsageTrend
+                rows={rows}
+                counts={counts}
+                locale={locale}
+                period={period}
+                now={snapshot.at}
+                emptyHint={t(snapshot.rows.length ? 'usageFilteredEmpty' : 'usageEmptyHint')}
+              />
+              {periodRows.length > 0 && (
+                <div className={styles.leaders}>
+                  <p className={styles.rankHint}>{t('usageRankHint')}</p>
+                  <UsageRanks
+                    key={JSON.stringify([period, model, 'provider'])}
+                    dimension="provider"
+                    rows={byModel}
+                    selected={provider}
+                    onSelect={setProvider}
+                    locale={locale}
+                  />
+                  <UsageRanks
+                    key={JSON.stringify([period, provider, 'model'])}
+                    dimension="model"
+                    rows={byProvider}
+                    selected={model}
+                    onSelect={setModel}
+                    locale={locale}
+                  />
                 </div>
+              )}
+              {rows.length > 0 && (
+                <>
+                  <CacheCharts counts={counts} locale={locale} />
+                  <ReportResults
+                    key={JSON.stringify([period, provider, model])}
+                    rows={rows}
+                    counts={counts}
+                    locale={locale}
+                  />
+                </>
               )}
             </div>
           )}
@@ -468,11 +474,18 @@ function Pager({
     </div>
   )
 }
-function ReportResults({ rows, locale }: { rows: UsageRow[]; locale: string }) {
+function ReportResults({
+  rows,
+  counts,
+  locale,
+}: {
+  rows: UsageRow[]
+  counts: Totals
+  locale: string
+}) {
   const t = useTranslate()
   const [requestPage, setRequestPage] = useState(0)
   const [dayPage, setDayPage] = useState(0)
-  const counts = useMemo(() => summarizeUsage(rows), [rows])
   const byDay = useMemo(() => {
     const days = new Map<number, UsageRow[]>()
     for (const row of rows) {
@@ -496,21 +509,16 @@ function ReportResults({ rows, locale }: { rows: UsageRow[]; locale: string }) {
     daysPages = Math.ceil(byDay.length / pageSize)
   const ri = Math.min(requestPage, requestsPages - 1),
     di = Math.min(dayPage, daysPages - 1)
-  const hasTokens = counts.input.reported + counts.output.reported > 0
-  const total = counts.input.value + counts.output.value
   return (
     <>
-      <div data-usage-summary>
-        <div className={styles.overview}>
-          <span>{t('usageTotal')}</span>
-          <strong data-usage-total={hasTokens ? String(total) : 'missing'}>
-            {hasTokens ? format.format(total) : t('usageMissing')}
-          </strong>
-          <small>{t('usageRequestsCount', { count: format.format(counts.requests) })}</small>
-        </div>
+      <details data-usage-summary className={styles.details}>
+        <summary>
+          {t('usageBreakdown')}
+          <IconChevronRightOutline14 />
+        </summary>
         <Metrics counts={counts} locale={locale} />
         <p className={styles.explainer}>{t('usageRateNote')}</p>
-      </div>
+      </details>
       <details className={styles.details}>
         <summary>
           {t('usageDaily')}
@@ -549,10 +557,10 @@ function ReportResults({ rows, locale }: { rows: UsageRow[]; locale: string }) {
             >
               <summary>
                 <span>
-                  <strong>{displayRoute(row.model, t)}</strong>
+                  <strong>{usageRouteLabel(row.model, t, 'model')}</strong>
                   <small>
-                    {displayRoute(row.provider, t)} · {t(purposeNames[row.purpose])} ·{' '}
-                    {t(statusNames[row.status])}
+                    {usageRouteLabel(row.provider, t, 'provider')} · {t(purposeNames[row.purpose])}{' '}
+                    · {t(statusNames[row.status])}
                   </small>
                   <time dateTime={new Date(row.at).toISOString()}>{time.format(row.at)}</time>
                 </span>

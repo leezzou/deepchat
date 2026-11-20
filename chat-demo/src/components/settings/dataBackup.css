@@ -145,7 +145,7 @@
 }
 @media (prefers-reduced-motion: no-preference) {
   .history-row > span:last-child {
-    transition: transform 160ms ease-out;
+    transition: transform var(--settings-feedback) var(--nav-ease);
   }
 }
 

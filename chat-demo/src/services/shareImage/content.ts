@@ -7,6 +7,8 @@ export type ShareEntry = {
   body: string
   thinking: string
   files: string[]
+  imageBody?: string
+  citationIndices?: number[]
 }
 
 /** Export the same final answer as the chat. Never expose discarded refusal blocks or tool payloads. */
@@ -22,9 +24,9 @@ export const shareEntry = (message: Message): ShareEntry => {
   const notice = describeReply(message)
   const refused = message.stopReason === 'refusal'
   const view = refused ? null : buildReplyView(message, false)
-  const body = [view?.answer?.text, notice?.presentation === 'response' ? notice.text : null]
-    .filter(Boolean)
-    .join('\n\n')
+  const visibleAnswer = (answer?: string) =>
+    [answer, notice?.presentation === 'response' ? notice.text : null].filter(Boolean).join('\n\n')
+  const body = visibleAnswer(view?.answer?.text)
   const thinking =
     view?.steps
       .flatMap((step) => {
@@ -37,12 +39,30 @@ export const shareEntry = (message: Message): ShareEntry => {
         return []
       })
       .join('\n\n') ?? ''
-  return { role: 'assistant', body, thinking, files: [] }
+  return {
+    role: 'assistant',
+    body,
+    thinking,
+    files: [],
+    imageBody:
+      view?.answer && view.answer.markdown !== view.answer.text
+        ? visibleAnswer(view.answer.markdown)
+        : undefined,
+    citationIndices: view?.sources.map((source) => source.index),
+  }
 }
 
 export type ShareDocument = {
   title: string
-  sections: { role: string; body: string; thinking: string; attachments: string }[]
+  sections: {
+    role: string
+    body: string
+    imageBody?: string
+    plainBody?: boolean
+    citationIndices?: number[]
+    thinking: string
+    attachments: string
+  }[]
   thoughtLabel: string
 }
 

@@ -36,6 +36,9 @@ export const SharePreview = ({
         role: entry.role === 'user' ? (en ? 'You' : '我') : en ? 'Assistant' : '助手',
         body:
           entry.body || (!entry.files.length ? (en ? '(No answer text)' : '（无回复正文）') : ''),
+        plainBody: entry.role === 'user',
+        imageBody: entry.imageBody,
+        citationIndices: entry.citationIndices,
         thinking: includeThinking ? entry.thinking : '',
         attachments: entry.files.length
           ? includeNames

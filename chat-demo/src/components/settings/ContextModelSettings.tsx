@@ -15,12 +15,14 @@ import {
 } from '../../services/api/contextOverrides.js'
 import { providerLabelsEn, providerPresets } from '../../services/api/providerPresets.js'
 import { isModelId } from '../../services/conversationMode/storage.js'
-import { saveProfileWindow, useSettings } from '../../services/settings.js'
+import { saveProfileDiscovery, saveProfileWindow, useSettings } from '../../services/settings.js'
 import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { openExternal } from '../../shell/native.js'
 import { Button } from '../base/Button.js'
 import { Select } from '../base/Select.js'
+import { WindowTierChoices } from './WindowTierChoices.js'
 import { ProviderModelPicker } from './ProviderModelPicker.js'
+import { workBuddyModelOption } from './WorkBuddyModelPicker.js'
 import styles from './ContextModelSettings.module.css'
 
 const basisText: Record<WindowSpec['basis'], [string, string]> = {
@@ -55,6 +57,7 @@ export function ContextModelSettings() {
   const revision = useSettings((s) => s.accountRevision)
   const wb = useWorkBuddyState((s) => s.metadata)
   const wbRows = useWorkBuddyState((s) => s.models)
+  const wbCached = useWorkBuddyState((s) => s.catalogStale)
   const [selected, setSelected] = useState('account')
   const [chosenModel, setChosenModel] = useState<string | null>(null)
   const profile = profiles.find((p) => `profile:${p.id}` === selected)
@@ -82,9 +85,7 @@ export function ContextModelSettings() {
   const native = channel === 'account' || profile?.protocol === 'deepseek'
   const wbModels = wbRows.map((row) => row.id)
   const defaultModel =
-    channel === 'workbuddy'
-      ? (wbModels.find((id) => id === wb?.model) ?? wbModels[0] ?? '')
-      : profile?.model || preset?.model || nativeModels[0]
+    channel === 'workbuddy' ? (wb?.model ?? '') : profile?.model || preset?.model || nativeModels[0]
   const options = [
     { value: 'account', label: en ? 'DeepSeek account' : 'DeepSeek 账号' },
     { value: 'workbuddy', label: 'WorkBuddy' },
@@ -128,14 +129,35 @@ export function ContextModelSettings() {
             value={model}
             ariaLabel={modelLabel}
             onChange={setChosenModel}
-            options={(native ? [...nativeModels] : wbModels).map((id) => ({
-              value: id,
-              label: id,
-            }))}
+            placeholder={
+              channel === 'workbuddy' && model
+                ? `${model} · ${en ? 'Unavailable' : '当前不可选'}`
+                : undefined
+            }
+            options={
+              native
+                ? nativeModels.map((id) => ({ value: id, label: id }))
+                : wbRows.map((row) => workBuddyModelOption(row, en, wbCached))
+            }
           />
         ) : (
           <ProviderModelPicker
             key={selected}
+            endpoint={profile?.origin}
+            apiKey={profile?.apiKey}
+            discover={Boolean(profile)}
+            onDiscovered={(id, contextWindow, source, reasoning, windowDetails) => {
+              if (profile) {
+                void saveProfileDiscovery(profile, {
+                  id,
+                  name: id,
+                  contextWindow,
+                  source,
+                  reasoning,
+                  windowDetails,
+                }).catch(() => {})
+              }
+            }}
             providerId={provider ?? 'custom'}
             value={model}
             onChange={setChosenModel}
@@ -168,7 +190,7 @@ function WindowEditor({
   const [text, setText] = useState<string | null>(null)
   const [status, setStatus] = useState('')
   const [busy, setBusy] = useState(false)
-  const value = text ?? String(window)
+  const value = text ?? String(manual ?? window)
   const parsed = parseWindow(value)
   const n = (x: number) => x.toLocaleString(en ? 'en-US' : 'zh-CN')
   const setWindow = async (next?: number) => {
@@ -206,6 +228,13 @@ function WindowEditor({
     <>
       <div className={styles.field}>
         <label htmlFor={id}>{t('apiProfileContextWindow')}</label>
+        <WindowTierChoices
+          tiers={spec.tiers}
+          en={en}
+          selected={text === null ? window : parsed}
+          disabled={!valid || busy}
+          onSelect={(next) => void setWindow(next)}
+        />
         <input
           id={id}
           data-context-window
@@ -234,62 +263,60 @@ function WindowEditor({
                 : ' · 服务方案设置'
               : ''}
         </p>
-        <p>
-          {spec.name && `${spec.name} · `}
-          {basisText[spec.basis][en ? 1 : 0]} · {n(spec.window)} tokens
-        </p>
-        {spec.modelWindow && (
+        <details className={styles.evidence}>
+          <summary>{en ? 'Limits & sources' : '上限与来源'}</summary>
           <p>
-            {en ? 'Model architecture limit' : '模型架构上限'} {n(spec.modelWindow)} tokens
+            {spec.name && `${spec.name} · `}
+            {basisText[spec.basis][en ? 1 : 0]} · {n(spec.window)} tokens
           </p>
-        )}
-        {spec.tiers && (
-          <p>
-            {en ? 'Available tiers' : '可用档位'} {spec.tiers.map(n).join(' / ')} tokens
-          </p>
-        )}
-        {spec.input && (
-          <p>
-            {en ? 'Maximum input' : '最大输入'} {n(spec.input)} tokens
-          </p>
-        )}
-        {spec.output && (
-          <p>
-            {en ? 'Maximum output' : '单次最大输出'} {n(spec.output)} tokens
-          </p>
-        )}
-        {target.channel === 'workbuddy' && (
-          <p>
-            {en
-              ? 'Android also limits the encoded request body to 5 MiB.'
-              : 'Android 另有限制，编码后的请求体最多为 5 MiB。'}
-          </p>
-        )}
-        {target.channel && !target.grant && (
-          <p>
-            {en
-              ? 'Offline configuration. Each connected account has its own settings.'
-              : '当前为离线配置，登录后可单独设置该账号。'}
-          </p>
-        )}
-        {spec.urls.length > 0 && (
-          <div className={styles.sources}>
-            {spec.urls.map((url) => (
-              <a
-                href={url}
-                key={url}
-                onClick={(e) => {
-                  if (!e.defaultPrevented) {
-                    e.preventDefault()
-                    void openExternal(url)
-                  }
-                }}
-              >
-                {new URL(url).hostname}
-              </a>
-            ))}
-          </div>
-        )}
+          {spec.modelWindow && (
+            <p>
+              {en ? 'Model architecture limit' : '模型架构上限'} {n(spec.modelWindow)} tokens
+            </p>
+          )}
+          {spec.input && (
+            <p>
+              {en ? 'Maximum input' : '最大输入'} {n(spec.input)} tokens
+            </p>
+          )}
+          {spec.output && (
+            <p>
+              {en ? 'Maximum output' : '单次最大输出'} {n(spec.output)} tokens
+            </p>
+          )}
+          {target.channel === 'workbuddy' && (
+            <p>
+              {en
+                ? 'Android also limits the encoded request body to 5 MiB.'
+                : 'Android 另有限制，编码后的请求体最多为 5 MiB。'}
+            </p>
+          )}
+          {target.channel && !target.grant && (
+            <p>
+              {en
+                ? 'Offline configuration. Each connected account has its own settings.'
+                : '当前为离线配置，登录后可单独设置该账号。'}
+            </p>
+          )}
+          {spec.urls.length > 0 && (
+            <div className={styles.sources}>
+              {spec.urls.map((url) => (
+                <a
+                  href={url}
+                  key={url}
+                  onClick={(e) => {
+                    if (!e.defaultPrevented) {
+                      e.preventDefault()
+                      void openExternal(url)
+                    }
+                  }}
+                >
+                  {new URL(url).hostname}
+                </a>
+              ))}
+            </div>
+          )}
+        </details>
       </div>
       <div className={styles.actions}>
         <Button

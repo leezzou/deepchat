@@ -1,4 +1,5 @@
 import type { CreateMessageRequest, MessageStreamEvent, OutputBlockStart } from '../api/types.js'
+import { assessHits, enoughEvidence, pagePassage, readOrder, supplemental } from './quality.js'
 import { workBuddyFetch } from './bridge.js'
 import { searchPlan, throwIfGrantChanged, type Grant } from './plan.js'
 import {
@@ -33,7 +34,9 @@ export async function* retrieve(
   { messages: Row[]; nextIndex: number; hits: SearchHit[]; ids: Set<string> }
 > {
   const plan = await searchPlan(access, body, rows, signal)
-  const deadline = Date.now() + 45000
+  // Multiple independently necessary angles plus a request for primary verification warrant broader reading.
+  const thorough = plan.signals.thorough || (plan.read && plan.multi)
+  const deadline = Date.now() + (thorough ? 45000 : 30000)
   const request = async (
     operation: { op: 'read'; readKey: string } | { op: 'search'; query: string }
   ) => {
@@ -63,17 +66,17 @@ export async function* retrieve(
   }
   const queries = [...plan.queries]
   if (queries.length === 1) {
-    const angle = /[\u3400-\u9fff]/u.test(queries[0]) ? '官方资料' : 'primary source documentation'
-    const alternative = `${clip(queries[0], 200)} ${angle}`
-    if (!queries[0].toLowerCase().includes(angle)) {
-      queries.push(alternative)
-    }
+    queries.push(supplemental(queries[0], plan.signals))
   }
-  for (const [round, query] of queries.entries()) {
+  const { dateHint } = plan.signals
+  const dated = (query: string) =>
+    dateHint && !/(?:19|20)\d\d/.test(query) ? `${clip(query, 218)} ${dateHint}` : query
+  let ranked: ReturnType<typeof assessHits> = []
+  let nextQuery = 0
+  async function* searchNext(): AsyncGenerator<MessageStreamEvent, boolean> {
     signal.throwIfAborted()
-    if (round > 0 && Date.now() >= deadline) {
-      break
-    }
+    const round = nextQuery++
+    const query = dated(queries[round])
     const id = `${requestId}-s${round}`
     yield* block({
       type: 'server_tool_use',
@@ -94,13 +97,8 @@ export async function* retrieve(
         kind: 'search',
         content: batch.map((hit) => hit.source),
       })
-      // An independent facet deserves its own query. Otherwise only use the next query for weak evidence.
-      if (
-        (!plan.multi && hits.filter((hit) => hit.source.snippet.length >= 24).length >= 2) ||
-        (round > 0 && !batch.length)
-      ) {
-        break
-      }
+      ranked = assessHits(hits, plan)
+      return true
     } catch (error) {
       throwIfGrantChanged(error, signal)
       yield* block({
@@ -114,37 +112,37 @@ export async function* retrieve(
           `WorkBuddy 搜索 / Search · ${error instanceof Error ? error.message : String(error)}`
         )
       }
+      nextQuery = queries.length
+      return false
+    }
+  }
+  while (nextQuery < queries.length && Date.now() < deadline) {
+    if (!(yield* searchNext()) || (!plan.multi && enoughEvidence(ranked, plan))) {
       break
     }
   }
+  const verify =
+    plan.signals.compare || plan.signals.price || plan.signals.measured || plan.signals.fresh
   const needPage =
-    plan.read || (hits.length > 0 && hits.every(({ source }) => source.snippet.length < 48))
+    thorough || plan.read || verify || (hits.length > 0 && !enoughEvidence(ranked, plan))
   if (needPage) {
-    const candidates = hits.filter((hit) => hit.readKey)
-    // Prefer independent sites, retaining provider rank within each group.
-    const sites = new Set<string | null>()
-    const firstPerSite = candidates.filter(({ source }) => {
-      if (sites.has(source.site_name)) {
-        return false
-      }
-      sites.add(source.site_name)
-      return true
-    })
-    const thorough =
-      /逐[一篇条个项]|每[篇个一项]|全面|全部|所有|\b(?:each|every|all sources|comprehensive)\b/i.test(
-        rows[plan.index].content
-      )
-    let budget = thorough ? 8400 : plan.read ? 3200 : 1500
-    let failures = 0
-    const preferred = new Set(firstPerSite)
-    for (const hit of [...firstPerSite, ...candidates.filter((item) => !preferred.has(item))]) {
+    let budget = thorough ? 8400 : plan.read || verify ? 4000 : 1500
+    let failures = 0,
+      opened = 0
+    for (const hit of readOrder(ranked, plan.subjects, thorough)) {
       signal.throwIfAborted()
-      if (budget < 256 || Date.now() >= deadline || failures >= 2) {
+      if (
+        budget < 256 ||
+        Date.now() >= deadline ||
+        failures >= 2 ||
+        (!thorough && opened >= (plan.read || verify ? 3 : 2))
+      ) {
         break
       }
       if (!hit.readKey) {
         continue
       }
+      opened++
       const id = `${requestId}-r${nextIndex}`
       yield* block({
         type: 'server_tool_use',
@@ -160,7 +158,7 @@ export async function* retrieve(
         if (typeof data.text !== 'string' || !data.text.trim()) {
           throw new Error('Empty page')
         }
-        hit.page = clip(data.text.trim(), Math.min(budget, thorough ? 800 : 2200))
+        hit.page = pagePassage(data.text, plan, Math.min(budget, thorough ? 800 : 1500))
         budget -= Math.max(320, byteLength(hit.page))
         failures = 0
         yield* block({
@@ -190,6 +188,25 @@ export async function* retrieve(
         })
       }
     }
+    // A promising listing can still be unreadable. Use the next planned angle once within the same deadline.
+    if (
+      opened > 0 &&
+      !hits.some((hit) => hit.page) &&
+      nextQuery < queries.length &&
+      Date.now() < deadline
+    ) {
+      yield* searchNext()
+    }
   }
-  return { ...withSearchEvidence(rows, plan.index, hits), hits, nextIndex }
+  return {
+    ...withSearchEvidence(
+      rows,
+      plan.index,
+      hits,
+      plan.signals.today,
+      ranked.map((row) => row.hit)
+    ),
+    hits,
+    nextIndex,
+  }
 }

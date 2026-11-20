@@ -42,8 +42,8 @@ input.dc-local-switch:disabled {
   input.dc-local-switch,
   input.dc-local-switch::before {
     transition:
-      transform 160ms ease-out,
-      background-color 160ms ease-out;
+      transform var(--settings-feedback) var(--nav-ease),
+      background-color var(--settings-feedback) var(--nav-ease);
   }
 }
 @media (forced-colors: active) {
