@@ -3,62 +3,140 @@ import type { TranslationMessage } from '../../i18n/index.js'
 import { ApiError } from '../api/client.js'
 import { classifyApiError } from '../api/errors.js'
 import { synthesize, TTS_SAMPLE_RATE } from '../api/speech.js'
-import { requireChatAccess } from '../api/access.js'
+import { requireChatAccess, type ChatAccess } from '../api/access.js'
 import { useSettings } from '../settings.js'
+import { MAX_READ_CHARS, speakLocally } from './deviceVoice.js'
+import { speechIdentity, speechLanguage, speechMode, subscribeSpeechRoute } from './speechRoute.js'
 
-/**
- * 朗读：同一时间只读一条回复。
- * 请求 TTS 的裸 PCM 流，边收边用 AudioContext 按顺序排程播放，首帧到达即出声。
- * 状态：loading（已请求、未出声）→ playing → 结束回到 idle。
- */
 export type ReadAloudStatus = 'idle' | 'loading' | 'playing'
+export const useReadAloud = create<{ messageId: string | null; status: ReadAloudStatus }>(() => ({
+  messageId: null,
+  status: 'idle',
+}))
+let current: AbortController | null = null
 
-type ReadAloudState = {
-  /** 正在朗读的回复 id */
-  messageId: string | null
-  status: ReadAloudStatus
-}
-
-export const useReadAloud = create<ReadAloudState>(() => ({ messageId: null, status: 'idle' }))
-
-/** 首帧前多缓冲一点，减少网络抖动造成的断续 */
-const START_DELAY = 0.1
-
-let current: { controller: AbortController; context: AudioContext } | null = null
-
-const finish = (controller: AbortController) => {
-  if (current?.controller !== controller) {
+export const stopReadAloud = () => {
+  if (!current) {
     return
   }
-  void current.context.close()
+  current.abort()
   current = null
   useReadAloud.setState({ messageId: null, status: 'idle' })
 }
 
-/** 停止当前朗读（发送、停止生成、切换会话等场景调用） */
-export const stopReadAloud = () => {
-  if (current) {
-    const { controller } = current
-    controller.abort()
-    finish(controller)
+/** Schedule bounded 24 kHz mono PCM buffers. Keep an odd trailing byte for the next packet. */
+async function playOfficial(
+  access: ChatAccess,
+  text: string,
+  signal: AbortSignal,
+  playing: () => void
+) {
+  const context = new AudioContext({ sampleRate: TTS_SAMPLE_RATE })
+  const close = () => {
+    if (context.state !== 'closed') {
+      void context.close().catch(() => {})
+    }
   }
-}
-
-/** 16-bit 小端 PCM 转成 Float32；奇数字节留到下一段 */
-const toFloat32 = (bytes: Uint8Array) => {
-  const samples = new Float32Array(bytes.length >> 1)
-  const view = new DataView(bytes.buffer, bytes.byteOffset, samples.length * 2)
-  for (let i = 0; i < samples.length; i++) {
-    samples[i] = view.getInt16(i * 2, true) / 0x8000
+  signal.addEventListener('abort', close, { once: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    // Resume synchronously from the click when possible. An autoplay block must not leave the button spinning.
+    if (context.state === 'suspended') {
+      await Promise.race([
+        context.resume(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('audio-blocked')), 2500)
+        }),
+      ])
+    }
+    if (signal.aborted) {
+      return
+    }
+    const stream = await synthesize(access, text, useSettings.getState().ttsVoice, signal)
+    const reader = stream.getReader()
+    const cancel = () => {
+      void reader.cancel().catch(() => {})
+    }
+    signal.addEventListener('abort', cancel, { once: true })
+    try {
+      let nextTime = 0,
+        received = 0,
+        carry = -1
+      let lastEnd: Promise<void> | undefined
+      for (;;) {
+        if (signal.aborted) {
+          return
+        }
+        const { done, value } = await reader.read()
+        if (done || signal.aborted) {
+          break
+        }
+        if (!value.length) {
+          continue
+        }
+        received += value.length
+        if (received > 2 * TTS_SAMPLE_RATE * 600) {
+          throw new Error('audio-limit')
+        }
+        const bytes = carry < 0 ? value : new Uint8Array(value.length + 1)
+        if (carry >= 0) {
+          bytes[0] = carry
+          bytes.set(value, 1)
+        }
+        carry = bytes.length % 2 === 0 ? -1 : bytes[bytes.length - 1]
+        const count = bytes.length >> 1
+        if (!count) {
+          continue
+        }
+        const view = new DataView(bytes.buffer, bytes.byteOffset, count * 2)
+        const buffer = context.createBuffer(1, count, TTS_SAMPLE_RATE)
+        const samples = buffer.getChannelData(0)
+        for (let i = 0; i < count; ++i) {
+          samples[i] = view.getInt16(i * 2, true) / 0x8000
+        }
+        const source = context.createBufferSource()
+        source.buffer = buffer
+        source.connect(context.destination)
+        nextTime = Math.max(nextTime, context.currentTime + (lastEnd ? 0 : 0.1))
+        lastEnd = new Promise<void>((resolve) => {
+          source.onended = () => resolve()
+        })
+        source.start(nextTime)
+        nextTime += buffer.duration
+        playing()
+      }
+      if (!lastEnd && !signal.aborted) {
+        throw new Error('no-audio')
+      }
+      if (lastEnd && !signal.aborted) {
+        await Promise.race([
+          lastEnd,
+          new Promise<void>((resolve) =>
+            signal.addEventListener('abort', () => resolve(), { once: true })
+          ),
+        ])
+      }
+    } finally {
+      cancel()
+      signal.removeEventListener('abort', cancel)
+    }
+  } finally {
+    clearTimeout(timer)
+    signal.removeEventListener('abort', close)
+    close()
   }
-  return samples
 }
 
 export const describeReadAloudError = (error: unknown): TranslationMessage | string => {
-  if (error instanceof ApiError && error.kind === 'protocol') {
-    return error.message
+  if (error instanceof Error && error.message === 'offline-voice') {
+    return { key: 'ttsOfflineUnavailable' }
   }
-  // 400 表示这段正文服务端无法合成，与其余失败区分开
+  if (error instanceof Error && error.message === 'too-long') {
+    return { key: 'ttsTooLong' }
+  }
+  if (error instanceof ApiError && error.kind === 'protocol') {
+    return error.localMessage ?? error.message
+  }
   if (error instanceof ApiError && error.status === 400) {
     return { key: 'ttsUnavailable' }
   }
@@ -74,72 +152,75 @@ export const describeReadAloudError = (error: unknown): TranslationMessage | str
   }
 }
 
-/**
- * 开始朗读一条回复的正文；同一条正在朗读时调用等于停止。
- * 必须在点击事件中同步调用：AudioContext 需要用户手势才能出声。
- */
-export const toggleReadAloud = (
+export function toggleReadAloud(
   messageId: string,
   text: string,
   onError: (error: unknown) => void,
   sessionId?: string
-) => {
+) {
   const reading = useReadAloud.getState().messageId
   stopReadAloud()
   if (reading === messageId) {
     return
   }
+  const mode = speechMode(sessionId, 'tts')
+  if (mode === 'blocked' || mode === 'unavailable') {
+    onError(new Error('offline-voice'))
+    return
+  }
+  if (text.length > MAX_READ_CHARS) {
+    onError(new Error('too-long'))
+    return
+  }
   const controller = new AbortController()
-  const context = new AudioContext({ sampleRate: TTS_SAMPLE_RATE })
-  current = { controller, context }
+  current = controller
   useReadAloud.setState({ messageId, status: 'loading' })
-  // 音色在开始朗读时读取，设置中切换后下一次朗读生效
-  const { ttsVoice } = useSettings.getState()
-
+  const identity = speechIdentity(sessionId)
+  const unsubscribe = subscribeSpeechRoute(() => {
+    if (identity !== speechIdentity(sessionId)) {
+      stopReadAloud()
+    }
+  })
+  const hidden = () => {
+    if (document.hidden) {
+      stopReadAloud()
+    }
+  }
+  document.addEventListener('visibilitychange', hidden)
+  const timeout = setTimeout(() => {
+    if (current === controller) {
+      stopReadAloud()
+      onError(new Error('timeout'))
+    }
+  }, 600_000)
+  controller.signal.addEventListener(
+    'abort',
+    () => {
+      clearTimeout(timeout)
+      unsubscribe()
+      document.removeEventListener('visibilitychange', hidden)
+    },
+    { once: true }
+  )
+  const playing = () => {
+    if (current === controller && useReadAloud.getState().status === 'loading') {
+      useReadAloud.setState({ status: 'playing' })
+    }
+  }
   void (async () => {
-    let nextTime = 0
-    let lastSource: AudioBufferSourceNode | null = null
-    let rest = new Uint8Array(0)
     try {
-      const stream = await synthesize(requireChatAccess(sessionId), text, ttsVoice, controller.signal)
-      const reader = stream.getReader()
-      controller.signal.addEventListener('abort', () => void reader.cancel().catch(() => {}))
-      for (;;) {
-        const { done, value } = await reader.read()
-        if (done) {
-          break
-        }
-        const bytes = new Uint8Array(rest.length + value.length)
-        bytes.set(rest)
-        bytes.set(value, rest.length)
-        const samples = toFloat32(bytes)
-        rest = bytes.slice(samples.length * 2)
-        if (samples.length === 0) {
-          continue
-        }
-        const buffer = context.createBuffer(1, samples.length, TTS_SAMPLE_RATE)
-        buffer.copyToChannel(samples, 0)
-        const source = context.createBufferSource()
-        source.buffer = buffer
-        source.connect(context.destination)
-        // 网络慢于播放时从当前时间续上，不补播过去的时间
-        nextTime = Math.max(nextTime, context.currentTime + (lastSource ? 0 : START_DELAY))
-        source.start(nextTime)
-        nextTime += buffer.duration
-        lastSource = source
-        if (useReadAloud.getState().status === 'loading') {
-          useReadAloud.setState({ status: 'playing' })
-        }
-      }
-      if (lastSource) {
-        lastSource.onended = () => finish(controller)
+      if (mode === 'official') {
+        await playOfficial(requireChatAccess(sessionId), text, controller.signal, playing)
       } else {
-        finish(controller)
+        await speakLocally(text, speechLanguage(), controller.signal, playing)
       }
     } catch (error) {
       if (!controller.signal.aborted) {
-        finish(controller)
         onError(error)
+      }
+    } finally {
+      if (current === controller) {
+        stopReadAloud()
       }
     }
   })()

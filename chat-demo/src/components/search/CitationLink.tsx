@@ -14,7 +14,21 @@ export const CitationLink = ({ source }: { source: Source }) => {
     window.open(source.url, '_blank', 'noopener,noreferrer')
   }
   const renderTrigger: HoverCardTrigger = ({ domRef, domProps }) => (
-    <span ref={domRef} className="ds-markdown-cite" {...domProps} role="link" onClick={open}>
+    <span
+      ref={domRef}
+      className="ds-markdown-cite"
+      {...domProps}
+      role="link"
+      tabIndex={0}
+      aria-label={`[${source.index}] ${source.title}`}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          event.currentTarget.click()
+        }
+      }}
+    >
       {source.index}
     </span>
   )

@@ -1,5 +1,6 @@
 import type { ChatAccess } from './api/access.js'
 import { create } from 'zustand'
+import { endpointFileInput, isOpenAiFiles, OPENAI_FILE_BYTES, originalFileIssue } from './api/fileCapabilities.js'
 import type { LinkedMessage, TranslationMessage } from '../i18n/index.js'
 import { ApiError, uploadFile } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
@@ -46,6 +47,21 @@ const getMaxSizeMB = (file: File) => {
 }
 
 export const validateFiles = (files: File[], existing: File[], access: ChatAccess): TranslationMessage | null => {
+  if (access.source === 'workbuddy' || (access.source === 'account' && access.model === 'deepseek-v4-pro')) {
+    return { key: 'originalFileUnsupported' }
+  }
+  if (access.source === 'api') {
+    const { origin, model, providerId, protocol } = access.config
+    if (endpointFileInput(origin, model, providerId, protocol) === 'text') {
+      return { key: 'originalFileUnsupported' }
+    }
+    for (const file of files) {
+      const issue = originalFileIssue(origin, file)
+      if (issue) {
+        return { key: issue }
+      }
+    }
+  }
   if (files.some((file) => !isAcceptedExt(file.name))) {
     return { key: 'uploadUnsupportedFormat' }
   }
@@ -54,6 +70,10 @@ export const validateFiles = (files: File[], existing: File[], access: ChatAcces
     return { key: 'uploadMaxMBSize', params: { size: getMaxSizeMB(oversized) } }
   }
   const combined = [...existing, ...files]
+  if (access.source === 'api' && isOpenAiFiles(access.config.origin) &&
+      (combined.some(file => file.size >= OPENAI_FILE_BYTES) || combined.reduce((size, file) => size + file.size, 0) > OPENAI_FILE_BYTES)) {
+    return { key: 'uploadOpenAiFileSize' }
+  }
   if (combined.length > MAX_COUNT) {
     return { key: 'uploadMaxFiles', params: { count: MAX_COUNT } }
   }

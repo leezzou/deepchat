@@ -67,14 +67,7 @@ const updateBlock = (
 }
 
 function mergeUsage(start: MessageUsage | undefined, delta: Extract<MessageStreamEvent, { type: 'message_delta' }>['usage']): MessageUsage | undefined {
-  if (!delta) return start
-  const input = delta.input_tokens ?? start?.input_tokens
-  if (input === undefined) return undefined
-  return {
-    ...start, ...delta, input_tokens: input,
-    cache_read_input_tokens: delta.cache_read_input_tokens ?? start?.cache_read_input_tokens ?? 0,
-    cache_creation_input_tokens: delta.cache_creation_input_tokens ?? start?.cache_creation_input_tokens ?? 0,
-  }
+  return delta ? { ...start, ...delta } : start
 }
 
 /**
@@ -93,6 +86,8 @@ export const applyEvent = (
     case 'message_start':
       // A continuation starts a new request and must not inherit an older request's inputs.
       return { ...next, usage: event.message.usage }
+    case 'message_usage':
+      return { ...next, usage: mergeUsage(next.usage, event.usage) }
     case 'content_block_start': {
       blockIndexes.delete(event.index)
       const block = toReplyBlock(event.content_block, now)
@@ -140,7 +135,6 @@ export const applyEvent = (
     case 'message_delta':
       return {
         ...next,
-        workBuddyReasoningUnavailable: event.workBuddyReasoningUnavailable,
         stopReason: event.delta.stop_reason,
         stopDetails: event.delta.stop_details,
         usage: mergeUsage(next.usage, event.usage),
@@ -183,7 +177,7 @@ export const getReplyText = (reply: AssistantMessage) =>
  * 本轮含服务端工具调用或结果（含 READ_LINK 和孤立结果块）的回复不能续写。
  * 服务端模板提示不能作为续写前缀。
  */
-export const canContinueReply = (reply: AssistantMessage): boolean => {
+export const canContinueReply = (reply: AssistantMessage, allowThinking = false): boolean => {
   if (
     !reply.prefix ||
     reply.stopReason === 'refusal' ||
@@ -198,8 +192,10 @@ export const canContinueReply = (reply: AssistantMessage): boolean => {
   ) {
     return false
   }
-  return (
-    reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
+  const unfinished = reply.status === 'stopped' || (reply.status === 'done' && reply.stopReason === 'max_tokens')
+  return unfinished && reply.blocks.some((block) =>
+    (block.type === 'text' && block.text.trim()) ||
+    (allowThinking && reply.prefix !== 'text' && block.type === 'thinking' && block.thinking.trim())
   )
 }
 
@@ -228,8 +224,7 @@ const toUserParam = ({ content, files }: UserMessage): MessageParam => {
 /**
  * assistant 的内容块按历史与续写场景转换：
  * - 历史思考及其签名不回传；开启思考时续写只保留本轮非空白思考及其签名；
- * - 文本块去掉 citations（服务端忽略）。相邻文本直接拼接，被思考或工具隔开的文本用空行连接；
- *   省略历史思考后仍保留其前后正文的空行；
+ * - 文本块去掉 citations。纯文本回答可以跨思考阶段续写，回传正文时直接拼接；工具步骤前后的文本保留分段；
  * - 工具调用和结果只保留 kind 为 read_link 的块，其他历史工具块不回传；
  * - 阅读链接结果原样回传，保留 signature：服务端解密后将页面拼回该轮提问末尾；
  */
@@ -250,11 +245,13 @@ const toAssistantParam = (
         : []
     )
   )
-  /** 正在拼接的文本块；遇到任何非文本块（含不回传的思考块）就结束 */
+  const hasTools = blocks.some((block) => block.type === 'server_tool_use')
   let text: TextBlockParam | null = null
   for (const block of blocks) {
-    // 空思考不改变续写位置，也不应把两段正文隔开，导致后端额外插入空行。
-    if (prefix && block.type === 'thinking' && !block.thinking.trim()) {
+    // A tool-free answer may stop mid-word and resume after a fresh reasoning phase.
+    if (block.type === 'thinking' && (
+      (prefix && !block.thinking.trim()) || (!hasTools && !(prefix && thinking))
+    )) {
       continue
     }
     if (block.type === 'text') {
@@ -400,7 +397,7 @@ export const toRequestMessages = (
   appendReminder(latestReminder)
   messages.push(toUserParam(question))
   if (prefix?.prefix) {
-    const assistant = toAssistantParam(prefix, true, thinking)
+    const assistant = toAssistantParam(prefix, true, thinking && prefix.prefix !== 'text')
     // 没有非空白正文或有效思考时直接重发原问题，避免服务端拒绝空 Prefill。
     if (
       assistant.content.some(

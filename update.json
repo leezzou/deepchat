@@ -1,8 +1,8 @@
 {
-  "version": "1.0.53",
+  "version": "1.0.54",
   "publishedAt": "2026-11-20",
-  "notes": "发现新版本时，「检查更新」入口会显示红点，可在设置内查看更新说明并下载安装。WorkBuddy 积分和签到已移到「WorkBuddy 账号」，原来的版本号连点入口已移除。DeepSeek 日额度改为一句提醒。历史导入会显示校验、快照和写入进度；Android 从链接导入时减少了一份 ZIP 的临时空间占用。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.53",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.53/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.53/deepchat.apk"
+  "notes": "首问自动生成会话标题，顶栏与历史列表同步显示。选中供应商会读取可用模型，可查看、修改和恢复每个型号的上下文。各渠道共用聊天操作，设置内可按供应商和模型查看每次请求的输入、输出与缓存命中。缩小停止键白色方块。WorkBuddy 能理解追问、补搜和阅读网页，保留完整来源。每十轮后台备份一次，可在设置中关闭或删除已有自动备份。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.54",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.54/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.54/deepchat.apk"
 }

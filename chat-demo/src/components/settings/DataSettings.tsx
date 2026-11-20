@@ -14,6 +14,8 @@ import {
   BackupError,
   SnapshotError,
   confirmBackupSaved,
+  deleteAutomaticBackup,
+  saveAutomaticBackup,
   exportHistory,
   loadBackupState,
   restoreSafetySnapshot,
@@ -222,6 +224,8 @@ export function DataSettings({
   const [exportOpen, setExportOpen] = useState(false)
   const [snapshotOpen, setSnapshotOpen] = useState(false)
   const [autoPreview, setAutoPreview] = useState<boolean | null>(null)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const switchRef = useRef<HTMLInputElement>(null)
   const guard = useRef(false)
   const id = useId()
   const busy = disabled || running || !!backup.operation
@@ -321,14 +325,11 @@ export function DataSettings({
         <label className={clsx(styles.backupToggle, 'history-toggle')}>
           <span>
             {t('backupAutoLabel')}
-            <small id={`${id}-auto`}>
-              {zh
-                ? '每完成 10 轮对话，生成本机副本并提醒另存。'
-                : 'Every 10 completed rounds, create a local copy and remind me to save it.'}
-            </small>
+            <small id={`${id}-auto`}>{t('backupAutoHint')}</small>
           </span>
           <input
             type="checkbox"
+            ref={switchRef}
             role="switch"
             aria-label={t('backupAutoLabel')}
             aria-describedby={`${id}-auto`}
@@ -351,6 +352,73 @@ export function DataSettings({
           <p className="history-progress">
             {t('backupAutoProgress', { count: Math.max(0, 10 - backup.completedRounds) })}
           </p>
+        )}
+        {backup.automatic && (
+          <div className="history-details">
+            <p>
+              {t('backupAutoLatest', {
+                date: date(backup.automatic.createdAt),
+                count: backup.automatic.sessionCount,
+              })}
+            </p>
+            <div className="history-actions">
+              <Button
+                variant="outlined"
+                disabled={busy}
+                onClick={() =>
+                  void run(async () => {
+                    const result = await saveAutomaticBackup()
+                    setNotice({ key: saved[result.status] })
+                  })
+                }
+              >
+                {t('backupSave')}
+              </Button>
+              <Button
+                id={`${id}-delete-trigger`}
+                variant="dangerOutlined"
+                disabled={busy}
+                aria-expanded={deleteOpen}
+                aria-controls={`${id}-delete`}
+                onClick={() => setDeleteOpen(!deleteOpen)}
+              >
+                {t('backupAutoDelete')}
+              </Button>
+            </div>
+            <div
+              id={`${id}-delete`}
+              role="group"
+              aria-labelledby={`${id}-delete-hint`}
+              hidden={!deleteOpen}
+            >
+              <p id={`${id}-delete-hint`}>{t('backupAutoDeleteHint')}</p>
+              <div className="history-actions">
+                <Button
+                  variant="outlined"
+                  disabled={busy}
+                  onClick={() => {
+                    document.getElementById(`${id}-delete-trigger`)?.focus()
+                    setDeleteOpen(false)
+                  }}
+                >
+                  {t('cancel')}
+                </Button>
+                <Button
+                  variant="danger"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await deleteAutomaticBackup()
+                      setDeleteOpen(false)
+                      requestAnimationFrame(() => switchRef.current?.focus({ preventScroll: true }))
+                    }, 'backupAutoDeleted')
+                  }
+                >
+                  {t('backupAutoDeleteConfirm')}
+                </Button>
+              </div>
+            </div>
+          </div>
         )}
         <Row
           icon="data"
@@ -407,7 +475,10 @@ export function DataSettings({
         </p>
       )}
       {backup.error && (
-        <div role="alert" className="history-notice history-error">
+        <div
+          role={backup.error === 'load' ? 'alert' : 'status'}
+          className="history-notice history-error"
+        >
           <p>{t(backup.error === 'load' ? 'backupStorageFailed' : 'backupAutomaticFailed')}</p>
           {backup.error === 'load' && (
             <Button variant="outlined" disabled={busy} onClick={() => void run(loadBackupState)}>

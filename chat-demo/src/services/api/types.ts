@@ -173,13 +173,16 @@ export type DeepseekReadUrlTool = {
 }
 
 export type CreateMessageRequest = {
-  model: ChatModel
+  /** Native DeepSeek callers use ChatModel. Compatible routes use the configured provider ID. */
+  model: string
   system?: string
   messages: MessageParam[]
   thinking: { type: 'enabled' | 'disabled' }
   tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]
   safety_check: { level: 'high' }
   title?: { enabled: boolean }
+  /** Optional hard output budget for a short secondary request. */
+  max_tokens?: number
 }
 
 // ---------- 响应：流式事件 ----------
@@ -190,13 +193,17 @@ export type StopDetails = { type: 'refusal'; category: null; explanation: null }
 
 export type MessageUsage = {
   /** 未命中缓存的输入 Token */
-  input_tokens: number
-  cache_creation_input_tokens: number
-  cache_read_input_tokens: number
-  /** message_start 中为 0，message_delta 中为全轮累计值 */
-  output_tokens: number
+  input_tokens?: number
+  cache_creation_input_tokens?: number
+  cache_read_input_tokens?: number
+  /** Inclusive totals, when reported by the provider. Individual counters can be unavailable. */
+  input_tokens_total?: number
+  output_tokens_total?: number
+  output_tokens?: number
+  cache_read_output_tokens?: number
+  cache_creation_output_tokens?: number
   /** 仅当 message_delta 中有对外输出的搜索结果块时出现 */
-  server_tool_use?: { web_search_requests: number; tool_search: number }
+  server_tool_use?: { web_search_requests?: number; tool_search?: number }
 }
 
 /** content_block_start 携带的初始内容块；工具块已是完整内容 */
@@ -228,11 +235,11 @@ export type MessageStreamEvent =
         stop_details?: StopDetails
         title?: string
       }
-      /** Local adapter observation for the UI, kept separate from model-generated content. */
-      workBuddyReasoningUnavailable?: true
       /** 流式服务可只回传累计输出，其余计数沿用同一次请求的 message_start。 */
-      usage?: Partial<MessageUsage> & Pick<MessageUsage, 'output_tokens'>
+      usage?: MessageUsage
     }
+  /** Cumulative counters reported before the terminal event, including on interrupted streams. */
+  | { type: 'message_usage'; usage: MessageUsage }
   | { type: 'message_stop' }
   | { type: 'ping' }
 

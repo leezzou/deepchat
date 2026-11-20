@@ -1,4 +1,11 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { ProviderModelPicker } from '../settings/ProviderModelPicker.js'
+import { allowsKeylessLocal, endpointProvider } from '../../services/api/modelWindows.js'
+import type { DiscoveredModel } from '../../services/api/modelDiscovery.js'
+import { reasoningWire } from '../../services/api/providerParity.js'
+import { retrievalSources } from '../../services/api/searchConsent.js'
+import { searchCapability } from '../../services/api/searchCapabilities.js'
+import { chooseEquivalentModel } from '../../services/conversationMode/modelSelection.js'
 import { resolveLocale } from '../../i18n/index.js'
 import { hasAccountBridge } from '../../shell/account.js'
 import { getConversationRoute } from '../../services/api/access.js'
@@ -16,9 +23,9 @@ import {
 import { getSessionMemoryTexts } from '../../services/library/index.js'
 import { useLibrarySnapshot } from '../../services/library/useLibrary.js'
 import { usePendingEdit } from '../../services/pendingEdits.js'
-import { useSettings } from '../../services/settings.js'
+import { saveProfileDiscovery, useSettings, type ApiProfile } from '../../services/settings.js'
 import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
-import { WORKBUDDY_PROFILE, WORKBUDDY_MODELS } from '../../services/workbuddy/models.js'
+import { WORKBUDDY_PROFILE } from '../../services/workbuddy/models.js'
 import { useIsMobile } from '../../app/viewport.js'
 import { Select } from '../base/Select.js'
 import { IconChevronDownOutline14 } from '../base/icons.js'
@@ -38,6 +45,96 @@ const endpoint = (origin: string) => {
   }
 }
 const useEnglish = () => useSettings((s) => resolveLocale(s.locale) === 'en-US')
+
+type PanelRoute = ReturnType<typeof getConversationRoute>
+const nativeModels = ['deepseek-flash', 'deepseek-v4-pro']
+const providerOf = (route: PanelRoute) =>
+  route.profileId === WORKBUDDY_PROFILE
+    ? 'workbuddy'
+    : route.account
+      ? 'deepseek'
+      : (endpointProvider(route.origin, route.profile?.providerId) ?? 'custom')
+
+function CapabilityHint({
+  route,
+  en,
+  reasoning,
+}: {
+  route: PanelRoute
+  en: boolean
+  reasoning?: DiscoveredModel['reasoning']
+}) {
+  if (route.missing) {
+    return null
+  }
+  const tr = (zh: string, english: string) => (en ? english : zh)
+  const wb = route.profileId === WORKBUDDY_PROFILE
+  const toggle = wb
+    ? route.thinking
+    : Boolean(
+        reasoningWire({
+          protocol: route.protocol,
+          origin: route.origin,
+          model: route.model,
+          providerId: route.profile?.providerId,
+          reasoningSupport: reasoning ?? route.reasoningSupport,
+        })
+      )
+  const search = wb ? 'workbuddy' : searchCapability(route.origin, route.protocol, route.model)
+  return (
+    <div className="conversation-mode-hint" data-mode-capabilities>
+      <p>
+        {(reasoning ?? route.reasoningSupport) === 'none'
+          ? tr('此部署未提供思考功能。', 'This deployment reports no reasoning support.')
+          : route.reasoningDisplayOnly && (!reasoning || reasoning === 'fixed')
+          ? tr('可显示模型返回的思考，推理计算由模型控制。', 'Show reasoning returned by the model. The model controls the computation.')
+          : toggle
+          ? tr('可切换深度思考。', 'Thinking can be toggled.')
+          : (reasoning ?? route.reasoningSupport) === 'fixed'
+            ? tr('此模型自动控制思考。', 'This model controls its own reasoning.')
+            : tr(
+                '此部署未提供可用的思考开关。',
+                'No thinking switch is available for this deployment.'
+              )}{' '}
+        {wb
+          ? tr(
+              '联网搜索使用 WorkBuddy 账号，费用与模型权限取决于套餐。',
+              'Search uses your WorkBuddy account. Model access and charges depend on your plan.'
+            )
+          : search === 'none'
+            ? retrievalSources().length
+              ? tr(
+                  '可在输入框选择检索服务并确认本次检索词。',
+                  'Choose a search service in the composer and confirm the terms for this reply.'
+                )
+              : tr(
+                  '尚未配置可用的联网搜索服务。',
+                  'No search service is configured for this route.'
+                )
+            : tr(
+                '输入框提供当前服务商的联网搜索选项。',
+                'Provider web search is available in the composer.'
+              )}
+      </p>
+      <p>
+        {route.fileInput === 'text'
+          ? tr(
+              '可插入 TXT 或 Markdown 正文，预览后随消息发送。',
+              'Insert TXT or Markdown text and review it before sending.'
+            )
+          : route.fileInput === 'choice'
+            ? tr(
+                '可插入文本，也可上传原件；上传需服务商支持文件引用。',
+                'Insert text or upload originals when the provider supports file references.'
+              )
+            : tr(
+                '可上传原件并在对话中引用。',
+                'Upload original files and reference them in the conversation.'
+              )}
+      </p>
+    </div>
+  )
+}
 
 export function ConversationControls({
   sessionId,
@@ -93,6 +190,7 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
   useConversationModes()
   const profiles = useSettings((s) => s.apiProfiles)
   const workBuddy = useWorkBuddyState((s) => s.metadata)
+  const workBuddyModels = useWorkBuddyState((s) => s.models)
   const busy = useChatStore(
     (s) =>
       s.importingHistory ||
@@ -107,21 +205,101 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
   const [error, setError] = useState('')
   const [deleting, setDeleting] = useState(false)
   const route = getConversationRoute(sessionId, choice)
+  const [reviewedDestination, setReviewedDestination] = useState(
+    current.needsApproval ? undefined : current.destination
+  )
+  const reviewed = reviewedDestination === route.destination
+  const [fact, setFact] = useState<{ profile: ApiProfile; row: DiscoveredModel }>()
+  const pendingMatch = useRef<{ provider: string; model: string; destination: string }>()
+  const [retained, setRetained] = useState(false)
+  const provider = providerOf(route)
+  const profile = route.profile
+  const verified =
+    profile && fact?.profile === profile && fact.row.id === route.model ? fact.row : undefined
+  const discover = Boolean(
+    reviewed &&
+    profile &&
+    !route.missing &&
+    (profile.apiKey || allowsKeylessLocal(route.origin, route.protocol))
+  )
+  function selectModel(model?: string) {
+    pendingMatch.current = undefined
+    setRetained(false)
+    setChoice((prev) => ({ ...prev, model }))
+  }
+  function selectProvider(value: string) {
+    const next = { ...choice, profileId: value || undefined, model: undefined }
+    const target = getConversationRoute(sessionId, next)
+    const source = { provider, model: route.model }
+    const available =
+      target.profileId === WORKBUDDY_PROFILE
+        ? workBuddyModels.map((m) => m.id)
+        : target.protocol === 'deepseek'
+          ? nativeModels
+          : target.profile?.model
+            ? [target.profile.model]
+            : []
+    const equivalent = route.missing
+      ? undefined
+      : chooseEquivalentModel(source, providerOf(target), available)
+    pendingMatch.current =
+      !equivalent && !route.missing && target.profile && target.protocol !== 'deepseek'
+        ? { ...source, destination: target.destination }
+        : undefined
+    setRetained(Boolean(equivalent))
+    setReviewedDestination(target.destination)
+    setFact(undefined)
+    setChoice({
+      ...next,
+      model: equivalent && equivalent !== target.model ? equivalent : undefined,
+    })
+  }
+  function consumeModels(rows: readonly DiscoveredModel[]) {
+    const prior = pendingMatch.current
+    if (!prior || prior.destination !== route.destination) {
+      return
+    }
+    pendingMatch.current = undefined
+    const equivalent = chooseEquivalentModel(
+      prior,
+      provider,
+      rows.map((row) => row.id)
+    )
+    if (equivalent && isModelId(equivalent)) {
+      setRetained(true)
+      setChoice((prev) => ({
+        ...prev,
+        model: equivalent === route.profile?.model ? undefined : equivalent,
+      }))
+    }
+  }
   const changedProvider = current.destination !== route.destination || current.needsApproval
   const templates = allTemplates()
   const template = templates.find((row) => row.id === choice.templateId)
   const memories = getSessionMemoryTexts(sessionId)
   usePendingEdit(Boolean(editor))
   function save() {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+    pendingMatch.current = undefined
     try {
       if (
         applyConversationMode(sessionId, {
           ...choice,
-          model:
-            route.protocol === 'deepseek' ? route.nativeModel : choice.model?.trim() || undefined,
+          model: choice.model?.trim() || undefined,
           templateId: template?.id,
         })
       ) {
+        if (profile && verified) {
+          void saveProfileDiscovery(profile, verified).catch(() =>
+            showToast(
+              en
+                ? 'Model applied. Could not save its deployment settings.'
+                : '模型已应用，部署参数未能保存。'
+            )
+          )
+        }
         close()
       }
     } catch {
@@ -240,20 +418,35 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                           },
                         ]
                       : []),
-                    ...(workBuddy && !(route.missing && choice.profileId === WORKBUDDY_PROFILE) ? [{ value: WORKBUDDY_PROFILE, label: 'WorkBuddy' }] : []),
+                    ...(workBuddy && !(route.missing && choice.profileId === WORKBUDDY_PROFILE)
+                      ? [{ value: WORKBUDDY_PROFILE, label: 'WorkBuddy' }]
+                      : []),
                     ...profiles.map((p) => ({ value: p.id, label: p.name })),
                   ]}
-                  onChange={(value) =>
-                    setChoice({ ...choice, profileId: value || undefined, model: undefined })
-                  }
+                  onChange={selectProvider}
                 />
               </div>
-              <div className="conversation-mode-row">
+              <div
+                className={
+                  route.protocol !== 'deepseek' && route.profileId !== WORKBUDDY_PROFILE
+                    ? 'conversation-mode-model'
+                    : 'conversation-mode-row'
+                }
+              >
                 <span>{en ? 'Model' : '模型'}</span>
                 {route.profileId === WORKBUDDY_PROFILE ? (
-                  <Select className="conversation-choice" ariaLabel={en ? 'Model' : '模型'} value={route.model}
-                    options={WORKBUDDY_MODELS.map(value => ({ value, label: value }))}
-                    onChange={(model) => setChoice({ ...choice, model })} />
+                  <Select
+                    className="conversation-choice"
+                    ariaLabel={en ? 'Model' : '模型'}
+                    value={route.model}
+                    disabled={workBuddyModels.length === 0}
+                    placeholder={en ? 'Choose an available model' : '选择可用模型'}
+                    options={workBuddyModels.map(({ id, name }) => ({
+                      value: id,
+                      label: name === id ? id : `${name} · ${id}`,
+                    }))}
+                    onChange={selectModel}
+                  />
                 ) : route.protocol === 'deepseek' ? (
                   <Select
                     className="conversation-choice"
@@ -263,19 +456,49 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                       { value: 'deepseek-flash', label: 'DeepSeek Flash' },
                       { value: 'deepseek-v4-pro', label: 'DeepSeek Pro' },
                     ]}
-                    onChange={(model) => setChoice({ ...choice, model })}
+                    onChange={selectModel}
                   />
                 ) : (
-                  <input
-                    aria-label={en ? 'Model' : '模型'}
-                    value={choice.model ?? ''}
-                    maxLength={256}
-                    placeholder={route.profile?.model || 'deepseek-flash'}
-                    spellCheck={false}
-                    autoCapitalize="none"
-                    onChange={(e) => setChoice({ ...choice, model: e.target.value || undefined })}
-                  />
+                  <>
+                    <ProviderModelPicker
+                      key={route.profileId}
+                      providerId={provider}
+                      value={choice.model ?? route.model}
+                      ariaLabel={en ? 'Model' : '模型'}
+                      endpoint={profile?.origin}
+                      apiKey={profile?.apiKey}
+                      discover={discover}
+                      onChange={selectModel}
+                      onAvailable={consumeModels}
+                      onDiscovered={(id, contextWindow, source, reasoning) => {
+                        if (profile) {
+                          setFact({
+                            profile,
+                            row: { id, name: id, contextWindow, source, reasoning },
+                          })
+                        }
+                      }}
+                    />
+                    {profile && !reviewed && (
+                      <button
+                        type="button"
+                        className="conversation-mode-link"
+                        onClick={() => setReviewedDestination(route.destination)}
+                      >
+                        {en ? 'Load models from this profile' : '从这个方案获取模型'}
+                      </button>
+                    )}
+                  </>
                 )}
+                    {(choice.model !== undefined || retained || pendingMatch.current?.destination === route.destination) && (
+                      <button
+                        type="button"
+                        className="conversation-mode-link"
+                        onClick={() => selectModel(undefined)}
+                      >
+                        {en ? 'Use profile default' : '使用方案默认模型'}
+                      </button>
+                    )}
               </div>
             </div>
             {choice.model && !isModelId(choice.model) && (
@@ -285,17 +508,14 @@ function ModePanel({ sessionId, close }: { sessionId: string | null; close: () =
                   : '请输入模型 ID，例如 vendor/model。'}
               </p>
             )}
-            <p className="conversation-mode-hint">
-              {route.profileId === WORKBUDDY_PROFILE ? (en ? 'Search uses your question and WorkBuddy account. Model access and charges depend on your plan.' : '开启搜索后会用本轮问题向 WorkBuddy 检索。模型权限与费用以腾讯账号套餐为准。') : route.protocol === 'openai'
-                ? en
-                  ? 'Search and thinking switches are unavailable. Attachments require a provider that supports the Files API and file references.'
-                  : '此协议无法使用联网搜索与深度思考开关。发送附件需服务商支持文件上传接口及文件引用。'
-                : !route.files
-                  ? en
-                    ? 'This model accepts text only.'
-                    : '此模型仅接收文本。'
-                  : null}
-            </p>
+            {retained && (
+              <p className="conversation-mode-hint" role="status">
+                {en
+                  ? 'Kept the matching model on this provider.'
+                  : '已在新服务方案中选中对应的模型。'}
+              </p>
+            )}
+            <CapabilityHint en={en} route={route} reasoning={verified?.reasoning} />
             <div className="conversation-mode-fields">
               <div className="conversation-mode-row">
                 <span>{en ? 'Prompt template' : '提示词模板'}</span>

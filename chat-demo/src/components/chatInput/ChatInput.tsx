@@ -1,15 +1,13 @@
 import clsx from 'clsx'
-import { memo, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   IconArrowUp24,
-  IconGlobeLanguageOutline14,
-  IconPaperclipOutline16,
-  IconPlusCircle24,
   IconSendOutline16,
-  IconStopFill16,
+  StopGlyph,
   IconThinkOutline14,
 } from '../base/icons.js'
-import { setSearch, setThinking, useSettings } from '../../services/settings.js'
+import { SearchToggle } from './SearchToggle.js'
+import { setThinking, useSettings } from '../../services/settings.js'
 import {
   useConversationModes,
   getConversationMode,
@@ -30,7 +28,9 @@ import {
   useDrafts,
 } from '../../services/chat/drafts.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
-import { IconButton } from '../base/IconButton.js'
+import { FilePickerButton } from './FilePickerButton.js'
+import { appendInlineText, INLINE_TEXT_ACCEPT, readInlineTextFiles } from '../../services/inlineTextFiles.js'
+import { originalAccept } from '../../services/api/fileCapabilities.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { ensureApiKey } from '../settings/settingsDialogState.js'
 import { DragMask, useFileDrop } from './DragMask.js'
@@ -92,6 +92,17 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   useConversationModes()
   const route = getConversationRoute(sessionId)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const picker = useRef<{ kind: 'text' | 'upload'; destination: string; model: string } | null>(null)
+  const [readingFile, setReadingFile] = useState(false)
+  const chooseFile = (kind: 'text' | 'upload') => {
+    const input = fileInputRef.current
+    if (!input || !ensureApiKey(sessionId)) {
+      return
+    }
+    picker.current = { kind, destination: route.destination, model: route.model }
+    input.accept = kind === 'text' ? INLINE_TEXT_ACCEPT : originalAccept(route.origin, ACCEPT)
+    input.click()
+  }
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
 
@@ -112,16 +123,20 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     return () => observer.disconnect()
   }, [t])
 
-  const acceptFiles = (files: File[]) => {
+  const acceptFiles = async (files: File[], kind: 'text' | 'upload' = route.fileInput === 'upload' ? 'upload' : 'text') => {
     if (
-      files.length === 0 ||
+      files.length === 0 || readingFile ||
       useChatStore.getState().importingHistory ||
       !ensureApiKey(sessionId)
     ) {
       return
     }
-    if (!route.files) {
-      showToast({ key: 'uploadFileModel' })
+    const selected = getConversationRoute(sessionId)
+    if (route.destination !== selected.destination || route.model !== selected.model || selected.needsApproval || selected.missing) {
+      return
+    }
+    if (kind === 'upload' && !selected.files) {
+      showToast({ key: 'originalFileUnsupported' })
       return
     }
     if (!getConversationMode(sessionId).profileId && route.profileId) {
@@ -140,6 +155,31 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         return
       }
     }
+    if (kind === 'text') {
+      setReadingFile(true)
+      try {
+        const result = await readInlineTextFiles(files, english)
+        const current = getConversationRoute(sessionId)
+        if (!textareaRef.current || current.destination !== route.destination || current.model !== route.model ||
+          current.needsApproval || current.missing || useChatStore.getState().importingHistory) {
+          return
+        }
+        if ('error' in result) {
+          showToast({ key: result.error })
+          return
+        }
+        const next = appendInlineText(getDraft(sessionId).text, result.text, current.contextWindow, current.context.input)
+        if ('error' in next) {
+          showToast({ key: next.error })
+          return
+        }
+        setDraftText(sessionId, next.text)
+        showToast({ key: 'inlineFileReady' })
+      } finally {
+        setReadingFile(false)
+      }
+      return
+    }
     const error = addDraftFiles(sessionId, files, requireChatAccess(sessionId))
     if (error) {
       showToast(error)
@@ -148,6 +188,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const retryFile = useCallback(
     (id: string) => {
       if (!useChatStore.getState().importingHistory && ensureApiKey(sessionId)) {
+        if (!getConversationRoute(sessionId).files) {
+          showToast({ key: 'originalFileUnsupported' })
+          return
+        }
         retryDraftAttachment(sessionId, id, requireChatAccess(sessionId))
       }
     },
@@ -189,11 +233,11 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   )
 
   // 移动端录音时用频谱替代输入框内容
-  const recording = voice.status === 'recording'
+  const recording = voice.status === 'recording' && !voice.local
   usePendingEdit(voice.status !== 'idle')
 
   // 排队、上传中或上传失败的附件都留在输入框，全部上传成功后才能发送
-  const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady
+  const canSend = !importingHistory && !streaming && voice.status === 'idle' && draftReady && !readingFile
   // 附件也可以单独发送。上传期间显示禁用的发送键，直到全部附件就绪。
   const hasDraftContent = text.trim().length > 0 || attachments.length > 0
 
@@ -201,7 +245,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     if (
       useChatStore.getState().importingHistory ||
       voice.status !== 'idle' ||
-      !prepareDraftMessage(getDraft(sessionId), useUploads.getState().tasks)
+      readingFile || !prepareDraftMessage(getDraft(sessionId), useUploads.getState().tasks)
     ) {
       return
     }
@@ -219,7 +263,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     }
     if (attachments.length) {
       if (!route.files) {
-        showToast({ key: 'uploadFileModel' })
+        showToast({ key: 'originalFileUnsupported' })
         return
       }
       const issue = validateFiles(
@@ -274,8 +318,8 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
                   ? 'Add a message (optional)'
                   : '补充说明（可选）'
                 : english
-                  ? 'Message DeepSeek'
-                  : '给 DeepSeek 发消息'
+                  ? 'Write a message'
+                  : '输入消息'
               : t('chatInputPlaceholderChat')
           }
           rows={2}
@@ -313,52 +357,39 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
         <div ref={togglesRef} className={styles.toggles}>
-          <Tooltip content={t('deactivatedThinkTooltip')}>
+          <Tooltip content={route.reasoningDisplayOnly
+            ? english ? 'Show reasoning when the provider returns it. The provider controls computation.' : '展示服务商返回的思考内容。推理计算由服务商控制。'
+            : t('deactivatedThinkTooltip')}>
             <button
               type="button"
               className={clsx(styles.toggle, route.thinking && thinking && styles.selected)}
-              aria-label={t('thinkingSwitch')}
+              aria-label={route.reasoningDisplayOnly ? (english ? 'Show reasoning' : '展示思考') : t('thinkingSwitch')}
               aria-pressed={route.thinking && thinking}
               disabled={!route.thinking}
               onClick={() => setThinking(!thinking)}
             >
               <IconThinkOutline14 />
-              <span className={styles.toggleLabel}>{t('thinkingSwitch')}</span>
+              <span className={styles.toggleLabel}>{route.reasoningDisplayOnly ? (english ? 'Show reasoning' : '展示思考') : t('thinkingSwitch')}</span>
             </button>
           </Tooltip>
-          <Tooltip content={route.workbuddy
-            ? english ? 'Search WorkBuddy with this question before answering' : '先用本轮问题在 WorkBuddy 搜索，再结合来源回答'
-            : t('deactivatedSearchTooltip')}>
-            <button
-              type="button"
-              className={clsx(styles.toggle, route.search && search && styles.selected)}
-              aria-label={t('search')}
-              aria-pressed={route.search && search}
-              disabled={!route.search}
-              onClick={() => setSearch(!search)}
-            >
-              <IconGlobeLanguageOutline14 />
-              <span className={styles.toggleLabel}>{t('search')}</span>
-            </button>
-          </Tooltip>
+          <SearchToggle key={JSON.stringify([route.destination, route.model])} route={route} sessionId={sessionId} search={search} en={english} />
         </div>
         <div className={styles.right}>
-          <IconButton
-            size="m"
-            tone="primary"
-            icon={isMobile ? <IconPlusCircle24 /> : <IconPaperclipOutline16 />}
-            tooltip={t('uploadFile')}
-            disabled={importingHistory || !route.files}
-            onClick={() => ensureApiKey(sessionId) && fileInputRef.current?.click()}
-          />
+          <FilePickerButton key={route.destination} mode={route.fileInput} mobile={isMobile} english={english}
+            disabled={importingHistory || readingFile || route.missing || route.needsApproval}
+            origin={route.origin} choose={chooseFile} />
           <input
             ref={fileInputRef}
             type="file"
             multiple
             hidden
-            accept={ACCEPT}
+            accept={route.fileInput === 'upload' ? ACCEPT : INLINE_TEXT_ACCEPT}
             onChange={(event) => {
-              acceptFiles(Array.from(event.target.files ?? []))
+              const selected = picker.current
+              picker.current = null
+              if (selected?.destination === route.destination && selected.model === route.model) {
+                void acceptFiles(Array.from(event.target.files ?? []), selected.kind)
+              }
               event.target.value = ''
             }}
           />
@@ -366,12 +397,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           {!isMobile || (!streaming && !hasDraftContent) || voice.status !== 'idle' ? (
             <VoiceButton
               status={voice.status}
-              disabled={!voice.available || !route.speech}
+              disabled={voice.status === 'idle' && !voice.available}
+              label={voice.label}
               seconds={voice.seconds}
               onClick={() => {
                 if (
                   voice.status !== 'idle' ||
-                  (!useChatStore.getState().importingHistory && ensureApiKey(sessionId))
+                  (!useChatStore.getState().importingHistory && (voice.local || ensureApiKey(sessionId)))
                 ) {
                   void voice.toggle()
                 }
@@ -388,7 +420,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
                 stopReply(sessionId)
               }}
             >
-              <IconStopFill16 />
+              <StopGlyph />
             </button>
           ) : isMobile && !hasDraftContent ? null : (
             <button
@@ -403,7 +435,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           )}
         </div>
       </div>
-      {dragging ? <DragMask /> : null}
+      {dragging ? <DragMask asText={route.fileInput !== 'upload'} /> : null}
     </div>
   )
 }

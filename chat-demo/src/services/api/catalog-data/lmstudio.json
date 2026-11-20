@@ -1,0 +1,1 @@
+{"rows":[["openai/gpt-oss-20b","GPT OSS 20B",131072,null,131072,0],["qwen/qwen3-30b-a3b-2507","Qwen3 30B A3B 2507",262144,null,16384,0],["qwen/qwen3-coder-30b","Qwen3 Coder 30B",262144,null,65536,0]],"sources":[["models.dev · lmstudio","https://models.dev/#lmstudio"]]}

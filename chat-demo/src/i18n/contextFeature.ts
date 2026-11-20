@@ -1,4 +1,7 @@
 export const contextFeatureZh = {
+  modelContextTitle: '模型上下文',
+  modelContextFallback: '该渠道尚无已核实的窗口。当前使用应用的临时预算，可在设置中调整。',
+  modelContextInvalid: '请输入大于零的安全整数。',
   contextManage: '管理上下文',
   contextSelectionCount: '当前分支 {total} 轮，已选择 {count} 轮',
   contextRecentFive: '最近 5 轮',
@@ -47,6 +50,9 @@ export const contextFeatureZh = {
 } as const
 
 export const contextFeatureEn: Record<keyof typeof contextFeatureZh, string> = {
+  modelContextTitle: 'Model context',
+  modelContextFallback: 'This channel has no verified window. The app is using a fallback budget, which you can change in Settings.',
+  modelContextInvalid: 'Enter a positive safe integer.',
   contextManage: 'Manage context',
   contextSelectionCount: '{count} of {total} rounds selected on this branch',
   contextRecentFive: 'Last 5 rounds',

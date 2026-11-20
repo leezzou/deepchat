@@ -1,4 +1,7 @@
 import { create } from 'zustand'
+import { selectedClaudeFacts, type ClaudeModelFacts } from './api/anthropicOfficial.js'
+import { allowsKeylessLocal, validWindow } from './api/modelWindows.js'
+import { profileWindowKey, withProfileWindow } from './api/contextOverrides.js'
 import { hasAccountBridge } from '../shell/account.js'
 import { androidShell, nativeProfileVault, securityState } from './security/bridge.js'
 import {
@@ -16,6 +19,7 @@ import {
   setApiConfig,
   type ApiProtocol,
 } from './api/origin.js'
+import type { DiscoveredModel } from './api/modelDiscovery.js'
 import type { TtsVoice } from './api/speech.js'
 import { normalizeLocation, type UserLocation } from './location.js'
 
@@ -37,10 +41,16 @@ export type ApiProfile = {
   protocol: ApiProtocol
   /** 接口地址，留空时用构建期默认值 */
   origin: string
+  providerId?: string
   /** 仅 openai 协议使用 */
   model: string
-  /** 上下文窗口（token）；不填按协议默认（DeepSeek 1M / 其他 128k） */
+  /** Older profile-wide custom value; per-model preferences take precedence. */
   contextWindow?: number
+  contextWindows?: Record<string, number | null>
+  discoveredReasoning?: Record<string, import('./api/providerParity.js').ReasoningSupport>
+  discoveredWindows?: Record<string, number>
+  claudeModelFacts?: ClaudeModelFacts
+  discoveredWindowKinds?: Record<string, 'input' | 'endpoint' | 'instance' | 'model'>
   apiKey: string
 }
 
@@ -50,6 +60,7 @@ type Settings = {
   apiKey: string | null
   /** Native host reports sign-in status; profile fields are memory-only. */
   accountSignedIn: boolean
+  accountRevision: string | null
   accountName: string
   accountAvatar: string | null
   chatSource: ChatSource
@@ -191,6 +202,7 @@ const initialSource: ChatSource =
 
 export const useSettings = create<Settings>(() => ({
   accountSignedIn: false,
+  accountRevision: null,
   accountName: '',
   accountAvatar: null,
   chatSource: initialSource,
@@ -318,11 +330,12 @@ export const saveApiProfile = (profile: ApiProfile) =>
       name: profile.name.trim() || 'DeepSeek',
       origin: normalizeOrigin(profile.origin),
       model: profile.model.trim(),
+      claudeModelFacts: selectedClaudeFacts(profile.origin, profile.model.trim(), profile.claudeModelFacts),
       contextWindow:
-        profile.contextWindow && profile.contextWindow > 0 ? profile.contextWindow : undefined,
+        validWindow(profile.contextWindow) ? profile.contextWindow : undefined,
       apiKey: profile.apiKey.trim(),
     }
-    if (!normalized.apiKey) {
+    if (!normalized.apiKey && !allowsKeylessLocal(normalized.origin, normalized.protocol)) {
       throw new Error('请输入 API Key。')
     }
     const exists = apiProfiles.some((item) => item.id === normalized.id)
@@ -336,6 +349,37 @@ export const saveApiProfile = (profile: ApiProfile) =>
       setChatSource('api')
     }
   })
+
+/** Context edits preserve the active profile, channel and credential. */
+export const saveProfileWindow = (id: string, key: string, value?: number) => serial(async () => {
+  const { apiProfiles, activeProfileId } = useSettings.getState()
+  if (!apiProfiles.some(p => p.id === id)) {throw new Error('profile-missing')}
+  await commitProfiles(apiProfiles.map(p => p.id === id ? withProfileWindow(p, key, value) : p), activeProfileId)
+})
+
+/** A conversation selection can update deployment facts without selecting or editing the profile. */
+export const saveProfileDiscovery = (expected: ApiProfile, model: DiscoveredModel) => serial(async () => {
+  const { apiProfiles, activeProfileId } = useSettings.getState()
+  const profile = apiProfiles.find(p => p.id === expected.id)
+  if (!profile || profile.origin !== expected.origin || profile.apiKey !== expected.apiKey ||
+    profile.providerId !== expected.providerId || profile.protocol !== expected.protocol) { return }
+  const key = profileWindowKey(profile.origin, model.id, profile.protocol)
+  const context = validWindow(model.contextWindow) ? model.contextWindow : undefined
+  const kind = context ? model.source : undefined
+  const facts = selectedClaudeFacts(profile.origin, model.id, profile.claudeModelFacts)
+  if (JSON.stringify(facts?.[model.id]) === JSON.stringify(profile.claudeModelFacts?.[model.id]) && profile.discoveredWindows?.[key] === context && profile.discoveredWindowKinds?.[key] === kind &&
+      profile.discoveredReasoning?.[key] === model.reasoning) { return }
+  const replace = <T,>(map: Record<string, T> | undefined, value: T | undefined) => value === undefined
+    ? Object.fromEntries(Object.entries(map ?? {}).filter(([id]) => id !== key))
+    : { ...map, [key]: value }
+  const next: ApiProfile = { ...profile,
+    claudeModelFacts: facts,
+    discoveredWindows: replace(profile.discoveredWindows, context),
+    discoveredWindowKinds: replace(profile.discoveredWindowKinds, kind),
+    discoveredReasoning: replace(profile.discoveredReasoning, model.reasoning),
+  }
+  await commitProfiles(apiProfiles.map(item => item.id === profile.id ? next : item), activeProfileId)
+})
 
 export const removeApiProfile = (id: string) =>
   serial(async () => {

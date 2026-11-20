@@ -1,8 +1,22 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
+import { CLAUDE_BASE, claudeHeaders, claudeRequest, isAnthropicOrigin } from './anthropicOfficial.js'
+import { ClaudeStream } from './claudeStream.js'
 import { getApiOrigin } from './origin.js'
+import { endpointFileInput, originalFileIssue } from './fileCapabilities.js'
 import { accessOrigin, type ChatAccess } from './access.js'
 import { accountFetch } from '../../shell/account.js'
+import { profileChatFetch } from '../../shell/profileChat.js'
 import { readMessageEvent } from './parseEvent.js'
+import { isDeepSeekApiOrigin, reasoningFields, reasoningWire } from './providerParity.js'
+import { completionStop, completionUsage, mergeCompletionUsage, reasoningText } from './compatibleChunk.js'
+import { ThinkingEvents } from './thinkingEvents.js'
+import { beginUsage, type UsagePurpose, type UsageStatus } from '../usage/ledger.js'
+import { chatSearchFields } from './searchCapabilities.js'
+import { readChatCitations } from './searchCitations.js'
+import { DeepSeekChatTools, signedChatReads } from './deepseekChatTools.js'
+import { isPortableGrant } from './searchConsent.js'
+import { isOpenAiOrigin, supportsOpenAiSearch, usesOpenAiResponses } from './openAiModels.js'
+import { openAiResponseEvents, responsesPayload } from './openAiResponses.js'
 import { readServerSentEvents } from './sse.js'
 import { streamWorkBuddy } from '../workbuddy/chat.js'
 import type {
@@ -14,7 +28,8 @@ import type {
 } from './types.js'
 
 /** Anthropic 兼容接口的前缀（跟随当前配置的接口地址） */
-const anthropicBaseUrl = (access: ChatAccess) => `${accessOrigin(access)}/anthropic/v1`
+const officialClaude = (access: ChatAccess) => access.source === 'api' && access.config.protocol !== 'deepseek' && isAnthropicOrigin(access.config.origin)
+const anthropicBaseUrl = (access: ChatAccess) => officialClaude(access) ? CLAUDE_BASE : `${accessOrigin(access)}/anthropic/v1`
 /** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
 const FILES_BETA = 'files-api-2025-04-14'
 
@@ -120,7 +135,9 @@ export const request = async (url: string, init: RequestInit, access?: ChatAcces
   if (access?.source === 'workbuddy') throw new ApiError('protocol', 'WorkBuddy · 此功能仅支持文字聊天')
   let response: Response
   try {
-    response = access?.source === 'account' ? await accountFetch(url, init) : await fetch(url, init)
+    response = access?.source === 'account'
+      ? await accountFetch(url, init)
+      : await (profileChatFetch(access, url, init) ?? fetch(url, { ...init, credentials: 'omit', redirect: 'error' }))
   } catch (error) {
     if (init.signal?.aborted) {
       throw error
@@ -166,7 +183,7 @@ const requestWithTimeout = async (
   }
 }
 
-const anthropicHeaders = (access: ChatAccess, beta: boolean): Record<string, string> => ({
+const anthropicHeaders = (access: ChatAccess, beta: boolean): Record<string, string> => officialClaude(access) && access.source === 'api' ? claudeHeaders(access.key) : ({
   // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
   ...(access.source === 'api' ? { 'x-api-key': access.key } : {}),
   // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
@@ -179,33 +196,16 @@ export const verifyApiKey = async (
   origin?: string,
   signal?: AbortSignal
 ): Promise<void> => {
+  const endpoint = origin?.trim().replace(/\/+$/, '') || getApiOrigin()
+  const claude = isAnthropicOrigin(endpoint)
   await requestWithTimeout(
-    `${origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()}/models`,
+    `${claude ? CLAUDE_BASE : endpoint}/models`,
     {
       method: 'GET',
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: claude ? claudeHeaders(apiKey) : { Authorization: `Bearer ${apiKey}` },
       signal,
     }
   )
-}
-
-/** GET /models：拉服务商支持的模型 id 列表（兼容 OpenAI 的 {data:[{id}]} 与 DeepSeek 的返回） */
-export const fetchModelIds = async (
-  apiKey: string,
-  origin?: string,
-  signal?: AbortSignal
-): Promise<string[]> => {
-  const base = origin?.trim() ? origin.trim().replace(/\/+$/, '') : getApiOrigin()
-  const response = await requestWithTimeout(`${base}/models`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}`, 'x-opencode-session': OPENCODE_SESSION },
-    signal,
-  })
-  const body = (await response.json()) as { data?: { id?: unknown }[] }
-  const ids = (body.data ?? [])
-    .map((item) => (typeof item?.id === 'string' ? item.id : ''))
-    .filter(Boolean)
-  return [...new Set(ids)].sort()
 }
 
 const isOpenAi = (access: ChatAccess): access is Extract<ChatAccess, { source: 'api' }> =>
@@ -226,9 +226,13 @@ function checkFileModel(access: ChatAccess, model: string) {
   if (model === 'deepseek-v4-pro' && officialFiles(accessOrigin(access))) {
     throw new ApiError('protocol', { key: 'uploadFileModel' })
   }
+  if (access.source === 'workbuddy' || (access.source === 'api' &&
+      endpointFileInput(access.config.origin, model, access.config.providerId, access.config.protocol) === 'text')) {
+    throw new ApiError('protocol', { key: 'originalFileUnsupported' })
+  }
 }
 
-const filesEndpoint = (access: ChatAccess) => isOpenAi(access)
+const filesEndpoint = (access: ChatAccess) => isOpenAi(access) && !officialClaude(access)
   ? { url: `${access.config.origin}/files`, headers: { Authorization: `Bearer ${access.key}` } as Record<string, string> }
   : { url: `${anthropicBaseUrl(access)}/files`, headers: anthropicHeaders(access, true) }
 
@@ -243,14 +247,26 @@ export const uploadFile = async (
   const official = officialFiles(accessOrigin(access))
   // An official PDF/Office upload can already incur a parsing charge.
   checkFileModel(access, access.source === 'api' ? access.config.model : access.model ?? 'deepseek-flash')
+  const issue = originalFileIssue(accessOrigin(access), file)
+  if (issue) {
+    throw new ApiError('protocol', { key: issue })
+  }
   const form = new FormData()
   const selectedPurpose = openAi ? (official ? purpose ?? 'user_data' : 'user_data') : purpose
-  if (selectedPurpose) {
+  if (selectedPurpose && !officialClaude(access)) {
     form.append('purpose', selectedPurpose)
   }
   form.append('file', file)
   const { url, headers } = filesEndpoint(access)
-  const response = await request(url, { method: 'POST', headers, body: form, signal }, access)
+  let response: Response
+  try {
+    response = await request(url, { method: 'POST', headers, body: form, signal }, access)
+  } catch (error) {
+    if (!official && error instanceof ApiError && [404, 405, 501].includes(error.status ?? 0)) {
+      throw new ApiError('http', { key: 'uploadApiUnavailable' }, error.status)
+    }
+    throw error
+  }
   const uploaded: unknown = await response.json().catch(() => null)
   // Document parsing is synchronous. Both protocols return a ready ID. Neither
   // exposes a parse status, extracted byte count or page count in a file object.
@@ -273,7 +289,7 @@ const hasFile = (body: CreateMessageRequest) =>
       message.content.some((block) => block.type === 'image' || block.type === 'document')
   )
 
-/** OpenCode 的 Go/Zen 需要稳定的会话 ID（x-opencode-session），其他兼容服务商会忽略这个头 */
+/** OpenCode Go/Zen session header, scoped to their exact official endpoints. */
 const OPENCODE_SESSION = (() => {
   try {
     return crypto.randomUUID()
@@ -285,10 +301,12 @@ const OPENCODE_SESSION = (() => {
 type ChatPart = { type: 'text'; text: string } | { type: 'file'; file_id: string } |
   { type: 'file'; file: { file_id: string } }
 
-const toOpenAiMessages = (body: CreateMessageRequest, deepseek: boolean) => {
-  const messages: { role: 'system' | 'user' | 'assistant'; content: string | ChatPart[] }[] = []
+const toOpenAiMessages = (body: CreateMessageRequest, origin: string, model: string) => {
+  const deepseek = officialFiles(origin)
+  const messages: { role: 'developer' | 'system' | 'user' | 'assistant'; content: string | ChatPart[] }[] = []
   if (body.system) {
-    messages.push({ role: 'system', content: body.system })
+    const developer = isOpenAiOrigin(origin) && /^(?:gpt-[56](?:[.-]|$)|o[134](?:-|$))/u.test(model)
+    messages.push({ role: developer ? 'developer' : 'system', content: body.system })
   }
   for (const message of body.messages) {
     if (message.role === 'latest_reminder') {
@@ -310,8 +328,10 @@ const toOpenAiMessages = (body: CreateMessageRequest, deepseek: boolean) => {
             .map((block) => (block.type === 'text' ? block.text : ''))
             .filter(Boolean)
             .join('\n')
-    if (text.trim()) {
-      messages.push({ role: message.role, content: text })
+    const reads = isDeepSeekApiOrigin(origin) && message.role === 'assistant' && Array.isArray(message.content)
+      ? signedChatReads(message.content) : {}
+    if (text.trim() || 'server_tool_calls' in reads) {
+      messages.push({ role: message.role, content: text, ...reads })
     }
   }
   return messages
@@ -329,22 +349,40 @@ async function* streamOpenAiChat(
   onDispatch?: () => void
 ): AsyncGenerator<MessageStreamEvent> {
   const { origin, model } = access.config
+  const wire = reasoningWire(access.config)
+  const enabled = body.thinking && body.thinking.type === 'enabled'
+  signal.throwIfAborted()
   onDispatch?.()
+  const official = isOpenAiOrigin(origin)
+  const search = official && supportsOpenAiSearch(model) && !!access.searchGrant?.startsWith('openai:') && body.tools?.some(tool => tool.type === 'deepseek_web_search')
+  if (official && (usesOpenAiResponses(model) || search)) {
+    const payload = responsesPayload(model, body, search)
+    const response = await request(`${origin}/responses`, {
+      method: 'POST', headers: { Authorization: `Bearer ${access.key}`, 'Content-Type': 'application/json', Accept: payload.stream ? 'text/event-stream' : 'application/json' },
+      body: JSON.stringify(payload), signal,
+    }, access)
+    yield* openAiResponseEvents(response, model, signal, !!enabled, ApiError)
+    return
+  }
   const response = await request(`${origin}/chat/completions`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${access.key}`,
+      ...(access.key && { Authorization: `Bearer ${access.key}` }),
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
-      'x-opencode-session': OPENCODE_SESSION,
+      ...(['https://opencode.ai/inference/openai/v1', 'https://opencode.ai/inference/go/openai/v1', 'https://opencode.ai/zen/v1'].includes(origin) && { 'x-opencode-session': OPENCODE_SESSION }),
     },
     body: JSON.stringify({
       model,
-      messages: toOpenAiMessages(body, officialFiles(origin)),
+      messages: toOpenAiMessages(body, origin, model),
+      ...reasoningFields(wire, enabled),
+      ...chatSearchFields(origin, model, body.tools, access.searchGrant),
+      stream_options: { include_usage: true },
+      ...(body.max_tokens !== undefined && { [official ? 'max_completion_tokens' : 'max_tokens']: body.max_tokens }),
       stream: true,
     }),
     signal,
-  })
+  }, access)
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) {
     throw await readErrorResponse(response, 'protocol', '')
@@ -354,48 +392,83 @@ async function* streamOpenAiChat(
     type: 'message_start',
     message: { id: `openai-${Date.now().toString(36)}`, model },
   }
-  let started = false
-  let stopReason: StopReason = 'end_turn'
-  for await (const { data } of readServerSentEvents(response.body, signal)) {
-    if (data === '[DONE]') {
+  let kind: 'thinking' | 'text' | undefined
+  let index = -1
+  const seenSources = new Set<string>()
+  const citations: ReturnType<typeof readChatCitations> = []
+  const tools = isDeepSeekApiOrigin(origin) && body.tools?.length ? new DeepSeekChatTools() : undefined
+  let done = false
+  let refused = false
+  let stopReason: StopReason | undefined
+  let usage: ReturnType<typeof completionUsage>
+  const append = function* (next: 'thinking' | 'text', text: string): Generator<MessageStreamEvent> {
+    if (!text || (next === 'thinking' && kind !== next && !text.trim())) return
+    if (kind !== next) {
+      if (kind) yield { type: 'content_block_stop', index }
+      kind = next
+      index++
+      yield { type: 'content_block_start', index, content_block: kind === 'text'
+        ? { type: 'text', text: '' } : { type: 'thinking', thinking: '', signature: '' } }
+    }
+    yield { type: 'content_block_delta', index, delta: next === 'text'
+      ? { type: 'text_delta', text } : { type: 'thinking_delta', thinking: text } }
+  }
+  for await (const { event, data } of readServerSentEvents(response.body, signal)) {
+    signal.throwIfAborted()
+    if (data.trim() === '[DONE]') {
+      done = true
       break
     }
-    let payload: unknown
-    try {
-      payload = JSON.parse(data)
-    } catch {
-      continue
-    }
-    if (isErrorBody(payload)) {
-      throw new ApiError('stream', payload.error.message)
-    }
-    const chunk = payload as {
-      choices?: { delta?: { content?: string }; finish_reason?: string | null }[]
+    let chunk
+    try { chunk = JSON.parse(data) } catch { throw new ApiError(event === 'error' ? 'stream' : 'protocol', event === 'error' ? data : '') }
+    if (isErrorBody(chunk)) throw new ApiError('stream', chunk.error.message)
+    if (event === 'error' || chunk?.error) throw new ApiError('stream', typeof chunk?.error === 'string' ? chunk.error : '')
+    if (!chunk || typeof chunk !== 'object') throw new ApiError('protocol', '')
+    const counters = completionUsage(chunk.usage)
+    if (counters) {
+      usage = mergeCompletionUsage(usage, counters)
+      yield { type: 'message_usage', usage }
     }
     const choice = chunk.choices?.[0]
-    if (!choice) {
-      continue
+    if (!choice) continue
+    if (enabled && !official) yield* append('thinking', reasoningText(choice.delta))
+    const { content, refusal } = choice.delta ?? {}
+    if (typeof content === 'string') yield* append('text', content)
+    if (Array.isArray(content)) {
+      for (const part of content) if (part?.type === 'text' && typeof part.text === 'string') yield* append('text', part.text)
     }
-    const piece = choice.delta?.content
-    if (piece) {
-      if (!started) {
-        started = true
-        yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
+    if (typeof refusal === 'string' && refusal) {
+      refused = true
+      if (!content) yield* append('text', refusal)
+    }
+    citations.push(...readChatCitations(chunk, seenSources))
+    if (kind === 'text') {
+      for (const citation of citations.splice(0)) {
+        yield { type: 'content_block_delta', index, delta: { type: 'citations_delta', citation } }
       }
-      yield { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: piece } }
     }
-    if (choice.finish_reason === 'length') {
-      stopReason = 'max_tokens'
+    if (tools) {
+      for (const content_block of tools.read(chunk)) {
+        if (kind) yield { type: 'content_block_stop', index }
+        kind = undefined
+        index++
+        yield { type: 'content_block_start', index, content_block }
+        yield { type: 'content_block_stop', index }
+      }
     }
+    const reason = completionStop(choice.finish_reason)
+    if (reason === 'interrupted') throw new ApiError('interrupted', '')
+    stopReason = reason ?? stopReason
   }
-  if (started) {
-    yield { type: 'content_block_stop', index: 0 }
-  } else {
-    // 没有任何正文也算正常结束（比如只回了思考内容），给上层一个空文本块
-    yield { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }
-    yield { type: 'content_block_stop', index: 0 }
+  signal.throwIfAborted()
+  if (!done && !stopReason) throw new ApiError('interrupted', '')
+  if (kind) { yield { type: 'content_block_stop', index } }
+  if (citations.length) {
+    index++
+    yield { type: 'content_block_start', index, content_block: { type: 'text', text: '', citations } }
+    yield { type: 'content_block_stop', index }
   }
-  yield { type: 'message_delta', delta: { stop_reason: stopReason, stop_sequence: null } }
+  yield { type: 'message_delta', delta: { stop_reason: refused ? 'refusal' : stopReason ?? 'end_turn', stop_sequence: null }, ...(usage && { usage }) }
   yield { type: 'message_stop' }
 }
 
@@ -408,17 +481,55 @@ export async function* streamMessage(
   access: ChatAccess,
   body: CreateMessageRequest,
   signal: AbortSignal,
+  onDispatch?: () => void,
+  purpose: UsagePurpose = 'chat'
+): AsyncGenerator<MessageStreamEvent> {
+  let receipt: ReturnType<typeof beginUsage> | undefined
+  let status: UsageStatus = 'interrupted'
+  const dispatched = () => {
+    const model = access.source === 'api' ? access.config.model : access.model || body.model
+    receipt ??= beginUsage(access, model, purpose)
+    onDispatch?.()
+  }
+  try {
+    for await (const event of dispatchMessage(access, body, signal, dispatched)) {
+      if (event.type === 'message_start') receipt?.sample(event.message.usage)
+      else if ('usage' in event) receipt?.sample(event.usage)
+      if (event.type === 'message_stop') status = 'done'
+      yield event
+    }
+  } catch (error) {
+    status = error instanceof ApiError && error.kind === 'interrupted' ? 'interrupted' : 'failed'
+    throw error
+  } finally {
+    receipt?.close(signal.aborted ? 'stopped' : status)
+  }
+}
+
+async function* dispatchMessage(
+  access: ChatAccess,
+  body: CreateMessageRequest,
+  signal: AbortSignal,
   onDispatch?: () => void
 ): AsyncGenerator<MessageStreamEvent> {
   if (access.source === 'workbuddy') {
     yield* streamWorkBuddy(access, body, signal, onDispatch)
     return
   }
+  signal.throwIfAborted()
+  const claude = officialClaude(access) && access.source === 'api' ? access : undefined
+  if (access.source === 'api' && access.config.protocol === 'anthropic' && !claude) throw new ApiError('protocol', 'Select the official Claude API endpoint.')
   const referencesFiles = hasFile(body)
   if (referencesFiles) {
-    checkFileModel(access, isOpenAi(access) ? access.config.model : body.model)
+    // Validate the same model the selected wire actually sends. Native Messages uses body.model.
+    checkFileModel(access, claude ? claude.config.model : isOpenAi(access) ? access.config.model : body.model)
   }
-  if (isOpenAi(access)) {
+  if (isPortableGrant(access.searchGrant) && body.tools?.some(tool => tool.type === 'deepseek_web_search')) {
+    const { streamPortableSearch } = await import('./portableSearch.js')
+    yield* streamPortableSearch(access, body, signal, onDispatch, dispatchMessage)
+    return
+  }
+  if (!claude && isOpenAi(access)) {
     yield* streamOpenAiChat(access, body, signal, onDispatch)
     return
   }
@@ -430,14 +541,17 @@ export async function* streamMessage(
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ ...body, stream: true }),
+    body: JSON.stringify(claude ? claudeRequest(body, claude.config.model, claude.searchGrant, claude.config.reasoningSupport) : { ...body, stream: true }),
     signal,
   }, access)
   const contentType = response.headers.get('Content-Type') ?? ''
   if (!response.body || !contentType.includes('text/event-stream')) {
     throw await readErrorResponse(response, 'protocol', '')
   }
+  const thinkingEvents = new ThinkingEvents(body.thinking?.type === 'enabled')
+  const claudeEvents = claude && new ClaudeStream()
   for await (const { event: eventName, data } of readServerSentEvents(response.body, signal)) {
+    signal.throwIfAborted()
     let payload: unknown
     try {
       payload = JSON.parse(data)
@@ -452,15 +566,18 @@ export async function* streamMessage(
     if (eventName === 'error') {
       throw new ApiError('stream', data)
     }
-    const event = readMessageEvent(payload)
-    if (!event) {
-      continue
-    }
-    yield event
-    if (event.type === 'message_stop') {
-      return
+    try {
+      const events = claudeEvents ? claudeEvents.read(payload) : [readMessageEvent(payload)]
+      for (const event of events) {
+        if (!event) continue
+        yield* thinkingEvents.read(event)
+        if (event.type === 'message_stop') return
+      }
+    } catch (error) {
+      throw new ApiError('protocol', error instanceof Error ? error.message : String(error))
     }
   }
+  signal.throwIfAborted()
   // 服务端没有提供错误内容时保持为空，不推测断流原因。
   throw new ApiError('interrupted', '')
 }

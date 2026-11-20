@@ -4,6 +4,7 @@ type Frame = {
   signedIn?: boolean
   name?: string
   avatar?: string
+  revision?: string
   status?: number
   contentType?: string
   base64?: string
@@ -11,7 +12,7 @@ type Frame = {
   offset?: number
   length?: number
 }
-export type AccountProfile = { signedIn: boolean; name: string; avatar: string | null }
+export type AccountProfile = { signedIn: boolean; name: string; avatar: string | null; revision?: string }
 type Port = {
   postMessage: (value: string) => void
   onmessage: ((value: MessageEvent<string>) => void) | null
@@ -46,6 +47,7 @@ export function initializeAccount(onStatus: (profile: AccountProfile) => void) {
       if (typeof frame.signedIn === 'boolean') {
         onStatus({
           signedIn: frame.signedIn,
+          ...(typeof frame.revision === 'string' && /^[0-9a-f-]{36}$/.test(frame.revision) && {revision: frame.revision}),
           name: typeof frame.name === 'string' ? frame.name : '',
           avatar: typeof frame.avatar === 'string' && frame.avatar ? frame.avatar : null,
         })

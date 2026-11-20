@@ -13,9 +13,9 @@ test('final cumulative output preserves input and cache counts from the same req
   const start = { input_tokens: 24, cache_read_input_tokens: 16, cache_creation_input_tokens: 8, output_tokens: 1 }
   assert.deepEqual(request(start, { output_tokens: 29 }), { ...start, output_tokens: 29 })
   assert.deepEqual(request({ input_tokens: 11, output_tokens: 0 }, { output_tokens: 5 }), {
-    input_tokens: 11, cache_read_input_tokens: 0, cache_creation_input_tokens: 0, output_tokens: 5,
+    input_tokens: 11, output_tokens: 5,
   })
   assert.deepEqual(request(undefined, start), start)
-  assert.equal(request(undefined, { output_tokens: 5 }, start), undefined)
+  assert.deepEqual(request(undefined, { output_tokens: 5 }, start), { output_tokens: 5 })
   assert.deepEqual(request(start, { output_tokens: -1 }), start)
 })

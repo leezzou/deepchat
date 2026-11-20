@@ -1,3 +1,10 @@
+import { isAnthropicOrigin } from '../../services/api/anthropicOfficial.js'
+import { ContextModelSettings } from './ContextModelSettings.js'
+import { allowsKeylessLocal, endpointProvider, nativeModels, parseWindow } from '../../services/api/modelWindows.js'
+import { ProviderModelPicker } from './ProviderModelPicker.js'
+import { modelEndpoint } from '../../services/api/modelDiscovery.js'
+import { profileWindowKey, resolveWindow, withProfileWindow } from '../../services/api/contextOverrides.js'
+import { providerPresets, providerLabelsEn } from '../../services/api/providerPresets.js'
 import clsx from 'clsx'
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -39,8 +46,6 @@ import {
   type ApiProfile,
   type ThemePreference,
 } from '../../services/settings.js'
-import { ApiError, fetchModelIds, verifyApiKey } from '../../services/api/client.js'
-import { classifyApiError } from '../../services/api/errors.js'
 import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SettingsUpdate } from './SettingsUpdate.js'
@@ -57,7 +62,7 @@ import { IconButton } from '../base/IconButton.js'
 import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
-import { syncLockAppearance } from '../../services/security/bridge.js'
+import { androidShell, syncLockAppearance } from '../../services/security/bridge.js'
 import { SecuritySettings } from './SecuritySettings.js'
 import { SettingsIcon, type SettingsIconName } from './SettingsIcon.js'
 import { WebDavSettings } from './WebDavSettings.js'
@@ -70,7 +75,7 @@ import { forgetCompaction, listCompactions, type CompactionRecord } from '../../
 import { clearCompaction, selectSession } from '../../services/chat/store.js'
 import { DataSettings, type MobileDataProps } from './DataSettings.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
-import { closeSettings, coverSettings, finishSettingsExit, openSettings, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
+import { closeSettings, coverSettings, finishSettingsExit, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
 import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
 import { hasWorkBuddyBridge, useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { WorkBuddyAccountPage } from './WorkBuddyAccountPage.js'
@@ -109,6 +114,7 @@ const sections: { value: SettingsSection; label: TranslationKey; icon: SettingsI
   { value: 'general', label: 'settingDialogAsideGeneralOptionLabel', icon: 'general' },
   { value: 'data', label: 'settingDialogAsideDataOptionLabel', icon: 'data' },
   { value: 'memory', label: 'libMemory', icon: 'memory' },
+  { value: 'contextModels', label: 'modelContextTitle', icon: 'source' },
   { value: 'security', label: 'previewSecurity', icon: 'lock' },
   { value: 'webdav', label: 'previewWebDav', icon: 'cloud' },
 ]
@@ -145,6 +151,7 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
               key={item.value}
               type="button"
               role="tab"
+              data-context-settings-entry={item.value === 'contextModels' || undefined}
               aria-selected={section === item.value}
               className={clsx(styles.navItem, section === item.value && styles.navItemActive)}
               onClick={() => setSection(item.value)}
@@ -155,7 +162,7 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
           ))}
         </div>
         <div role="tabpanel" className={styles.content}>
-          {section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
+          {section === 'contextModels' ? <ContextModelSettings /> : section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
               <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
               <ThemeSetting />
@@ -221,10 +228,11 @@ type MobilePage =
   | 'profile'
   | 'location'
   | 'workbuddyAccount'
+  | 'contextModels'
 
 /** 二级页标题（根页统一用「设置」） */
 const mobilePageTitles: Record<MobilePage, TranslationKey> = {
-  root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
+  contextModels: 'modelContextTitle', root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
   profile: 'settingsProfile', location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
@@ -381,6 +389,7 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
                 rememberChat({ ...captureChatOrigin(), resume: coverSettings(visit.id) })
                 selectSession(sessionId)
               }} />}
+              {page === 'contextModels' && <ContextModelSettings />}
               {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
               {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
@@ -431,6 +440,7 @@ const MobileRow = ({
   external?: boolean
   'data-api-usage-entry'?: boolean
   'data-wb-account-entry'?: boolean
+  'data-context-settings-entry'?: boolean
 }) => (
   <button {...attributes} type="button" className={styles.row} disabled={disabled} onClick={onClick}>
     <span className={styles.rowIcon} aria-hidden="true">{icon}</span>
@@ -550,6 +560,8 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
     <>
       <MobileGroup title={t('settingsAccountGroup')}>
         <AccountSettings mobile onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
+        <MobileRow data-usage-home-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
+        <MobileRow data-context-settings-entry icon={<SettingsIcon name="source" />} label={t('modelContextTitle')} onClick={() => onOpenPage('contextModels')} />
         <MobileRow
           icon={<SettingsIcon name="key" />}
           label={t('settingsKeysTitle')}
@@ -722,93 +734,14 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   )
 }
 
-/**
- * 自带的服务商预设：选中后地址、协议、模型一起填好，用户只需要填 Key。
- * OpenAI 兼容地址都实测过 /chat/completions 有响应（401/403/400 = 通了），model 可随时改。
- * 「自定义」用于中转、自建网关，或没列进来的兼容服务。
- */
-const providerPresets: {
-  value: string
-  label: string
-  name: string
-  protocol: 'deepseek' | 'openai'
-  origin: string
-  model: string
-}[] = [
-  {
-    value: 'deepseek',
-    label: 'DeepSeek 官方',
-    name: 'DeepSeek',
-    protocol: 'deepseek',
-    origin: 'https://api.deepseek.com',
-    model: '',
-  },
-  { value: 'glm', label: '智谱 GLM', name: 'GLM', protocol: 'openai', origin: 'https://open.bigmodel.cn/api/paas/v4', model: 'glm-4.6' },
-  { value: 'zai', label: '智谱 GLM（国际）', name: 'Z.ai', protocol: 'openai', origin: 'https://api.z.ai/api/paas/v4', model: 'glm-4.6' },
-  { value: 'qwen', label: '阿里云百炼（通义千问）', name: '通义千问', protocol: 'openai', origin: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen3-max' },
-  { value: 'qwen-intl', label: '阿里云百炼（国际）', name: 'Qwen', protocol: 'openai', origin: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1', model: 'qwen3-max' },
-  { value: 'kimi', label: '月之暗面 Kimi', name: 'Kimi', protocol: 'openai', origin: 'https://api.moonshot.cn/v1', model: 'kimi-k2-0905-preview' },
-  { value: 'kimi-intl', label: '月之暗面 Kimi（国际）', name: 'Kimi', protocol: 'openai', origin: 'https://api.moonshot.ai/v1', model: 'kimi-k2-0905-preview' },
-  { value: 'siliconflow', label: '硅基流动 SiliconFlow', name: 'SiliconFlow', protocol: 'openai', origin: 'https://api.siliconflow.cn/v1', model: 'deepseek-ai/DeepSeek-V3' },
-  { value: 'volcengine', label: '火山方舟（豆包）', name: '豆包', protocol: 'openai', origin: 'https://ark.cn-beijing.volces.com/api/v3', model: 'doubao-seed-1-6' },
-  { value: 'qianfan', label: '百度千帆（文心）', name: '文心一言', protocol: 'openai', origin: 'https://qianfan.baidubce.com/v2', model: 'ernie-4.5-turbo-128k' },
-  { value: 'hunyuan', label: '腾讯混元', name: '混元', protocol: 'openai', origin: 'https://api.hunyuan.cloud.tencent.com/v1', model: 'hunyuan-turbos-latest' },
-  { value: 'minimax', label: 'MiniMax', name: 'MiniMax', protocol: 'openai', origin: 'https://api.minimaxi.com/v1', model: 'MiniMax-M2' },
-  { value: 'minimax-intl', label: 'MiniMax（国际）', name: 'MiniMax', protocol: 'openai', origin: 'https://api.minimax.io/v1', model: 'MiniMax-M2' },
-  { value: 'stepfun', label: '阶跃星辰 StepFun', name: 'StepFun', protocol: 'openai', origin: 'https://api.stepfun.com/v1', model: 'step-2-16k' },
-  { value: 'spark', label: '讯飞星火', name: '星火', protocol: 'openai', origin: 'https://spark-api-open.xf-yun.com/v1', model: '4.0Ultra' },
-  { value: 'sensenova', label: '商汤日日新', name: '日日新', protocol: 'openai', origin: 'https://api.sensenova.cn/compatible-mode/v1', model: 'SenseChat-5-1202' },
-  { value: 'baichuan', label: '百川智能', name: '百川', protocol: 'openai', origin: 'https://api.baichuan-ai.com/v1', model: 'Baichuan4' },
-  { value: 'openai', label: 'OpenAI', name: 'OpenAI', protocol: 'openai', origin: 'https://api.openai.com/v1', model: 'gpt-4.1' },
-  { value: 'anthropic', label: 'Anthropic Claude', name: 'Claude', protocol: 'openai', origin: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-5' },
-  { value: 'gemini', label: 'Google Gemini', name: 'Gemini', protocol: 'openai', origin: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.5-pro' },
-  { value: 'xai', label: 'xAI Grok', name: 'Grok', protocol: 'openai', origin: 'https://api.x.ai/v1', model: 'grok-4' },
-  { value: 'mistral', label: 'Mistral', name: 'Mistral', protocol: 'openai', origin: 'https://api.mistral.ai/v1', model: 'mistral-large-latest' },
-  { value: 'groq', label: 'Groq', name: 'Groq', protocol: 'openai', origin: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile' },
-  { value: 'together', label: 'Together AI', name: 'Together', protocol: 'openai', origin: 'https://api.together.xyz/v1', model: 'meta-llama/Llama-3.3-70B-Instruct-Turbo' },
-  { value: 'fireworks', label: 'Fireworks AI', name: 'Fireworks', protocol: 'openai', origin: 'https://api.fireworks.ai/inference/v1', model: 'accounts/fireworks/models/llama-v3p3-70b-instruct' },
-  { value: 'deepinfra', label: 'DeepInfra', name: 'DeepInfra', protocol: 'openai', origin: 'https://api.deepinfra.com/v1/openai', model: 'deepseek-ai/DeepSeek-V3' },
-  { value: 'cerebras', label: 'Cerebras', name: 'Cerebras', protocol: 'openai', origin: 'https://api.cerebras.ai/v1', model: 'llama-3.3-70b' },
-  { value: 'sambanova', label: 'SambaNova', name: 'SambaNova', protocol: 'openai', origin: 'https://api.sambanova.ai/v1', model: 'Meta-Llama-3.3-70B-Instruct' },
-  { value: 'novita', label: 'Novita AI', name: 'Novita', protocol: 'openai', origin: 'https://api.novita.ai/v3/openai', model: 'deepseek/deepseek-v3' },
-  { value: 'openrouter', label: 'OpenRouter', name: 'OpenRouter', protocol: 'openai', origin: 'https://openrouter.ai/api/v1', model: 'z-ai/glm-4.6' },
-  { value: 'perplexity', label: 'Perplexity', name: 'Perplexity', protocol: 'openai', origin: 'https://api.perplexity.ai', model: 'sonar' },
-  { value: 'cohere', label: 'Cohere', name: 'Cohere', protocol: 'openai', origin: 'https://api.cohere.ai/compatibility/v1', model: 'command-r-plus' },
-  { value: 'opencode', label: 'OpenCode Zen（按量）', name: 'OpenCode', protocol: 'openai', origin: 'https://opencode.ai/inference/openai/v1', model: 'deepseek-v4.1-flash' },
-  { value: 'opencode-go', label: 'OpenCode Go（订阅）', name: 'OpenCode Go', protocol: 'openai', origin: 'https://opencode.ai/inference/go/openai/v1', model: 'deepseek-v4.1-flash' },
-  { value: 'ollama', label: 'Ollama（本机）', name: 'Ollama', protocol: 'openai', origin: 'http://localhost:11434/v1', model: 'llama3.2' },
-  { value: 'lmstudio', label: 'LM Studio（本机）', name: 'LM Studio', protocol: 'openai', origin: 'http://localhost:1234/v1', model: 'local-model' },
-  {
-    value: 'custom',
-    label: '自定义（OpenAI 兼容）',
-    name: '自定义',
-    protocol: 'openai',
-    origin: '',
-    model: '',
-  },
-]
-
-const providerLabelsEn: Record<string, string> = {
-  deepseek: 'DeepSeek official', glm: 'Zhipu GLM', zai: 'Z.ai (international)',
-  qwen: 'Alibaba Cloud Qwen', 'qwen-intl': 'Alibaba Cloud Qwen (international)',
-  kimi: 'Moonshot Kimi', 'kimi-intl': 'Moonshot Kimi (international)', siliconflow: 'SiliconFlow',
-  volcengine: 'Volcengine Ark', qianfan: 'Baidu Qianfan', hunyuan: 'Tencent Hunyuan',
-  'minimax-intl': 'MiniMax (international)', stepfun: 'StepFun', spark: 'iFlytek Spark',
-  sensenova: 'SenseNova', baichuan: 'Baichuan', opencode: 'OpenCode Zen (pay as you go)',
-  'opencode-go': 'OpenCode Go (subscription)', ollama: 'Ollama (local)', lmstudio: 'LM Studio (local)',
-  custom: 'Custom (OpenAI-compatible)',
-}
-
 /** 按当前配置反查预设；认不出就是自定义 */
-const matchPreset = (profile: { protocol: string; origin: string; model: string }) =>
-  providerPresets.find(
-    (preset) =>
-      preset.value !== 'custom' &&
-      preset.protocol === profile.protocol &&
-      preset.origin === normalizeOrigin(profile.origin) &&
-      // deepseek 协议的模型固定，不参与匹配
-      (preset.protocol === 'deepseek' || (preset.model || '') === (profile.model || ''))
-  )?.value ?? 'custom'
+const matchPreset = (profile: ApiProfile) =>
+  (profile.providerId && providerPresets.some(item => item.value === profile.providerId) ? profile.providerId : undefined)
+  ?? endpointProvider(normalizeOrigin(profile.origin)) ?? 'custom'
+
+const endpointIdentity = (value: string) => {
+  try { return modelEndpoint(value).origin } catch { return '' }
+}
 
 /** Key 掩码：只露头尾，够区分是哪一条就行 */
 const maskApiKey = (apiKey: string) =>
@@ -911,7 +844,7 @@ const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
   )
 }
 
-/** 新增 / 编辑一条 API 配置：先用 GET /models 校验，通过才保存并启用 */
+/** Model discovery is optional: an offline or restricted endpoint can still be configured. */
 const MobileApiProfileForm = ({
   profile,
   isNew,
@@ -929,86 +862,59 @@ const MobileApiProfileForm = ({
   // 默认地址就不必让人看见，留空即代表官方地址
   const [origin, setOrigin] = useState(profile.origin === defaultApiOrigin ? '' : profile.origin)
   const [model, setModel] = useState(profile.model)
-  const [contextWindow, setContextWindow] = useState(
-    profile.contextWindow ? String(profile.contextWindow) : ''
-  )
+  const [discoveredReasoning, setDiscoveredReasoning] = useState(profile.discoveredReasoning ?? {})
+  const [discoveredWindows, setDiscoveredWindows] = useState(profile.discoveredWindows ?? {})
+  const [discoveredWindowKinds, setDiscoveredWindowKinds] = useState(profile.discoveredWindowKinds ?? {})
+  const targetModel = model.trim() || 'deepseek-flash'
+  const targetOrigin = normalizeOrigin(origin)
+  const targetKey = profileWindowKey(targetOrigin, targetModel, protocol)
+  const effective = resolveWindow({ profile: { ...profile, providerId: preset, discoveredWindows, discoveredWindowKinds }, origin: targetOrigin, protocol, model: targetModel })
+  const [windowDraft, setWindowDraft] = useState<{ key: string; text: string } | null>(null)
+  const contextWindow = windowDraft?.key === targetKey ? windowDraft.text : String(effective.manual ?? '')
+  const invalidWindow = Boolean(contextWindow && !parseWindow(contextWindow))
   const [apiKey, setApiKey] = useState(profile.apiKey)
-  // 模型列表：能拉到就让用户从下拉里挑，拉不到就退回手填
-  const [models, setModels] = useState<string[]>([])
-  const [loadingModels, setLoadingModels] = useState(false)
-  const [customModel, setCustomModel] = useState(false)
-  const [modelError, setModelError] = useState(false)
-
-  const loadModels = async () => {
-    const key = apiKey.trim()
-    if (!key || protocol !== 'openai' || loadingModels) {
-      return
+  const [, catalogReady] = useState(0)
+  const [keyCleared, setKeyCleared] = useState(false)
+  const endpoint = preset === 'custom' && !origin.trim() ? '' : normalizeOrigin(origin)
+  const validEndpoint = Boolean(endpointIdentity(endpoint))
+  const canSave = validEndpoint && (!isAnthropicOrigin(endpoint) || !!model.trim()) && (Boolean(apiKey.trim()) || allowsKeylessLocal(endpoint, protocol)) && !invalidWindow
+  const directoryProvider = endpointProvider(endpoint, preset) ?? 'custom'
+  const publicList = ['ollama', 'lmstudio', 'opencode', 'opencode-go', 'openrouter', 'deepinfra'].includes(directoryProvider)
+  const editableProtocol = (id: string) => isAnthropicOrigin(endpoint) ? 'anthropic' : preset === 'deepseek' && (!id || nativeModels.some(modelId => id === modelId)) ? 'deepseek' : 'openai'
+  const changeOrigin = (next: string) => {
+    if (apiKey && endpointIdentity(endpoint) !== endpointIdentity(next || (preset === 'custom' ? '' : defaultApiOrigin))) {
+      setApiKey(''); setKeyCleared(true); setDiscoveredReasoning({})
     }
-    setLoadingModels(true)
-    setModelError(false)
-    try {
-      const list = await fetchModelIds(key, origin.trim() || defaultApiOrigin)
-      setModels(list)
-      setCustomModel(list.length === 0 || !list.includes(model))
-      // 只有一个模型时直接选上，省一步
-      if (!model && list.length === 1) {
-        setModel(list[0])
-      }
-    } catch {
-      setModelError(true)
-    } finally {
-      setLoadingModels(false)
-    }
+    setOrigin(next)
+    if (isAnthropicOrigin(next)) setProtocol('anthropic')
+    else if (protocol === 'anthropic') setProtocol('openai')
   }
   const pickPreset = (value: string) => {
-    setPreset(value)
     const next = providerPresets.find((item) => item.value === value)
-    if (!next || value === 'custom') {
-      return
-    }
+    if (!next || value === preset) { return }
+    // Reusing a key across providers, plans or endpoint origins requires re-entry.
+    if (apiKey) { setKeyCleared(true) }
+    setApiKey(''); setDiscoveredReasoning({}); setPreset(value)
     setName(english && /[\u4e00-\u9fff]/u.test(next.name) ? providerLabelsEn[next.value] ?? next.name : next.name)
     setProtocol(next.protocol)
     setOrigin(next.origin === defaultApiOrigin ? '' : next.origin)
-    setModel(next.model)
+    setModel(next.protocol === 'deepseek' ? 'deepseek-flash' : next.model)
   }
   const [verifying, setVerifying] = useState(false)
   const [failure, setFailure] = useState<{ cause: unknown } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const cause = failure?.cause
-  const error =
-    failure === null
-      ? null
-      : classifyApiError(cause) === 'unauthorized'
-        ? t('apiKeyInvalid')
-        : classifyApiError(cause) === 'network'
-          ? t('commonNetworkErrorToast')
-          : t('apiKeyVerificationFailed', {
-              message:
-                cause instanceof ApiError && cause.localMessage
-                  ? t(cause.localMessage.key, cause.localMessage.params)
-                  : cause instanceof Error
-                    ? cause.message
-                    : String(cause),
-            })
+  const error = failure ? t('credentialWriteFailed') : null
 
   const submit = async () => {
     const key = apiKey.trim()
-    if (!key || verifying) {
+    if (!canSave || verifying) {
       return
     }
     setVerifying(true)
     setFailure(null)
     try {
-      await verifyApiKey(key, origin.trim() || defaultApiOrigin)
-      await saveApiProfile({
-        ...profile,
-        name: name.trim(),
-        protocol,
-        origin: origin.trim(),
-        model: model.trim(),
-        contextWindow: Number(contextWindow) > 0 ? Number(contextWindow) : undefined,
-        apiKey: key,
-      })
+      const assembledProfile = { ...profile, providerId: preset, name: name.trim(), protocol, origin: targetOrigin, model: model.trim(), discoveredReasoning, discoveredWindows, discoveredWindowKinds, apiKey: key }
+      await saveApiProfile(windowDraft?.key === targetKey ? withProfileWindow(assembledProfile, targetKey, parseWindow(contextWindow)) : assembledProfile)
       onDone()
     } catch (e) {
       setFailure({ cause: e })
@@ -1050,12 +956,44 @@ const MobileApiProfileForm = ({
             id="api-profile-origin"
             className={styles.fieldInput}
             value={origin}
-            placeholder={defaultApiOrigin}
+            placeholder={preset === 'custom' ? 'https://…/v1' : defaultApiOrigin}
             autoComplete="off"
             spellCheck={false}
             inputMode="url"
-            onChange={(event) => setOrigin(event.target.value)}
+            onChange={(event) => changeOrigin(event.target.value)}
           />
+          {androidShell && /^http:\/\//i.test(endpoint) && !/^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?:[:/]|$)/i.test(endpoint) ? <div className={styles.profileHint}>{english
+            ? 'Use HTTPS for this server. Android blocks cleartext LAN requests for both model discovery and chat.'
+            : '请将此服务配置为 HTTPS。Android 会拦截通过普通 HTTP 连接局域网的模型列表和聊天请求。'}</div>
+          : ['ollama','lmstudio'].includes(preset) && <div className={styles.profileHint}>{english
+            ? 'On Android, localhost means this phone. For a desktop server use its HTTPS address, or 10.0.2.2 in the Android emulator.'
+            : 'Android 上的 localhost 指手机本机。连接电脑上的服务可填其 HTTPS 地址；模拟器可用 10.0.2.2。'}</div>}
+        </div>
+        <div className={styles.field}>
+          <label className={styles.fieldLabel} htmlFor="api-profile-model">{t('apiProfileModel')}</label>
+          <ProviderModelPicker id="api-profile-model" ariaLabel={t('apiProfileModel')} providerId={directoryProvider} value={model}
+            endpoint={endpoint} apiKey={apiKey.trim()} discover={validEndpoint && (Boolean(apiKey.trim()) || publicList || allowsKeylessLocal(endpoint, protocol))}
+            onCatalogReady={() => catalogReady(n => n + 1)}
+            onChange={id => { setModel(id); setProtocol(editableProtocol(id)) }}
+            onDiscovered={(id, tokens, source, reasoning) => {
+              const key = profileWindowKey(targetOrigin, id, editableProtocol(id))
+              setDiscoveredReasoning(prev => {
+                if (prev[key] === reasoning) return prev
+                if (reasoning) return { ...prev, [key]: reasoning }
+                return Object.fromEntries(Object.entries(prev).filter(([entry]) => entry !== key))
+              })
+              if (tokens === undefined) {
+                const withoutCurrentModel = <T,>(values: Record<string, T>) => {
+                  if (!Object.hasOwn(values, key)) { return values }
+                  return Object.fromEntries(Object.entries(values).filter(([id]) => id !== key))
+                }
+                setDiscoveredWindowKinds(withoutCurrentModel)
+                setDiscoveredWindows(withoutCurrentModel)
+                return
+              }
+              setDiscoveredWindowKinds(prev => prev[key] === source ? prev : { ...prev, [key]: source })
+              setDiscoveredWindows(prev => prev[key] === tokens ? prev : { ...prev, [key]: tokens })
+            }} />
         </div>
         <div className={styles.field}>
           <label className={styles.fieldLabel} htmlFor="api-profile-window">
@@ -1065,77 +1003,14 @@ const MobileApiProfileForm = ({
             id="api-profile-window"
             className={styles.fieldInput}
             value={contextWindow}
-            placeholder={protocol === 'deepseek' ? '1000000' : '128000'}
+            placeholder={effective.spec.basis === 'fallback' && !effective.inheritedWindow ? (english ? 'Enter the deployment’s token limit' : '按实际部署填写 token 数') : String(effective.inheritedWindow ?? effective.spec.window)}
+            aria-invalid={invalidWindow}
             inputMode="numeric"
             autoComplete="off"
-            onChange={(event) => setContextWindow(event.target.value.replace(/[^0-9]/g, ''))}
+            onChange={(event) => setWindowDraft({ key: targetKey, text: event.target.value })}
           />
         </div>
-        {protocol === 'openai' ? (
-          <div className={styles.field}>
-            <label className={styles.fieldLabel} htmlFor="api-profile-model">
-              {t('apiProfileModel')}
-            </label>
-            {models.length > 0 && !customModel ? (
-              <Select
-                value={model}
-                options={[
-                  ...models.map((item) => ({ value: item, label: item })),
-                  { value: '__custom__', label: t('apiProfileModelCustom') },
-                ]}
-                onChange={(value) => {
-                  if (value === '__custom__') {
-                    setCustomModel(true)
-                    return
-                  }
-                  setModel(value)
-                }}
-                placeholder={t('apiProfileModelPlaceholder')}
-                ariaLabel={t('apiProfileModel')}
-              />
-            ) : (
-              <input
-                id="api-profile-model"
-                className={styles.fieldInput}
-                value={model}
-                placeholder={t('apiProfileModelPlaceholder')}
-                autoComplete="off"
-                spellCheck={false}
-                onChange={(event) => setModel(event.target.value)}
-              />
-            )}
-            <div className={styles.fieldAction}>
-              <button
-                type="button"
-                className={styles.fetchButton}
-                disabled={!apiKey.trim() || loadingModels}
-                onClick={() => void loadModels()}
-              >
-                {loadingModels ? t('apiProfileModelFetching') : t('apiProfileModelFetch')}
-              </button>
-              {models.length > 0 && customModel ? (
-                <button
-                  type="button"
-                  className={styles.fetchButton}
-                  onClick={() => {
-                    setCustomModel(false)
-                    setModel(models[0] ?? model)
-                  }}
-                >
-                  {t('apiProfileModel')}
-                </button>
-              ) : null}
-            </div>
-            {modelError ? (
-              <div className={styles.profileHint}>{t('apiProfileModelFetchFailed')}</div>
-            ) : null}
-          </div>
-        ) : (
-          <div className={styles.field}>
-            <div className={styles.fieldLabel}>{t('apiProfileModel')}</div>
-            <div className={styles.profileHint}>{t('apiProfileModelBuiltin')}</div>
-          </div>
-        )}
+        {invalidWindow && <div role="alert" className={styles.statusText}>{t('modelContextInvalid')}</div>}
         <div className={styles.field}>
           <label className={styles.fieldLabel} htmlFor="api-profile-key">
             {t('apiProfileKey')}
@@ -1148,8 +1023,9 @@ const MobileApiProfileForm = ({
             placeholder={t('apiKeyPlaceholder')}
             autoComplete="off"
             spellCheck={false}
-            onChange={(event) => setApiKey(event.target.value)}
+            onChange={(event) => { setKeyCleared(false); setApiKey(event.target.value); setDiscoveredReasoning({}); setDiscoveredWindows({}); setDiscoveredWindowKinds({}) }}
           />
+          {keyCleared && <div className={styles.profileHint}>{english ? 'Enter the key for this endpoint.' : '接口已切换，请填写当前接口的密钥。'}</div>}
         </div>
       </MobileGroup>
       {error ? <div className={styles.statusText}>{error}</div> : null}
@@ -1157,10 +1033,10 @@ const MobileApiProfileForm = ({
         <button
           type="button"
           className={styles.mobileConfirm}
-          disabled={verifying || !apiKey.trim()}
+          disabled={verifying || !canSave}
           onClick={() => void submit()}
         >
-          {verifying ? t('apiKeyVerifying') : t('apiProfileSave')}
+          {verifying ? (english ? 'Saving…' : '正在保存…') : t('apiProfileSave')}
         </button>
         {isNew ? null : (
           <button
@@ -1926,19 +1802,3 @@ const ImportHistory = ({
 }
 
 const ExportHistory = DataSettings
-
-/** 自动生成仅提醒；打开设置后由用户选择保存位置，不主动唤起系统分享。 */
-export const BackupReminder = () => {
-  const t = useTranslate()
-  const latest = useBackupState((state) => state.latest)
-  const settingsOpen = useSettingsDialog((state) => state.visits.some((visit) => visit.status === 'open'))
-  const [dismissed, setDismissed] = useState<string | null>(null)
-  if (settingsOpen || !latest || latest.reason !== 'automatic' || latest.saveStatus === 'confirmed' || latest.id === dismissed) {return null}
-  return <aside className={styles.backupReminder} aria-label={t('backupTitle')}>
-    <p role="status">{t('backupAutoReminder')}</p>
-    <div className={styles.backupActions}>
-      <Button variant="primary" size="m" onClick={() => openSettings('data')}>{t('backupOpenSettings')}</Button>
-      <Button variant="outlined" size="m" onClick={() => setDismissed(latest.id)}>{t('backupDismissReminder')}</Button>
-    </div>
-  </aside>
-}

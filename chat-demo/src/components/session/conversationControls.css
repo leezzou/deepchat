@@ -68,7 +68,7 @@
   gap: 12px;
   color: var(--dc-ink, var(--dsw-alias-label-primary));
 }
-.conversation-mode-form label {
+.conversation-mode-form > label {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -107,8 +107,8 @@
 .conversation-choice > span:last-child {
   right: 0;
 }
-.conversation-mode-form input,
-.conversation-mode-form textarea {
+.conversation-mode-form > label input,
+.conversation-mode-form > label textarea {
   box-sizing: border-box;
   width: 100%;
   min-width: 0;
@@ -121,10 +121,29 @@
   font: inherit;
   font-size: 16px;
 }
-.conversation-mode-row input {
-  text-align: end;
-  padding-inline: 4px;
+.conversation-mode-model {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding-block: 12px;
+  border-top: 1px solid var(--dc-line, var(--dsw-alias-border-l2));
+}
+.conversation-mode-model > span {
+  font-size: 14px;
+}
+.conversation-mode-link {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0;
+  border: 0;
   background: transparent;
+  color: var(--dc-accent, var(--dsw-alias-brand-text));
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.conversation-mode-hint p {
+  margin: 0;
 }
 .conversation-mode-form textarea {
   resize: vertical;

@@ -36,6 +36,9 @@ final class SecurityPlugin {
     private final SharedPreferences preferences;
     private final boolean hasPort;
     private final ExecutorService storage = Executors.newSingleThreadExecutor();
+    private final ExecutorService modelNetwork = Executors.newFixedThreadPool(2);
+    // Accessed on the WebView thread. Cancel outstanding calls on lock or profile changes.
+    private final java.util.Map<String, ProfileModelRequest> modelCalls = new java.util.HashMap<>();
     private final AppLockCover cover;
     private boolean enabled, authorized, resumed, closed;
     private volatile long epoch;
@@ -79,6 +82,12 @@ final class SecurityPlugin {
                             boolean next = input.getBoolean("enabled");
                             if (next == enabled) reply(id, state(), null);
                             else authenticate(next ? Action.ENABLE : Action.DISABLE, id);
+                        } else if (op.equals("listModels")) {
+                            listModels(id, reply, input);
+                        } else if (op.equals("cancelModels")) {
+                            ProfileModelRequest call = modelCalls.remove(input.getString("requestId"));
+                            if (call != null) call.cancel();
+                            reply(id, true, null);
                         } else if ((op.equals("read") || op.equals("write")) && Build.VERSION.SDK_INT >= 23) {
                             accessVault(id, reply, op.equals("write") ? input.getString("value") : null);
                         } else reply(id, null, "unavailable");
@@ -110,8 +119,14 @@ final class SecurityPlugin {
         try { page.postMessage(new JSONObject().put("id", id).put("value", value == null ? JSONObject.NULL : value).put("error", error).toString()); }
         catch (Exception detached) { /* page closed */ }
     }
+    // A vault write or lock revokes requests bound to the old profile credentials.
+    private int profileWrites;
+    private Runnable profileInvalidated = () -> {};
+    void onProfileInvalidated(Runnable callback) { profileInvalidated = callback; }
+    boolean permitsProfileChat() { return isUnlocked() && profileWrites == 0; }
     private void update() {
         unlocked = resumed && (!enabled || authorized) && !closed;
+        if (!unlocked) profileInvalidated.run();
         boolean hide = enabled && !unlocked;
         if (enabled) activity.getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         else activity.getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);
@@ -122,7 +137,54 @@ final class SecurityPlugin {
         catch (Exception detached) { /* navigation */ }
     }
 
+    private void listModels(String id, JavaScriptReplyProxy caller, JSONObject input) throws Exception {
+        String requestId = input.getString("requestId");
+        if (!requestId.matches("[0-9]{1,16}") || modelCalls.containsKey(requestId) || modelCalls.size() >= 4) {
+            reply(id, null, "unavailable");
+            return;
+        }
+        ProfileModelRequest request = new ProfileModelRequest();
+        modelCalls.put(requestId, request);
+        final long generation = epoch;
+        modelNetwork.execute(() -> {
+            JSONObject result = null;
+            try {
+                if (generation == epoch && isUnlocked()) result = request.fetch(input);
+            } catch (Exception ignored) { /* Errors and URLs might contain secrets. */ }
+            final JSONObject data = result;
+            web.post(() -> {
+                boolean current = modelCalls.get(requestId) == request;
+                if (current) modelCalls.remove(requestId);
+                if (page != caller || closed) return;
+                if (generation != epoch || !isUnlocked() || !current) reply(id, null, "cancelled");
+                else replyModels(id, data);
+            });
+        });
+    }
+
+    /** Keep a large aggregator catalog below Android WebView's individual IPC message budget. */
+    private void replyModels(String id, JSONObject data) {
+        if (data == null) { reply(id, null, "unavailable"); return; }
+        String body = data.optString("body");
+        if (body.length() <= 32768) { reply(id, data, null); return; }
+        try {
+            for (int start = 0; start < body.length();) {
+                int end = Math.min(body.length(), start + 32768);
+                if (end < body.length() && Character.isHighSurrogate(body.charAt(end - 1))) end--;
+                page.postMessage(new JSONObject().put("id", id).put("modelChunk", body.substring(start, end)).toString());
+                start = end;
+            }
+            reply(id, new JSONObject().put("status", data.getInt("status")).put("length", body.length()), null);
+        } catch (Exception detached) { reply(id, null, "unavailable"); }
+    }
+
+    private void cancelModelCalls() {
+        for (ProfileModelRequest request : modelCalls.values()) request.cancel();
+        modelCalls.clear();
+    }
+
     private void accessVault(String id, JavaScriptReplyProxy caller, String value) {
+        if (value != null) { profileWrites++; profileInvalidated.run(); }
         final long generation = epoch;
         storage.execute(() -> {
             Object result = null;
@@ -137,6 +199,7 @@ final class SecurityPlugin {
             final boolean ok = success;
             final Object data = result;
             web.post(() -> {
+                if (value != null) profileWrites--;
                 if (page != caller || closed) return;
                 if (generation != epoch || !isUnlocked()) reply(id, null, "locked");
                 else reply(id, data, ok ? null : "storage");
@@ -200,7 +263,7 @@ final class SecurityPlugin {
     }
 
     void onResume() { resumed = true; update(); }
-    void onPause() { resumed = false; authorized = false; epoch++; update(); }
+    void onPause() { resumed = false; authorized = false; epoch++; cancelModelCalls(); update(); }
     void onIncomingShare() {
         if (!enabled) return;
         authorized = false; epoch++;
@@ -214,6 +277,8 @@ final class SecurityPlugin {
     void close() {
         closed = true; unlocked = false; epoch++;
         if (prompt != null) prompt.cancel();
+        cancelModelCalls();
+        modelNetwork.shutdownNow();
         storage.shutdownNow();
         if (hasPort) WebViewCompat.removeWebMessageListener(web, PORT);
         page = null;

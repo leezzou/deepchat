@@ -1,0 +1,65 @@
+.settings {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 16px var(--dc-gutter, 16px);
+  color: var(--dc-ink);
+  font-size: 14px;
+}
+.field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+.field > span,
+.field > label {
+  color: var(--dc-secondary);
+  font-size: 13px;
+}
+.field > input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+}
+.field > input:focus-visible {
+  outline: 2px solid var(--dc-accent);
+}
+.details {
+  color: var(--dc-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.details p {
+  margin: 0 0 4px;
+}
+.details strong {
+  color: var(--dc-ink);
+  font-variant-numeric: tabular-nums;
+}
+.sources,
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+.sources a {
+  color: var(--dc-accent);
+  text-underline-offset: 3px;
+}
+.status {
+  font-size: 13px;
+  color: var(--dc-secondary);
+}
+@media (min-width: 761px) {
+  .settings {
+    padding-inline: 0;
+  }
+}

@@ -1,7 +1,12 @@
 import { create } from 'zustand'
 import { setChatSource, useSettings } from '../settings.js'
 import { hasWorkBuddyBridge, manageWorkBuddy } from './bridge.js'
-import { isWorkBuddyModel, type WorkBuddyModel } from './models.js'
+import {
+  isWorkBuddyModel,
+  setWorkBuddyCatalog,
+  validWorkBuddyId,
+  type WorkBuddyModel,
+} from './models.js'
 export { WORKBUDDY_MODELS } from './models.js'
 export { hasWorkBuddyBridge } from './bridge.js'
 
@@ -12,7 +17,7 @@ function decode(value: unknown): Metadata | null {
     !value ||
     typeof value !== 'object' ||
     !('model' in value) ||
-    !isWorkBuddyModel(value.model) ||
+    !validWorkBuddyId(value.model) ||
     !('revision' in value) ||
     typeof value.revision !== 'string' ||
     !/^[0-9a-f-]{36}$/.test(value.revision)
@@ -29,7 +34,13 @@ function initial() {
   }
 }
 // Only routing metadata is mirrored. Native rechecks the account revision at dispatch.
-export const useWorkBuddyState = create(() => ({ metadata: initial(), name: '', pending: false }))
+export const useWorkBuddyState = create(() => ({
+  metadata: initial(),
+  models: setWorkBuddyCatalog(null),
+  name: '',
+  pending: false,
+}))
+let catalogRequest: { revision: string; promise: Promise<void> } | undefined
 function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
   const metadata = decode(value)
   try {
@@ -41,7 +52,32 @@ function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
   } catch {
     /* storage disabled */
   }
-  useWorkBuddyState.setState({ metadata, name: value.name || '', pending: value.pending === true })
+  const models = setWorkBuddyCatalog(metadata ? value.catalog : null)
+  useWorkBuddyState.setState({
+    metadata,
+    models,
+    name: value.name || '',
+    pending: value.pending === true,
+  })
+  if (metadata && value.catalogRefresh && catalogRequest?.revision !== metadata.revision) {
+    const revision = metadata.revision
+    const promise = manageWorkBuddy('catalog', { revision })
+      .then((next) => {
+        if (
+          useWorkBuddyState.getState().metadata?.revision === revision &&
+          next.revision === revision
+        ) {
+          publish(next)
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (catalogRequest?.promise === promise) {
+          catalogRequest = undefined
+        }
+      })
+    catalogRequest = { revision, promise }
+  }
 }
 export async function refreshWorkBuddy() {
   publish(await manageWorkBuddy('status'))
@@ -67,7 +103,11 @@ export async function selectWorkBuddyModel(model: WorkBuddyModel) {
   if (!isWorkBuddyModel(model)) {
     throw new Error('WorkBuddy · Unknown model')
   }
-  publish(await manageWorkBuddy('model', { model }))
+  const revision = useWorkBuddyState.getState().metadata?.revision
+  if (!revision) {
+    throw new Error('WorkBuddy · Sign in first')
+  }
+  publish(await manageWorkBuddy('model', { model, revision }))
 }
 export function activateWorkBuddy(active: boolean) {
   if (active && !useWorkBuddyState.getState().metadata) {

@@ -1,18 +1,70 @@
-import { showToast } from '../../components/base/toastState.js'
-import { loadBackupState, recordCompletedBackupRound } from '../chat/backup.js'
+import { dismissToast, showToast, useToast } from '../../components/base/toastState.js'
+import {
+  loadBackupState,
+  observeAutomaticSettings,
+  recordCompletedBackupRound,
+} from '../chat/backup.js'
 import { useChatStore } from '../chat/store.js'
 import { useBackupState } from './state.js'
 
 /** App 在 initChat 完成后调用；不扫描既有完成轮次，返回订阅清理函数。 */
 export const initializeAutoBackup = (): (() => void) => {
   let active = true
+  let visibilityEpoch = 0
+  let notice: number | undefined
+  const clearNotice = () => {
+    dismissToast(notice)
+    notice = undefined
+  }
+  const hide = () => {
+    visibilityEpoch++
+    clearNotice()
+  }
+  const visibility = () => {
+    if (document.hidden) {
+      hide()
+    }
+  }
+  const notify = (epoch: number, failed = false) => {
+    if (
+      !active ||
+      document.hidden ||
+      epoch !== visibilityEpoch ||
+      !useBackupState.getState().autoEnabled
+    ) {
+      return
+    }
+    const current = useToast.getState()
+    if (current.message && current.id !== notice) {
+      return
+    }
+    notice = showToast({ key: failed ? 'backupAutomaticFailed' : 'backupAutoReady' }, 6000)
+  }
   const requests = new Map<string, { controller: AbortController; messageId: string }>()
+  const ignored = new WeakSet<AbortController>()
+  const stopSettings = observeAutomaticSettings()
+  const stopNotice = useBackupState.subscribe((state, previous) => {
+    if (!state.autoEnabled || (previous.automatic && !state.automatic)) {
+      clearNotice()
+    }
+    if (!state.autoEnabled) {
+      for (const controller of Object.values(useChatStore.getState().streaming)) {
+        ignored.add(controller)
+      }
+      requests.clear()
+    }
+  })
+  window.addEventListener('pagehide', hide)
+  document.addEventListener('visibilitychange', visibility)
   const observe = (state: ReturnType<typeof useChatStore.getState>) => {
     if (!state.ready) {
       return
     }
     for (const [sessionId, controller] of Object.entries(state.streaming)) {
-      if (requests.get(sessionId)?.controller === controller) {
+      if (!useBackupState.getState().autoEnabled) {
+        ignored.add(controller)
+      }
+      if (ignored.has(controller) || requests.get(sessionId)?.controller === controller) {
         continue
       }
       const reply = state.sessionCache[sessionId]?.messages.findLast(
@@ -38,18 +90,20 @@ export const initializeAutoBackup = (): (() => void) => {
       if (reply?.role !== 'assistant' || reply.status !== 'done') {
         continue
       }
-      const parentId = reply.parentId ?? session?.messages[index - 1]?.id ?? reply.id
+      const parentId =
+        reply.contextUserId ?? reply.parentId ?? session?.messages[index - 1]?.id ?? reply.id
+      const epoch = document.hidden ? -1 : visibilityEpoch
       void recordCompletedBackupRound(`${sessionId}:${parentId}`)
         .then((generated) => {
-          if (active && generated) {
-            showToast({ key: 'backupAutoReady' })
+          if (generated) {
+            notify(epoch)
           }
         })
         .catch(() => {
-          useBackupState.setState({ error: 'automatic' })
-          if (active) {
-            showToast({ key: 'backupAutomaticFailed', type: 'error' })
+          if (useBackupState.getState().autoEnabled && useBackupState.getState().error !== 'load') {
+            useBackupState.setState({ error: 'automatic' })
           }
+          notify(epoch, true)
         })
     }
   }
@@ -60,6 +114,11 @@ export const initializeAutoBackup = (): (() => void) => {
   return () => {
     active = false
     unsubscribe()
+    stopSettings()
+    stopNotice()
+    clearNotice()
+    window.removeEventListener('pagehide', hide)
+    document.removeEventListener('visibilitychange', visibility)
     requests.clear()
   }
 }

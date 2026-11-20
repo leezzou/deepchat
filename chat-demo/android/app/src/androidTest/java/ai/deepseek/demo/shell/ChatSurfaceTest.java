@@ -248,18 +248,18 @@ public class ChatSurfaceTest {
                 await("only child was popped", () -> onUi(() -> childField.get(screen) == null && screen.isShowing()));
                 assertEquals(walletY, (int) onUi(walletScroll::getScrollY));
             }
-            nativeLabel("API 使用情况", true);
+            nativeLabel("模型用量", true);
             dom("the in-app usage report opens from the native wallet", "!!document.querySelector('[data-api-usage]')");
             assertFalse("wallet yields to the usage report", onUi(screen::isShowing));
             assertTrue("opening usage stays in the app", launches.isEmpty());
             await("usage owns input after wallet exit", () -> onUi(() -> activity.getWindow().getDecorView().hasWindowFocus()));
             InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK);
-            nativeLabel("API 使用情况", false);
+            nativeLabel("模型用量", false);
             nativeLabel("13.34", false);
             assertSame("same wallet view on return", walletPage, onUi(() -> pageField.get(screen)));
             assertEquals("wallet scroll is retained", walletY, (int) onUi(walletScroll::getScrollY));
             dom("system back restores the account", "!document.querySelector('[data-api-usage]')");
-            nativeLabel("API 使用情况", true);
+            nativeLabel("模型用量", true);
             clickDom("open the official platform report", "[data-api-usage-official]");
             Intent report = launches.poll(TIMEOUT_MS, TimeUnit.MILLISECONDS);
             assertNotNull("DeepSeek usage dashboard intent", report);

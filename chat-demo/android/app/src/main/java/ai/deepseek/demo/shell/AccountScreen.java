@@ -599,6 +599,7 @@ public final class AccountScreen {
                 errors();
                 page.button(page.body, action == Action.LOGIN ? "正在打开授权页…" : "使用 DeepSeek 账号登录", PRIMARY, 28,
                         action == Action.NONE ? () -> accountAction(Action.LOGIN) : null);
+                usageEntry();
                 page.button(page.body, "暂不登录，返回聊天", PLAIN, 8, dialog::dismiss);
                 break;
             case PENDING:
@@ -638,16 +639,20 @@ public final class AccountScreen {
         boolean available = action == Action.NONE;
         page.button(row, "前往充值", TONAL, 0, available ? this::openPayment : null);
         page.button(row, refreshing ? "正在刷新…" : "刷新余额", PLAIN, 8, available && !refreshing ? this::refreshWallets : null);
-        page.navigationRow("API 使用情况", 16, available ? () -> {
+        usageEntry();
+        page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
+        page.divider(page.body, 28);
+        page.navigationRow("本机 API 设置", 8, available ? this::openProxy : null);
+        page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 8, available ? this::confirmLogout : null);
+    }
+
+    private void usageEntry() {
+        page.navigationRow("模型用量", 16, action == Action.NONE ? () -> {
             if (!isShowing()) return;
             underUsage = true;
             openUsage.run();
             dialog.hideForUsage();
         } : null);
-        page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
-        page.divider(page.body, 28);
-        page.navigationRow("本机 API 设置", 8, available ? this::openProxy : null);
-        page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 8, available ? this::confirmLogout : null);
     }
 
     private void group(LinearLayout parent, String title, List<String[]> rows, String empty, int top) {

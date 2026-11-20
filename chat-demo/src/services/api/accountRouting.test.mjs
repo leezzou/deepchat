@@ -164,6 +164,7 @@ test('large documents with a question send only the ready ID and text in both of
       }
       assert.deepEqual(JSON.parse(message.body), {
         model: 'deepseek-flash', stream: true,
+        ...(openAi && { stream_options: { include_usage: true } }),
         messages: [{ role: 'user', content: [
           openAi ? { type: 'file', file_id: id } : { type: 'document', source: { type: 'file', file_id: id } },
           { type: 'text', text: question.content },
@@ -235,6 +236,60 @@ test('picker distinguishes original document, image, and extracted text limits',
   assert.equal(validateFiles([file('a.pdf', 1)], Array(20).fill(file('file.pdf', 0.1)), access)?.key, 'uploadDocCount')
 })
 
+test('inline TXT / Markdown rejects unreadable, binary, oversized and over-window input before modifying the draft', async () => {
+  const { appendInlineText, beforeInlineTextFiles, readInlineTextFiles } = await import('../inlineTextFiles.ts')
+  const file = (data, name = '样例.txt', type = '') => new File([data], name, { type })
+  const utf8 = file('第一行\n第二行🌿', 'note.MARKDOWN', 'text/markdown')
+  const result = await readInlineTextFiles([file('hello'), utf8], true)
+  assert.equal(result.text, '[Text file: 样例.txt]\nhello\n\n[Text file: note.MARKDOWN]\n第一行\n第二行🌿')
+  assert.equal(beforeInlineTextFiles(appendInlineText('question', result.text, 4096).text), 'question')
+  assert.equal(beforeInlineTextFiles(result.text), '')
+  for (const [files, error] of [
+    [[file(' ' )], 'inlineFileEmpty'], [[file('bad', 'report.pdf')], 'inlineFileFormat'],
+    [[file('ok', 'misnamed.txt', 'image/png')], 'inlineFileFormat'], [[file('\0Binary')], 'inlineFileFormat'],
+    [[file('%PDF-1.7')], 'inlineFileFormat'], [[file(Uint8Array.of(0xff))], 'inlineFileEncoding'],
+    [[utf8, { size: 1, name: 'locked.txt', type: 'text/plain', arrayBuffer() { throw Error('revoked') } }], 'inlineFileRead'],
+    [Array(9).fill(utf8), 'inlineFileSize'], [[file('a'.repeat(128 * 1024 + 1))], 'inlineFileSize'],
+  ]) assert.deepEqual(await readInlineTextFiles(files, false), { error })
+  assert.equal(appendInlineText('x'.repeat(128 * 1024), 'y', 1_000_000).error, 'inlineDraftSize')
+  assert.equal(appendInlineText('', '问'.repeat(1500), 1024).error, 'inlineFileWindow')
+  assert.equal(appendInlineText('', '问'.repeat(1500), 1_000_000, 1024).error, 'inlineFileWindow')
+})
+
+test('file controls and dispatch reflect the endpoint file reference contract', async (t) => {
+  const { endpointFileInput, originalFileIssue } = await import('./fileCapabilities.ts')
+  const { validateFiles } = await import('../attachments.ts')
+  const flash = 'deepseek-flash', pro = 'deepseek-v4-pro', openai = 'https://api.openai.com/v1'
+  const router = 'https://openrouter.ai/api/v1'
+  assert.equal(endpointFileInput(officialOrigin, flash), 'upload')
+  assert.equal(endpointFileInput(officialOrigin, pro), 'text')
+  assert.equal(endpointFileInput(openai, 'gpt-4.1'), 'choice')
+  assert.equal(endpointFileInput(openai, 'gpt-3.5-turbo'), 'text')
+  assert.equal(endpointFileInput(openai, 'gpt-4.1', undefined, 'deepseek'), 'text')
+  const claude = 'https://api.anthropic.com/v1'
+  assert.equal(endpointFileInput(claude, 'claude-sonnet-4-5'), 'choice')
+  assert.equal(endpointFileInput(claude, 'unknown-model'), 'text')
+  assert.equal(originalFileIssue(claude, { name: 'a.jpg', type: 'application/octet-stream', isImage: true }), undefined)
+  assert.equal(originalFileIssue(claude, { name: 'a.jpg', type: 'image/png' }), 'uploadClaudeTypes')
+  assert.equal(originalFileIssue(claude, { name: 'a.pdf', type: 'application/pdf', isImage: true }), 'uploadClaudeTypes')
+  assert.equal(originalFileIssue(claude, { name: 'a.docx', type: '' }), 'uploadClaudeTypes')
+  const large = { name: 'a.pdf', size: 25_000_001, type: 'application/pdf' }
+  assert.equal(validateFiles([large], [large], api('openai', 'gpt-4.1', openai)).key, 'uploadOpenAiFileSize')
+  assert.equal(validateFiles([large], [], api('openai', pro, router)).key, 'originalFileUnsupported')
+  assert.equal(endpointFileInput('https://fixture.invalid/v1', pro), 'choice')
+  assert.equal(endpointFileInput(router, `deepseek/${pro}`), 'text')
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response('Not implemented', { status: 405 }))
+  const png = new File([Uint8Array.of(137, 80, 78, 71)], 'image.png', { type: 'image/png' })
+  const pdf = new File(['%PDF-1.7'], 'a.pdf', { type: 'application/pdf' })
+  const rejected = (key) => (error) => error.localMessage?.key === key
+  await assert.rejects(uploadFile(api('openai', 'gpt-4.1', openai), png, null), rejected('uploadPdfOnly'))
+  await assert.rejects(uploadFile(api('openai', pro, router), pdf, 'user_data'), rejected('originalFileUnsupported'))
+  await assert.rejects(uploadFile({ source: 'workbuddy', model: pro, revision: 'fixture' }, png, null), rejected('originalFileUnsupported'))
+  assert.equal(fetch.mock.callCount(), 0)
+  await assert.rejects(uploadFile(api('openai', pro, 'https://fixture.invalid/v1'), pdf, 'user_data'), rejected('uploadApiUnavailable'))
+  assert.equal(fetch.mock.callCount(), 1)
+})
+
 test('unknown account file validations expose stage and HTTP status, with allowlisted details only', async () => {
   const { request } = await import('./client.ts')
   initializeAccount(() => {})
@@ -276,4 +331,25 @@ test('an expired file can be reuploaded on 422 and an unknown validation does no
   assert.equal(getFileErrorCode(new ApiError('http', { key: 'uploadExpiredFile' }, 422)), 'invalidFileId')
   assert.equal(getFileErrorCode(new ApiError('http', { key: 'replyValidationDiagnostic', params: { status: 422, details: '' } }, 422)), null)
   assert.equal(getFileErrorCode(new ApiError('http', { key: 'uploadExpiredFile' }, 429)), null)
+})
+
+
+test('saved native API default Pro and a keyless local chat dispatch use the selected profile', async () => {
+  const savedState = useSettings.getState()
+  const { getConversationRoute } = await import('./access.ts')
+  try {
+    const native = { ...profile, origin: 'https://api.deepseek.com', protocol: 'deepseek', model: 'deepseek-v4-pro' }
+    useSettings.setState({ chatSource: 'api', apiProfiles: [native], activeProfileId: native.id })
+    assert.equal(getConversationRoute().nativeModel, 'deepseek-v4-pro')
+    assert.equal(getConversationRoute(undefined, { model: 'deepseek-flash' }).nativeModel, 'deepseek-flash')
+    const local = { ...profile, origin: 'http://localhost:11434/v1', model: 'local', apiKey: '' }
+    useSettings.setState({ apiProfiles: [local] })
+    const access = getChatAccess()
+    direct.splice(0)
+    for await (const event of streamMessage(access, { messages: [] }, new AbortController().signal)) void event
+    assert.equal(direct[0].init.headers.Authorization, undefined)
+    assert.equal(JSON.parse(direct[0].init.body).model, 'local')
+    useSettings.setState({ apiProfiles: [{ ...local, origin: 'https://cloud.invalid/v1' }] })
+    assert.equal(getChatAccess(), null)
+  } finally { useSettings.setState(savedState) }
 })

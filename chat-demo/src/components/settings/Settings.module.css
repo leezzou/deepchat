@@ -1435,8 +1435,7 @@ body[data-ds-dark-theme] {
   margin: 12px 0;
 }
 
-.backupSection button,
-.backupReminder button {
+.backupSection button {
   min-height: 48px;
   max-width: 100%;
   height: auto;
@@ -1499,30 +1498,4 @@ body[data-ds-dark-theme] {
   font-size: 13px;
   line-height: 20px;
   overflow-wrap: anywhere;
-}
-
-.backupReminder {
-  position: fixed;
-  z-index: 30;
-  inset-inline: 16px;
-  bottom: calc(16px + env(safe-area-inset-bottom));
-  box-sizing: border-box;
-  width: min(440px, calc(100% - 32px));
-  margin-inline: auto;
-  padding: 14px 16px;
-  border: 1px solid var(--dsw-alias-border-l2);
-  border-radius: 16px;
-  background-color: var(--dsw-alias-bg-base);
-  color: var(--dsw-alias-label-primary);
-  box-shadow: 0 4px 20px rgb(0 0 0 / 12%);
-}
-
-.backupReminder p {
-  margin: 0;
-  font-size: 14px;
-  line-height: 22px;
-}
-
-.backupReminder .backupActions {
-  margin-bottom: 0;
 }

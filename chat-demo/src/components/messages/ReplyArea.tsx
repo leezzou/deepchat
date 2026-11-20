@@ -51,8 +51,7 @@ const useTicker = (active: boolean, interval: number) => {
 
 /**
  * 思考与工具步骤的时间线：
- * 开启深度思考时带可折叠的标题（正在思考 / 正在搜索 / 正在浏览网页 / 已思考（用时 N 秒））；
- * 未开启时只有工具步骤（如普通搜索的「已阅读 N 个网页」）。
+ * 有可读思考内容时显示折叠标题；只有工具结果时直接展示工具步骤。
  */
 export const ReplyArea = memo(function ReplyArea({
   message,
@@ -74,25 +73,24 @@ export const ReplyArea = memo(function ReplyArea({
       setOpen(false)
     }
   }, [streaming, autoCollapse])
-  const titleActive = streaming && !hasResponse
+  const hasReasoning = view.steps.some((step) => step.type === 'thinking')
+  const titleActive = hasReasoning && streaming && !hasResponse
   useTicker(titleActive, 1000)
-  if (view.steps.length === 0 && !(message.thinking && streaming)) {
+  if (!view.steps.length) {
     return null
   }
-  // 未记录请求开关时，按是否有思考内容显示标题。
-  const thinking = message.thinking ?? view.steps.some((step) => step.type === 'thinking')
-  const title = thinking ? getAreaTitle(view, streaming, Date.now(), hasResponse) : null
+  const title = hasReasoning ? getAreaTitle(view, streaming, Date.now(), hasResponse) : null
   const stopped = !streaming && !hasResponse
   return (
     <div className={styles.area}>
       {title ? (
-        <div className={styles.title} onClick={() => setOpen((value) => !value)}>
+        <button type="button" className={styles.title} data-reply-thinking aria-expanded={open} onClick={() => setOpen((value) => !value)}>
           <span className={clsx(styles.titleIcon, stopped && styles.stoppedIcon)}>
             <IconThinkOutline16 />
           </span>
           <span className={clsx(styles.titleText, titleActive && styles.shimmer)}>{title}</span>
           {open ? <IconChevronDownOutline14 /> : <IconChevronRightOutline14 />}
-        </div>
+        </button>
       ) : null}
       {open || !title ? (
         <div className={styles.steps}>
@@ -161,7 +159,7 @@ const StepItem = ({
     case 'search':
       return <SearchRow step={step} message={message} streaming={streaming} isLast={isLast} />
     case 'open':
-      return <OpenRow step={step} sources={sources} isLast={isLast} />
+      return <OpenRow step={step} isLast={isLast} />
     case 'find':
       return <FindRow step={step} isLast={isLast} />
     case 'read_link':
@@ -250,8 +248,12 @@ const SearchRow = ({
       </>
     )
   }
+  const Row = clickable ? 'button' : 'div'
   return (
-    <div
+    <Row
+      type={clickable ? 'button' : undefined}
+      aria-expanded={clickable ? entry === panelEntry : undefined}
+      data-search-step={step.status}
       className={clsx(
         styles.row,
         !isLast && styles.withLine,
@@ -264,7 +266,7 @@ const SearchRow = ({
         {failed ? <IconSearchWarningOutline16 /> : <IconSearchOutline16 />}
       </span>
       {body}
-    </div>
+    </Row>
   )
 }
 
@@ -286,6 +288,7 @@ const ToolRow = ({
 
 const PageLink = ({ page, failedTip }: { page: PageItem; failedTip?: string }) => (
   <span
+    data-search-page={page.status}
     className={clsx(styles.page, page.status === 'failed' ? styles.pageFailed : styles.pageDone)}
   >
     {page.status === 'failed' ? (
@@ -303,49 +306,21 @@ const PageLink = ({ page, failedTip }: { page: PageItem; failedTip?: string }) =
   </span>
 )
 
-/** 边想边搜打开的网页：「浏览 N 个页面」+ 最多 5 个页面 */
-const OpenRow = ({
-  step,
-  sources,
-  isLast,
-}: {
-  step: OpenStep
-  sources: Source[]
-  isLast: boolean
-}) => {
+/** 仅展示服务端实际尝试过的页面，保留各页的成功与失败状态。 */
+const OpenRow = ({ step, isLast }: { step: OpenStep; isLast: boolean }) => {
   const t = useTranslate()
   const allFailed = step.pages.every((page) => page.status === 'failed')
   const count = step.pages.length
   const intro = t(count === 1 ? 'toolOpenOneIntro' : 'toolOpensIntro', { count })
-  const panelEntry = `open-${step.pages[0]?.id}`
   return (
     <ToolRow
       icon={allFailed ? <IconBrowseWarningOutline16 /> : <IconBrowseOutline16 />}
       isLast={isLast}
     >
-      {allFailed ? (
-        t('toolOpenFail')
-      ) : (
-        <>
-          <span className={styles.intro}>{intro}</span>
-          {step.pages.slice(0, 5).map((page) => (
-            <PageLink key={page.id} page={page} failedTip={t('toolOpenFailTooltip')} />
-          ))}
-          {count > 5 ? (
-            <span
-              className={styles.chip}
-              onClick={() =>
-                toggleSearchPanel(
-                  panelEntry,
-                  sources.filter((source) => step.pages.some((page) => page.url === source.url))
-                )
-              }
-            >
-              {t('toolOpenViewAll')}
-            </span>
-          ) : null}
-        </>
-      )}
+      <span className={styles.intro}>{allFailed ? t('toolOpenFail') : intro}</span>
+      {step.pages.map((page) => (
+        <PageLink key={page.id} page={page} failedTip={t('toolOpenFailTooltip')} />
+      ))}
     </ToolRow>
   )
 }

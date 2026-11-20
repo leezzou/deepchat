@@ -220,6 +220,9 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
   const id = String(message.id)
   const blocks = toBlocks(message.fragments, id)
   const refused = message.status === 'CONTENT_FILTER'
+  const resume = (message.status === 'INCOMPLETE' || message.status === 'WIP') &&
+    message.fragments.every((fragment) => fragment.type === 'RESPONSE' || fragment.type === 'THINK') &&
+    blocks.some((block) => block.type === 'text' && block.text.trim()) && message.deepchat_continue
   return {
     id,
     role: 'assistant',
@@ -235,8 +238,9 @@ const toAssistant = (message: ChatMessage): AssistantMessage => {
     model: null,
     thinking: message.thinking_enabled,
     search: message.search_enabled,
-    prefix: false,
-    status: replyStatus[message.status],
+    prefix: resume ? 'text' : false,
+    status: resume === 'max_tokens' ? 'done' : replyStatus[message.status],
+    ...(resume === 'max_tokens' ? { stopReason: 'max_tokens' as const } : {}),
     // 拒绝回复丢弃模型正文和思考，保留模板提示与工具步骤。
     ...(refused ? { stopReason: 'refusal' as const } : {}),
     blocks: refused
@@ -293,8 +297,8 @@ const buildTree = (file: SessionFile): Pick<Session, 'messages' | 'rootMessageId
 export const toLocalSession = (file: SessionFile): LocalSession => {
   const session: Session = {
     id: file.id,
-    // 空标题按「新对话」显示，导出时还原为 null。
     title: file.title ?? '',
+    ...(file.deepchat_title_source && { titleSource: file.deepchat_title_source }),
     createdAt: time(file.inserted_at),
     updatedAt: time(file.updated_at),
     ...buildTree(file),

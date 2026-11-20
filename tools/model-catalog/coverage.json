@@ -1,0 +1,840 @@
+{
+  "sources": {
+    "models-dev": {
+      "license": "MIT",
+      "licenseUrl": "https://github.com/anomalyco/models.dev/blob/9a9ecdd605f101d74fdc8159c69a542e23e97658/LICENSE",
+      "observedCommitDate": "2026-11-20T06:37:01Z",
+      "observedGitHead": "9a9ecdd605f101d74fdc8159c69a542e23e97658",
+      "rawSha256": "88885475f89ed18920c1b1738d5475b461ecad170ea0bfd485dbb6767420570b",
+      "retrievedUtc": "2026-11-20T06:43:45+00:00",
+      "url": "https://models.dev/api.json",
+      "snapshotSha256": "c0c66a7777ff2cca250edabb440e9abac2f44db9a86ec605dedbb432a7e76a8e"
+    },
+    "openrouter": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "c5d2564b8a4ef5c0a9e68ae78c14220bf5bcca8abad139f6b48893e4a69dc22f",
+      "retrievedUtc": "2026-11-20T06:38:14+00:00",
+      "url": "https://openrouter.ai/api/v1/models",
+      "snapshotSha256": "f5aba5ea652493e652b1dca97d86d313dc677fba26835c7f80586d154451d877"
+    },
+    "opencode": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "a65885ea2cc173507f0595e85f6ed52e90343cd5404fcdd15267ff138c173576",
+      "retrievedUtc": "2026-11-20T06:38:13+00:00",
+      "url": "https://opencode.ai/inference/openai/v1/models",
+      "snapshotSha256": "52b733932eab9a925d3647bae60a4acc5ebd7c9cf8065941a1ae56f4fc67edd1"
+    },
+    "opencode-go": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "15bdd36920d37863f842be86f06ed45fa3dd24d2c72813bba077284b3c8c5be1",
+      "retrievedUtc": "2026-11-20T06:38:11+00:00",
+      "url": "https://opencode.ai/inference/go/openai/v1/models",
+      "snapshotSha256": "16dbe7422f4bacb48bd67193a35ae87719df437d8b7f9f821ef87aea357108bb"
+    },
+    "deepinfra": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "3eae8efdf107888e0a81bcbfbb4896f2d429c4ac332c9f95cd3753303c481e92",
+      "retrievedUtc": "2026-11-20T06:38:19+00:00",
+      "url": "https://api.deepinfra.com/v1/openai/models",
+      "snapshotSha256": "dff64236200ad9a75a6acad09052c4eac786dc48c3778f1916fd469ad9b67060"
+    },
+    "sambanova": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "88422b1aae232c0c60b479bd4d4390f0756b0968d42c3e75d7214e17ce900f69",
+      "retrievedUtc": "2026-11-20T06:38:12+00:00",
+      "url": "https://api.sambanova.ai/v1/models",
+      "snapshotSha256": "066e97d67062310451e2ab2f041f89b5cedf4073844ba486dafe026c6f4e5e5d"
+    },
+    "novita": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "00b31611782a32387a0cd4ba97c147631e8be5b0781166fe901b4b989ca93136",
+      "retrievedUtc": "2026-11-20T06:38:16+00:00",
+      "url": "https://api.novita.ai/v3/openai/models",
+      "snapshotSha256": "faecf53d1a56b72973b18cd5b00d557a45242942eced9744dc76b6f1069f14d8"
+    },
+    "cerebras": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "212f0f8c5a2ec790216a9327d1b1c44ec9a3f8b5f8fbc26418f71cde1fce3395",
+      "retrievedUtc": "2026-11-20T06:38:41+00:00",
+      "url": "https://api.cerebras.ai/public/v1/models",
+      "snapshotSha256": "96a56f961261edae1efec4e692f622c129fa17c70b87b0548488c3381294717f"
+    },
+    "siliconflow": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "799945118f1fd862c72db4d519318db70ae991f7a178e4bb1db1a8fcb779fdf7",
+      "retrievedUtc": "2026-11-20T06:38:13+00:00",
+      "url": "https://siliconflow.cn/models",
+      "snapshotSha256": "fe25cb5a656afe9feba1ee50497503da16104e91ce5af6f96db7a53ac4fb3a4c"
+    },
+    "together": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "92879aaba95c05ab6439d8c7fc87abae805aa3c4b09bcd44025029cd132e3826",
+      "retrievedUtc": "2026-11-20T06:38:15+00:00",
+      "url": "https://docs.together.ai/docs/serverless-models.md",
+      "snapshotSha256": "0240b8f966dc6860c37111ff0e3d3dc68e54e961744c6990b0411992fba795e2"
+    },
+    "groq": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "3a102a0cf66d7816c73190aa9fc1f0736daa2eba564875f150eaa80738f1f79d",
+      "retrievedUtc": "2026-11-20T06:38:15+00:00",
+      "url": "https://console.groq.com/docs/models.md",
+      "snapshotSha256": "af3cc89eded824592d1e69bf06f38888b2863232928530a140253777c9ddf75a"
+    },
+    "openai": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "0431762d5c61d0181e77b4f6efc1b5c689421316b27e65e251f4dc13ac21a078",
+      "retrievedUtc": "2026-11-20T06:38:14+00:00",
+      "url": "https://developers.openai.com/api/docs/models/all.md",
+      "snapshotSha256": "c33140d82fa299d692795f3021eea10f6ee68566108f19e01b29f0a64575587b"
+    },
+    "anthropic": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "d5d0ec8acea9cde0b2a218c7ab4224e6be514b8a04fc995c0e08d784ded3da8e",
+      "retrievedUtc": "2026-11-20T06:44:49+00:00",
+      "url": "https://platform.claude.com/docs/en/models/overview.md",
+      "snapshotSha256": "288fc208107d7a7e1e53b711976d577fc1c40dc05dde1e5df40d98470fab61f7"
+    },
+    "cohere": {
+      "license": "Public provider facts only (IDs, names, numeric limits, supported protocols)",
+      "rawSha256": "9fe88968b2b4a6a2baea2ab55c599b55f8e370f12d58546a71508c03ecc2ae3c",
+      "retrievedUtc": "2026-11-20T06:44:49+00:00",
+      "url": "https://docs.cohere.com/docs/models.mdx",
+      "snapshotSha256": "5fc3e866fb8fef7333b433079541d4aaa3b84a9b335bcd833ef4513c17f52ffd"
+    }
+  },
+  "providers": {
+    "deepseek": {
+      "origin": "https://api.deepseek.com",
+      "modelsDevKey": "deepseek",
+      "models": 4,
+      "context": 4,
+      "input": 0,
+      "output": 4,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 359,
+      "sha256": "0f7af798192275f925f3a3994062905cfeb3b7570007046e05ece1591e484d73",
+      "sources": {
+        "models.dev · deepseek": 4
+      }
+    },
+    "glm": {
+      "origin": "https://open.bigmodel.cn/api/paas/v4",
+      "modelsDevKey": "zhipuai",
+      "models": 17,
+      "context": 17,
+      "input": 0,
+      "output": 17,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 903,
+      "sha256": "d788cbf721b9e4a3288ad8dcf2e9e5896ece68f9de0e700be20d1dc9f4f3aa7b",
+      "sources": {
+        "models.dev · zhipuai": 17
+      }
+    },
+    "zai": {
+      "origin": "https://api.z.ai/api/paas/v4",
+      "modelsDevKey": "zai",
+      "models": 18,
+      "context": 18,
+      "input": 0,
+      "output": 18,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 946,
+      "sha256": "302709b1f71ecd7f78c1b0a2e567b2f7068e1a065926cc874fb6cd6e96ce6c7f",
+      "sources": {
+        "models.dev · zai": 18
+      }
+    },
+    "qwen": {
+      "origin": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "modelsDevKey": "alibaba-cn",
+      "models": 77,
+      "context": 77,
+      "input": 1,
+      "output": 77,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 4568,
+      "sha256": "9309b998327304ad2bb2f6383b4df7e607edae8d433fe6af3d266b8eb0214648",
+      "sources": {
+        "models.dev · alibaba-cn": 77
+      }
+    },
+    "qwen-intl": {
+      "origin": "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+      "modelsDevKey": "alibaba",
+      "models": 49,
+      "context": 49,
+      "input": 1,
+      "output": 49,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 2848,
+      "sha256": "dd6ddf3c170dd0f6a74651add4edd9d4d51d0f7f86936f8d82d2530a237db92c",
+      "sources": {
+        "models.dev · alibaba": 49
+      }
+    },
+    "kimi": {
+      "origin": "https://api.moonshot.cn/v1",
+      "modelsDevKey": "moonshotai-cn",
+      "models": 7,
+      "context": 6,
+      "input": 0,
+      "output": 6,
+      "missingContextIds": [
+        "kimi-k2-0905-preview"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 558,
+      "sha256": "629a87fd29e58ac104e7ddcd0f9f7ca958819e93c68e929ce1a9068252d29757",
+      "sources": {
+        "DeepChat preset · ID only": 1,
+        "models.dev · moonshotai-cn": 6
+      }
+    },
+    "kimi-intl": {
+      "origin": "https://api.moonshot.ai/v1",
+      "modelsDevKey": "moonshotai",
+      "models": 7,
+      "context": 6,
+      "input": 0,
+      "output": 6,
+      "missingContextIds": [
+        "kimi-k2-0905-preview"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 552,
+      "sha256": "b5a084ccdeccb39cf0b3a115f3e1ae61f42b8b8bdb72f3e909459ae650c6d6ab",
+      "sources": {
+        "DeepChat preset · ID only": 1,
+        "models.dev · moonshotai": 6
+      }
+    },
+    "siliconflow": {
+      "origin": "https://api.siliconflow.cn/v1",
+      "modelsDevKey": "siliconflow-cn",
+      "models": 63,
+      "context": 63,
+      "input": 0,
+      "output": 9,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 4336,
+      "sha256": "90f71f174303ca766e19ae09876498c384b2871c4d8251b2e43c266f754bf24b",
+      "sources": {
+        "siliconflow · official": 54,
+        "models.dev · siliconflow-cn": 9
+      }
+    },
+    "volcengine": {
+      "origin": "https://ark.cn-beijing.volces.com/api/v3",
+      "modelsDevKey": "volcengine",
+      "models": 17,
+      "context": 16,
+      "input": 0,
+      "output": 16,
+      "missingContextIds": [
+        "doubao-seed-1-6"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 1282,
+      "sha256": "865d4083d0e59220039dccfd753bf55ed06d42c5747302a34770b85b629a34e5",
+      "sources": {
+        "models.dev · volcengine": 16,
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "qianfan": {
+      "origin": "https://qianfan.baidubce.com/v2",
+      "modelsDevKey": null,
+      "models": 49,
+      "context": 49,
+      "input": 46,
+      "output": 45,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 3579,
+      "sha256": "ab91ee124d549fa945b481d23fdaa9626593b4b9a952c30052bd887267d85b15",
+      "sources": {
+        "千帆 AI 应用开发者中心 · 模型列表": 30,
+        "百度智能云 · 千帆模型列表": 19
+      }
+    },
+    "hunyuan": {
+      "origin": "https://tokenhub.tencentmaas.com/v1",
+      "modelsDevKey": "tencent-tokenhub",
+      "models": 41,
+      "context": 41,
+      "input": 40,
+      "output": 40,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 2218,
+      "sha256": "71b7b3f0634ecb41a883907df433cfdc0fdc1dfcb084fbc92213f3c351b3073c",
+      "sources": {
+        "腾讯云 TokenHub · 模型列表": 40,
+        "models.dev · tencent-tokenhub": 1
+      }
+    },
+    "minimax": {
+      "origin": "https://api.minimaxi.com/v1",
+      "modelsDevKey": "minimax-cn",
+      "models": 8,
+      "context": 8,
+      "input": 0,
+      "output": 8,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 453,
+      "sha256": "a169a32757a59dc688e278686ee9a7a881628b6bc3c9c8abddd8d5ca1d9ab921",
+      "sources": {
+        "models.dev · minimax-cn": 8
+      }
+    },
+    "minimax-intl": {
+      "origin": "https://api.minimax.io/v1",
+      "modelsDevKey": "minimax",
+      "models": 8,
+      "context": 8,
+      "input": 0,
+      "output": 8,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 447,
+      "sha256": "71238a598001d56be55f6cec8bbf17ef90a6a0698d36da96966c3e9186c7b6b9",
+      "sources": {
+        "models.dev · minimax": 8
+      }
+    },
+    "stepfun": {
+      "origin": "https://api.stepfun.com/v1",
+      "modelsDevKey": "stepfun",
+      "models": 5,
+      "context": 4,
+      "input": 4,
+      "output": 4,
+      "missingContextIds": [
+        "step-2-16k"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 423,
+      "sha256": "4ec439cee76b76ab0d7312b4ee4a684dd159da1dc68dc9af3f10ee0b686233ec",
+      "sources": {
+        "DeepChat preset · ID only": 1,
+        "models.dev · stepfun": 4
+      }
+    },
+    "spark": {
+      "origin": "https://spark-api-open.xf-yun.com/v1",
+      "modelsDevKey": null,
+      "models": 6,
+      "context": 0,
+      "input": 6,
+      "output": 6,
+      "missingContextIds": [
+        "4.0Ultra",
+        "generalv3",
+        "generalv3.5",
+        "lite",
+        "max-32k",
+        "pro-128k"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 397,
+      "sha256": "df8f6f239e37b7d7647232749d205a6ed4091252180ba2fefe47584daf336baf",
+      "sources": {
+        "讯飞开放平台 · 星火 HTTP 语言模型": 6
+      }
+    },
+    "sensenova": {
+      "origin": "https://api.sensenova.cn/compatible-mode/v2",
+      "modelsDevKey": null,
+      "models": 12,
+      "context": 11,
+      "input": 0,
+      "output": 2,
+      "missingContextIds": [
+        "SenseChat-Turbo"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 1139,
+      "sha256": "efab6b4d6e41a603c2cda65df4007364978624c228c2a59eb8dd1a2ef41402ce",
+      "sources": {
+        "商汤 · OpenAI 接口兼容模式": 5,
+        "商汤 · 拟人对话模型规格": 2,
+        "商汤 · 融合模态模型规格": 5
+      }
+    },
+    "baichuan": {
+      "origin": "https://api.baichuan-ai.com/v1",
+      "modelsDevKey": null,
+      "models": 12,
+      "context": 12,
+      "input": 0,
+      "output": 0,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 812,
+      "sha256": "7475a021afeb78e0326c113291f9e77de190cc35f4697f50910f170f7afb0db0",
+      "sources": {
+        "百川智能 · 模型服务与上下文长度": 12
+      }
+    },
+    "openai": {
+      "origin": "https://api.openai.com/v1",
+      "modelsDevKey": "openai",
+      "models": 121,
+      "context": 114,
+      "input": 2,
+      "output": 114,
+      "missingContextIds": [
+        "gpt-3.5-turbo-1106",
+        "gpt-3.5-turbo-instruct",
+        "gpt-4-0314",
+        "gpt-4-1106-vision-preview",
+        "gpt-4o-audio-preview-2024-10-01",
+        "gpt-4o-audio-preview-2024-12-17",
+        "gpt-audio-mini-2025-10-06"
+      ],
+      "otherProtocolIds": [
+        "codex-mini-latest",
+        "computer-use-preview",
+        "computer-use-preview-2025-03-11",
+        "gpt-5-codex",
+        "gpt-5-pro",
+        "gpt-5-pro-2025-10-06",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2-codex",
+        "gpt-5.2-pro",
+        "gpt-5.2-pro-2025-12-11",
+        "gpt-5.3-codex",
+        "gpt-5.4-pro",
+        "gpt-5.4-pro-2026-03-05",
+        "gpt-5.5-pro",
+        "gpt-5.5-pro-2026-04-23",
+        "gpt-5.6-cyber",
+        "gpt-5.6-sol",
+        "gpt-daybreak-blue-latest",
+        "gpt-daybreak-red-latest",
+        "gpt-oss-120b",
+        "gpt-oss-20b",
+        "o1-pro",
+        "o1-pro-2025-03-19",
+        "o3-deep-research",
+        "o3-deep-research-2025-06-26",
+        "o3-pro",
+        "o3-pro-2025-06-10",
+        "o4-mini-deep-research",
+        "o4-mini-deep-research-2025-06-26"
+      ],
+      "bytes": 12982,
+      "sha256": "6ff3ae45cbc2e73c439dcceba952f3dbafd14f1590f5cbf25dd9df5c29806447",
+      "sources": {
+        "OpenAI · official": 117,
+        "models.dev · openai": 4
+      }
+    },
+    "anthropic": {
+      "origin": "https://api.anthropic.com/v1",
+      "modelsDevKey": "anthropic",
+      "models": 21,
+      "context": 21,
+      "input": 0,
+      "output": 21,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 2715,
+      "sha256": "19df6f0d95b09da8f430dd31fb88c4988ce65113f63ca708a1e74a6883551339",
+      "sources": {
+        "Anthropic · official": 21
+      }
+    },
+    "gemini": {
+      "origin": "https://generativelanguage.googleapis.com/v1beta/openai",
+      "modelsDevKey": "google",
+      "models": 27,
+      "context": 27,
+      "input": 0,
+      "output": 27,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 1980,
+      "sha256": "33ec58ac103c02b095abf80908131c49364a85b3b82e8ba939976995395fa0f7",
+      "sources": {
+        "models.dev · google": 27
+      }
+    },
+    "xai": {
+      "origin": "https://api.x.ai/v1",
+      "modelsDevKey": "xai",
+      "models": 8,
+      "context": 7,
+      "input": 0,
+      "output": 7,
+      "missingContextIds": [
+        "grok-4"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 569,
+      "sha256": "edb592263747e8a763c99cd795ebdd787a45dab083b011d3f59841e5abdfb14e",
+      "sources": {
+        "DeepChat preset · ID only": 1,
+        "models.dev · xai": 7
+      }
+    },
+    "mistral": {
+      "origin": "https://api.mistral.ai/v1",
+      "modelsDevKey": "mistral",
+      "models": 33,
+      "context": 33,
+      "input": 0,
+      "output": 33,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 2145,
+      "sha256": "270118b5db7cc3518dd2c17986f2c9e19800f9e17eecac34e344f5733120aa5e",
+      "sources": {
+        "models.dev · mistral": 33
+      }
+    },
+    "groq": {
+      "origin": "https://api.groq.com/openai/v1",
+      "modelsDevKey": "groq",
+      "models": 9,
+      "context": 9,
+      "input": 0,
+      "output": 9,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 594,
+      "sha256": "e38079f9ac356bae7b6eaf7606eda47037abbe379ecdbcdffca49ee8ae3954a0",
+      "sources": {
+        "models.dev · groq": 2,
+        "groq · official": 7
+      }
+    },
+    "together": {
+      "origin": "https://api.together.xyz/v1",
+      "modelsDevKey": "togetherai",
+      "models": 45,
+      "context": 45,
+      "input": 0,
+      "output": 20,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 3224,
+      "sha256": "c7290f24d28357a66cd689184d4b7a5f7d42c065d99ea642b1200eb3b6c1429f",
+      "sources": {
+        "models.dev · togetherai": 20,
+        "together · official": 25
+      }
+    },
+    "fireworks": {
+      "origin": "https://api.fireworks.ai/inference/v1",
+      "modelsDevKey": "fireworks-ai",
+      "models": 28,
+      "context": 27,
+      "input": 0,
+      "output": 27,
+      "missingContextIds": [
+        "accounts/fireworks/models/llama-v3p3-70b-instruct"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 2629,
+      "sha256": "9acc5167af4e4bd859ddf197995875ba575edd76aec685bd26c9d041150fd447",
+      "sources": {
+        "models.dev · fireworks-ai": 27,
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "deepinfra": {
+      "origin": "https://api.deepinfra.com/v1/openai",
+      "modelsDevKey": "deepinfra",
+      "models": 115,
+      "context": 115,
+      "input": 1,
+      "output": 22,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 6736,
+      "sha256": "89a3e92a7d600594eaae736e918e9899eef4e37195a743adf5e2003ab9524969",
+      "sources": {
+        "deepinfra · official": 93,
+        "models.dev · deepinfra": 22
+      }
+    },
+    "cerebras": {
+      "origin": "https://api.cerebras.ai/v1",
+      "modelsDevKey": "cerebras",
+      "models": 3,
+      "context": 2,
+      "input": 0,
+      "output": 2,
+      "missingContextIds": [
+        "llama-3.3-70b"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 296,
+      "sha256": "9828048947dd9f4b959d3168d23f32deddd1d3bdb1060233811da4ce1e6bf004",
+      "sources": {
+        "cerebras · official": 2,
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "sambanova": {
+      "origin": "https://api.sambanova.ai/v1",
+      "modelsDevKey": "sambanova",
+      "models": 5,
+      "context": 4,
+      "input": 0,
+      "output": 4,
+      "missingContextIds": [
+        "Meta-Llama-3.3-70B-Instruct"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 380,
+      "sha256": "c46a90b144dd90b4769bfd0bbdc20fef0981d94148fab79503fc4d514d753da5",
+      "sources": {
+        "sambanova · official": 4,
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "novita": {
+      "origin": "https://api.novita.ai/v3/openai",
+      "modelsDevKey": "novita-ai",
+      "models": 96,
+      "context": 95,
+      "input": 3,
+      "output": 95,
+      "missingContextIds": [
+        "deepseek/deepseek-v3"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 6976,
+      "sha256": "e5466e84d664684d7ccfd1065a66d973d677dfff4b9179de7e61e6c2435a4f71",
+      "sources": {
+        "novita · official": 78,
+        "models.dev · novita-ai": 17,
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "openrouter": {
+      "origin": "https://openrouter.ai/api/v1",
+      "modelsDevKey": "openrouter",
+      "models": 385,
+      "context": 385,
+      "input": 0,
+      "output": 379,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 31038,
+      "sha256": "7bf984918bfa4b15e9cadb268a6797ba10dd1d1ba98129b11454e4d215992000",
+      "sources": {
+        "openrouter · official": 385
+      }
+    },
+    "perplexity": {
+      "origin": "https://api.perplexity.ai",
+      "modelsDevKey": "perplexity",
+      "models": 4,
+      "context": 4,
+      "input": 0,
+      "output": 4,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 309,
+      "sha256": "73e3b1525c125091a5158320e137f05ffe47bcd97ecac6ff70af9182a6c8b2a0",
+      "sources": {
+        "models.dev · perplexity": 4
+      }
+    },
+    "cohere": {
+      "origin": "https://api.cohere.ai/compatibility/v1",
+      "modelsDevKey": "cohere",
+      "models": 27,
+      "context": 17,
+      "input": 0,
+      "output": 17,
+      "missingContextIds": [
+        "c4ai-aya-expanse-8b",
+        "c4ai-aya-vision-8b",
+        "command",
+        "command-light",
+        "command-r",
+        "command-r-03-2024",
+        "command-r-plus",
+        "command-r-plus-04-2024",
+        "north-mini-code-1.0",
+        "north-small-translate-1.0"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 1616,
+      "sha256": "f72deb9983462ce15733bbf4572575dca41576a8bcc2c30616ffafea91eac2b0",
+      "sources": {
+        "models.dev · cohere": 17,
+        "cohere · official": 10
+      }
+    },
+    "opencode": {
+      "origin": "https://opencode.ai/inference/openai/v1",
+      "modelsDevKey": "opencode",
+      "models": 144,
+      "context": 144,
+      "input": 31,
+      "output": 144,
+      "missingContextIds": [],
+      "otherProtocolIds": [
+        "claude-fable-5",
+        "claude-fable-5-1",
+        "claude-fable-5-2",
+        "claude-haiku-4-5",
+        "claude-haiku-5-5",
+        "claude-opus-4-5",
+        "claude-opus-4-6",
+        "claude-opus-4-7",
+        "claude-opus-4-8",
+        "claude-opus-5",
+        "claude-opus-5-5",
+        "claude-sonnet-4-5",
+        "claude-sonnet-4-6",
+        "claude-sonnet-5",
+        "claude-sonnet-5-5",
+        "gemini-3.5-flash",
+        "gemini-3.5-flash-lite",
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-4-argon",
+        "gemini-4-carbon",
+        "gemini-4-hydrogen",
+        "gemini-4-neon",
+        "gpt-5",
+        "gpt-5-codex",
+        "gpt-5-nano",
+        "gpt-5.1",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-max",
+        "gpt-5.1-codex-mini",
+        "gpt-5.2",
+        "gpt-5.2-codex",
+        "gpt-5.3-codex",
+        "gpt-5.3-codex-spark",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-nano",
+        "gpt-5.4-pro",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-5.6-luna",
+        "gpt-5.6-sol",
+        "gpt-5.6-terra",
+        "gpt-6-astra",
+        "gpt-6-luna",
+        "gpt-6-sol",
+        "gpt-6.1-sol",
+        "gpt-6.2-astra",
+        "gpt-6.2-sol",
+        "grok-4.5",
+        "grok-4.6",
+        "grok-4.7",
+        "grok-build-0.1",
+        "muse-ember-1.0",
+        "muse-spark-1.2",
+        "muse-spark-1.3",
+        "muse-wonder-1.0",
+        "qwen3.5-plus",
+        "qwen3.6-plus",
+        "qwen3.8-flash"
+      ],
+      "bytes": 9080,
+      "sha256": "a9dceb16b7afed5b07698f89e3d7347b4aeaef46c51857a71a26f6ce89eb366a",
+      "sources": {
+        "opencode · official": 83,
+        "models.dev · opencode": 61
+      }
+    },
+    "opencode-go": {
+      "origin": "https://opencode.ai/inference/go/openai/v1",
+      "modelsDevKey": "opencode-go",
+      "models": 42,
+      "context": 42,
+      "input": 8,
+      "output": 42,
+      "missingContextIds": [],
+      "otherProtocolIds": [
+        "claude-haiku-5-5",
+        "gemini-4-argon",
+        "gpt-5.6-luna",
+        "gpt-6-luna",
+        "grok-4.7",
+        "minimax-m3",
+        "muse-spark-1.2-contributor",
+        "muse-spark-1.3-contributor",
+        "qwen3.7-plus",
+        "qwen3.8-flash",
+        "qwen3.8-max",
+        "qwen4-max"
+      ],
+      "bytes": 2764,
+      "sha256": "3225dfc4497f28356bfb547959ac8887e1b5ff92b6b19222c32e352af7bba6bb",
+      "sources": {
+        "opencode-go · official": 31,
+        "models.dev · opencode-go": 11
+      }
+    },
+    "ollama": {
+      "origin": "http://localhost:11434/v1",
+      "modelsDevKey": null,
+      "models": 1,
+      "context": 0,
+      "input": 0,
+      "output": 0,
+      "missingContextIds": [
+        "llama3.2"
+      ],
+      "otherProtocolIds": [],
+      "bytes": 127,
+      "sha256": "4807ce30c7dba483d88a2b7a306bc844e809b929f368b0e2bd260e7bd1821081",
+      "sources": {
+        "DeepChat preset · ID only": 1
+      }
+    },
+    "lmstudio": {
+      "origin": "http://localhost:1234/v1",
+      "modelsDevKey": "lmstudio",
+      "models": 3,
+      "context": 3,
+      "input": 0,
+      "output": 3,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 271,
+      "sha256": "f202e1896b48762028d609d971d16e1e11b1027b65d6371a6c88bae8eefa6400",
+      "sources": {
+        "models.dev · lmstudio": 3
+      }
+    },
+    "custom": {
+      "origin": "",
+      "modelsDevKey": null,
+      "models": 0,
+      "context": 0,
+      "input": 0,
+      "output": 0,
+      "missingContextIds": [],
+      "otherProtocolIds": [],
+      "bytes": 25,
+      "sha256": "e66d807bd69803a82d4b9dda2e29412dcf78ad2b9d2631e7a397e83029f57547",
+      "sources": {}
+    }
+  },
+  "totalModels": 1517,
+  "knownContext": 1483,
+  "chunkBytes": 112276
+}

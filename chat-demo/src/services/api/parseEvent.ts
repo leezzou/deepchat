@@ -1,6 +1,7 @@
 import type {
   ContentBlockDelta,
   MessageStreamEvent,
+  MessageUsage,
   OutputBlockStart,
   TextCitation,
 } from './types.js'
@@ -167,13 +168,37 @@ const readDelta = (value: unknown): ContentBlockDelta | null => {
 
 // Some Anthropic-compatible streams omit the two optional cache counters. A delta
 // can contain only the cumulative output counter, leaving the starting input intact.
-const readUsage = (value: unknown, start: boolean) => {
-  if (!isRecord(value) || !isIndex(value.output_tokens)) return undefined
-  for (const key of ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens']) {
-    if (value[key] !== undefined && !isIndex(value[key])) return undefined
+function readUsage(value: unknown): MessageUsage | undefined {
+  if (!isRecord(value)) {
+    return undefined
   }
-  if (start && !isIndex(value.input_tokens)) return undefined
-  return start ? { cache_read_input_tokens: 0, cache_creation_input_tokens: 0, ...value } : value
+  const usage: MessageUsage = {}
+  for (const key of [
+    'input_tokens',
+    'output_tokens',
+    'input_tokens_total',
+    'output_tokens_total',
+    'cache_read_input_tokens',
+    'cache_creation_input_tokens',
+    'cache_read_output_tokens',
+    'cache_creation_output_tokens',
+  ] as const) {
+    if (isIndex(value[key])) {
+      usage[key] = value[key] as number
+    }
+  }
+  if (isRecord(value.server_tool_use)) {
+    const tools = value.server_tool_use
+    if (isIndex(tools.web_search_requests) || isIndex(tools.tool_search)) {
+      usage.server_tool_use = {
+        ...(isIndex(tools.web_search_requests) && {
+          web_search_requests: tools.web_search_requests as number,
+        }),
+        ...(isIndex(tools.tool_search) && { tool_search: tools.tool_search as number }),
+      }
+    }
+  }
+  return Object.keys(usage).length ? usage : undefined
 }
 
 /** 未识别或无法安全消费的事件静默丢弃，不影响后续有效内容与正常结束。 */
@@ -190,7 +215,7 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
         ...value,
         message: {
           ...value.message,
-          usage: readUsage(value.message.usage, true),
+          usage: readUsage(value.message.usage),
         },
       } as MessageStreamEvent
     case 'content_block_start': {
@@ -210,6 +235,10 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
         return null
       }
       break
+    case 'message_usage': {
+      const usage = readUsage(value.usage)
+      return usage ? { type: 'message_usage', usage } : null
+    }
     case 'message_delta':
       if (
         !isRecord(value.delta) ||
@@ -217,7 +246,8 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
           value.delta.stop_reason as string
         )
       ) {
-        return null
+        const usage = readUsage(value.usage)
+        return usage ? { type: 'message_usage', usage } : null
       }
       return {
         ...value,
@@ -225,7 +255,7 @@ export const readMessageEvent = (value: unknown): MessageStreamEvent | null => {
           ...value.delta,
           title: isOptionalString(value.delta.title) ? value.delta.title : undefined,
         },
-        usage: readUsage(value.usage, false),
+        usage: readUsage(value.usage),
       } as MessageStreamEvent
     case 'message_stop':
       break

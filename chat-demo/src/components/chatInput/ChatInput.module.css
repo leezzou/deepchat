@@ -31,6 +31,18 @@
   }
 }
 
+.fileOptions {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 8px;
+
+  small {
+    margin-bottom: 10px;
+    color: var(--dsw-alias-label-secondary);
+    line-height: 1.5;
+  }
+}
+
 .attachments {
   display: flex;
   align-items: flex-end;
@@ -306,6 +318,12 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
+}
+
+/* Match the stop mark to the painted disk, inside the larger mobile touch target. */
+.sendButton > svg[data-stop-glyph] {
+  width: 30%;
+  height: 30%;
 }
 
 @media (max-width: 767px) {

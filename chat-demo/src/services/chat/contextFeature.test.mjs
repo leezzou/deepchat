@@ -508,7 +508,9 @@ test('continuing a summarized message invalidates its old checkpoint and retains
   })
   const updated = useChatStore.getState().sessionCache[value.id]
   assert.equal(updated.checkpoint, undefined)
-  assert.match(JSON.stringify(fixture.requests.at(-1).messages.at(-1)), /ORIGINAL_PREFIX/)
+  const messages = fixture.requests.at(-1).messages
+  assert.match(JSON.stringify(messages.at(-2)), /ORIGINAL_PREFIX/)
+  assert.equal(messages.at(-1).role, 'user')
   assert.equal(
     getVisibleMessages(updated)
       .at(-1)
@@ -698,6 +700,7 @@ const lastReplyAfter = async (value, start) => {
 
 test('send counts document references across selected rounds and accepts exactly 20', async () => {
   fixture.config.protocol = 'deepseek'
+  fixture.settings.apiProfiles[0].contextWindow = 128000 // isolate the document count limit from its token estimate
   const file = attachment('pdf', 'large.pdf', 90 * 1024 * 1024)
   const old = { ...user('u1'), files: Array(20).fill(file) }
   fixture.draft = { text: '', files: [file] }
@@ -834,4 +837,42 @@ test('failed persistence rejects history replacement before its destructive call
   assert.equal(useChatStore.getState().sessionCache[value.id], retained)
   fixture.save = null
   await store.flushChatPersistence()
+})
+
+
+test('send guard and automatic/manual compaction use the independently selected model budget', async () => {
+  const { setConversationMode } = await import('../conversationMode/storage.ts')
+  const { profileWindowKey } = await import('../api/contextOverrides.ts')
+  const origin = 'https://fixture.invalid/v1'
+  const modelKey = id => profileWindowKey(origin, id, 'openai')
+  fixture.settings.apiProfiles = [{ id: 'p', apiKey: 'scoped', origin, protocol: 'openai', model: 'large', contextWindows: {
+    [modelKey('tiny')]: 2000, [modelKey('large')]: 20000,
+  } }]
+  const value = session([user('u1', 'x'.repeat(16000)), assistant('a1'), user('u2'), assistant('a2')])
+  fixture.draft = { text: 'NEXT', files: [] }
+  setConversationMode(value.id, { model: 'tiny' })
+  const rejected = await lastReplyAfter(value, () => store.sendMessage(value.id))
+  assert.equal(rejected.error.localMessage.key, 'contextRequestTooLarge')
+  assert.equal(fixture.requests.length, 0)
+  setConversationMode(value.id, { model: 'large' })
+  assert.equal(contextWindowTokens(value.id), 20000)
+  mount(value)
+  assert.equal((await compactSession(value.id)).message, 'contextCompactLocked')
+  const sent = await lastReplyAfter(value, () => store.sendMessage(value.id))
+  assert.equal(sent.status, 'done')
+  setConversationMode(value.id, { model: 'tiny' })
+  assert.equal(contextWindowTokens(value.id), 2000)
+  mount(value)
+  assert.notEqual((await compactSession(value.id)).message, 'contextCompactLocked')
+})
+
+// No settings or catalog screen has opened. The very first request loads the provider data itself.
+test('cold chat send enforces the exact provider input cap before dispatch', async () => {
+  fixture.settings.apiProfiles = [{ id: 'p', apiKey: 'test', origin: 'https://spark-api-open.xf-yun.com/v1', protocol: 'openai', model: 'generalv3' }]
+  fixture.draft = { text: 'z'.repeat(29000), files: [] }
+  const value = session([])
+  const blocked = await lastReplyAfter(value, () => store.sendMessage(value.id))
+  assert.equal(contextWindowTokens(value.id), 8192)
+  assert.equal(blocked.error.localMessage.key, 'contextRequestTooLarge')
+  assert.equal(fixture.requests.length, 0)
 })

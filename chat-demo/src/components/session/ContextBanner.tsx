@@ -1,4 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { endpointProvider, warmModelWindows } from '../../services/api/modelWindows.js'
+import { useWindowOverrides } from '../../services/api/contextOverrides.js'
+import { getConversationRoute } from '../../services/api/access.js'
+import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { useTranslate } from '../../i18n/index.js'
 import { exportHistory } from '../../services/chat/backup.js'
 import {
@@ -52,6 +56,18 @@ export const ContextBanner = ({ session }: { session: Session }) => {
   useSettings((state) => state.apiProfiles)
   useSettings((state) => state.activeProfileId)
   useSettings((state) => state.chatSource)
+  useSettings((state) => state.accountRevision)
+  useWorkBuddyState(s => s.metadata)
+  useWorkBuddyState(s => s.models)
+  useWindowOverrides(s => s.values)
+  const route = getConversationRoute(session.id)
+  const provider = endpointProvider(route.origin, route.profile?.providerId)
+  const [, refreshBudget] = useState(0)
+  useEffect(() => {
+    let current = true
+    warmModelWindows(provider)?.then(() => { if (current) {refreshBudget(n => n + 1)} })
+    return () => { current = false }
+  }, [provider])
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [summaryOpen, setSummaryOpen] = useState(false)
   const [editingSummary, setEditingSummary] = useState(false)
@@ -346,6 +362,7 @@ export const ContextBanner = ({ session }: { session: Session }) => {
                 window: contextWindowTokens(session.id).toLocaleString(),
               })}
             </p>
+            {route.windowBasis === 'fallback' && <p className={styles.panelHint}>{t('modelContextFallback')}</p>}
             <div className={styles.presets}>
               <Button
                 variant="outlined"

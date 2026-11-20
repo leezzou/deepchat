@@ -1,5 +1,6 @@
 import { ApiError, request } from './client.js'
-import { accessOrigin, type ChatAccess } from './access.js'
+import { accountOrigin, type ChatAccess } from './access.js'
+import { isDeepSeekApiOrigin } from './providerParity.js'
 
 /**
  * 语音接口：
@@ -7,7 +8,15 @@ import { accessOrigin, type ChatAccess } from './access.js'
  * - TTS：POST /v1/tools/tts，返回音频字节流（产出首帧后即返回 200）
  * 鉴权都用 Authorization: Bearer。
  */
-const toolsBaseUrl = (access: ChatAccess) => `${accessOrigin(access)}/v1/tools`
+const toolsBaseUrl = (access: ChatAccess) => {
+  if (
+    access.source === 'account' ||
+    (access.source === 'api' && isDeepSeekApiOrigin(access.config.origin))
+  ) {
+    return `${accountOrigin}/v1/tools`
+  }
+  throw new ApiError('protocol', { key: 'voiceOfflineUnavailable' })
+}
 const headers = (access: ChatAccess): Record<string, string> =>
   access.source === 'api' ? { Authorization: `Bearer ${access.key}` } : {}
 
@@ -24,12 +33,16 @@ export const transcribe = async (
 ): Promise<string> => {
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
-  const response = await request(`${toolsBaseUrl(access)}/asr`, {
-    method: 'POST',
-    headers: headers(access),
-    body: form,
-    signal,
-  }, access)
+  const response = await request(
+    `${toolsBaseUrl(access)}/asr`,
+    {
+      method: 'POST',
+      headers: headers(access),
+      body: form,
+      signal,
+    },
+    access
+  )
   const raw = await response.text()
   let body: unknown
   try {
@@ -55,12 +68,16 @@ export const synthesize = async (
   voice: TtsVoice,
   signal: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> => {
-  const response = await request(`${toolsBaseUrl(access)}/tts`, {
-    method: 'POST',
-    headers: { ...headers(access), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice_id: voice, format: 'pcm', filter_markdown: true }),
-    signal,
-  }, access)
+  const response = await request(
+    `${toolsBaseUrl(access)}/tts`,
+    {
+      method: 'POST',
+      headers: { ...headers(access), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, voice_id: voice, format: 'pcm', filter_markdown: true }),
+      signal,
+    },
+    access
+  )
   if (!response.body) {
     throw new ApiError('protocol', await response.text())
   }

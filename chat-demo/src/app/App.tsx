@@ -17,7 +17,7 @@ import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
 import { ensureApiKey, openSettings } from '../components/settings/settingsDialogState.js'
-import { BackupReminder, SettingsDialog } from '../components/settings/SettingsDialog.js'
+import { SettingsDialog } from '../components/settings/SettingsDialog.js'
 import { ApiUsageDialog } from '../components/settings/ApiUsage.js'
 import { HistorySearch } from '../components/historySearch/HistorySearch.js'
 import {
@@ -34,7 +34,8 @@ import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
 import { onUploadNotice } from '../services/attachments.js'
 import { Button } from '../components/base/Button.js'
-import { stopReadAloud } from '../services/speech/readAloud.js'
+import { describeReadAloudError, stopReadAloud } from '../services/speech/readAloud.js'
+import { bindAutoRead } from '../services/speech/autoRead.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { backFromChat, closeMobileSider, useMobileSider } from '../components/sider/mobileSiderState.js'
 import { useBackLayer } from '../shell/navigationMotion.js'
@@ -96,6 +97,12 @@ export const App = () => {
   // 文件数、存储空间达到上限时，附件上只显示「上传失败」，原因用 toast 说明
   useEffect(() => onUploadNotice(showToast), [])
   useEffect(bindChatPersistence, [])
+  useEffect(() => {
+    if (!ready) return
+    const controller = new AbortController()
+    void import('../services/usage/ledger.js').then(({ migrateUsage }) => migrateUsage(controller.signal)).catch(() => {})
+    return () => controller.abort()
+  }, [ready])
   useEffect(bindDraftPersistence, [])
   useEffect(bindUpdateSafety, [])
   useEffect(() => (ready && draftsReady ? initializeAutoBackup() : undefined), [ready, draftsReady])
@@ -104,6 +111,7 @@ export const App = () => {
   useEffect(closeSearchPanel, [activeId])
   // 切换会话时停止朗读
   useEffect(stopReadAloud, [activeId])
+  useEffect(() => bindAutoRead(error => showToast(describeReadAloudError(error))), [])
   // Explicit navigation closes the drawer; background loads do not dismiss its children.
   useEffect(closeMobileSider, [isMobile])
   const contentRef = useRef<HTMLDivElement>(null)
@@ -132,11 +140,13 @@ export const App = () => {
       initializeAccount((account) =>
         useSettings.setState({
           accountSignedIn: account.signedIn,
+          accountRevision: account.revision ?? null,
           accountName: account.name,
           accountAvatar: account.avatar,
         })
       )
-    } else {
+    } else if (useSettings.getState().chatSource !== 'workbuddy') {
+      // WorkBuddy restores its authorized model list asynchronously and uses its own sign-in.
       ensureApiKey()
     }
   }, [])
@@ -231,7 +241,6 @@ export const App = () => {
       {ready && draftsReady && !importingHistory && <IncomingShare />}
       <ApiUsageDialog />
       <HistorySearch />
-      <BackupReminder />
       <Toast />
     </>
   )

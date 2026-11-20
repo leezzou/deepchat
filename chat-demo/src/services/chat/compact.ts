@@ -1,3 +1,4 @@
+import { endpointProvider, warmModelWindows } from '../api/modelWindows.js'
 import { streamMessage } from '../api/client.js'
 import { getChatAccess, getConversationRoute } from '../api/access.js'
 import type { CreateMessageRequest, MessageParam } from '../api/types.js'
@@ -141,7 +142,7 @@ export const shouldWarnContext = (session: Session): boolean =>
   contextPressure(session) >= THRESHOLD_RATIO
 
 const summaryRequest = (messages: MessageParam[], sessionId: string): CreateMessageRequest => ({
-  model: getConversationRoute(sessionId).nativeModel,
+  model: getConversationRoute(sessionId).model,
   system: 'Summarize the selected conversation using the final checkpoint instructions.',
   messages,
   thinking: { type: 'disabled' },
@@ -208,6 +209,13 @@ export const compactSession = async (
   sessionId: string,
   options: CompactOptions = {}
 ): Promise<CompactResult> => {
+  const route = getConversationRoute(sessionId)
+  const warming = warmModelWindows(endpointProvider(route.origin, route.profile?.providerId))
+  if (warming) {
+    const initial = JSON.stringify(getChatAccess(sessionId))
+    await warming
+    if (initial !== JSON.stringify(getChatAccess(sessionId))) {return { ok: false, message: translate('contextSummaryChanged') }}
+  }
   const access = getChatAccess(sessionId)
   const store = useChatStore.getState()
   const session = store.sessionCache[sessionId]
@@ -252,7 +260,7 @@ export const compactSession = async (
     }
   }
   try {
-    const window = contextWindowTokens(sessionId)
+    const window = Math.min(contextWindowTokens(sessionId), getConversationRoute(sessionId).context.input ?? Infinity)
     const files = indexRequestFiles(history)
     const roundCost = (round: (typeof rounds)[number]) => {
       const placeholder = { ...round[0], content: '', files: [] }
@@ -306,7 +314,9 @@ export const compactSession = async (
       for await (const event of streamMessage(
         access,
         summaryRequest(messages, sessionId),
-        controller.signal
+        controller.signal,
+        undefined,
+        'summary'
       )) {
         controller.signal.throwIfAborted()
         if (event.type === 'content_block_start' && event.content_block.type === 'text') {

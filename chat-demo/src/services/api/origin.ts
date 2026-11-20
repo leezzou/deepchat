@@ -3,14 +3,16 @@
  * 构建期注入默认值（DeepSeek 官方 + Anthropic 兼容协议），运行时由所选 API 配置覆盖。
  */
 
-/** deepseek = DeepSeek 的 Anthropic 兼容协议；openai = OpenAI 兼容 /chat/completions */
-export type ApiProtocol = 'deepseek' | 'openai'
+/** The DeepSeek Messages dialect, OpenAI-compatible chat, or official Claude Messages. */
+export type ApiProtocol = 'deepseek' | 'openai' | 'anthropic'
 
 export type ApiRuntimeConfig = {
   origin: string
   protocol: ApiProtocol
   /** 仅 openai 协议使用；deepseek 协议固定用内置模型 */
   model: string
+  providerId?: string
+  reasoningSupport?: import('./providerParity.js').ReasoningSupport
 }
 
 const DEFAULT_ORIGIN = __API_ORIGIN__

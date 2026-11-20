@@ -23,17 +23,24 @@ export type SafetySnapshot = BackupMetadata & {
 export type BackupPreferences = {
   autoEnabled: boolean
   completedRounds: number
+  /** Invalidates in-flight writers after disabling, deleting or committing a backup. */
+  revision?: number
   /** 按用户轮次去重，重试/续写不重复计数；只保留最近的记录。 */
   recentRoundIds: string[]
 }
 
-export type SnapshotPart = { session?: Session; files?: StoredFile[]; draft?: StoredDraft; metadata?: PortableMetadata }
+export type SnapshotPart = {
+  session?: Session
+  files?: StoredFile[]
+  draft?: StoredDraft
+  metadata?: PortableMetadata
+}
 type SnapshotPointer = BackupMetadata & { parts: number }
 type SnapshotRecord = SafetySnapshot | SnapshotPointer
 type SnapshotSlot = 'latest' | 'previous'
 
 interface BackupDB extends DBSchema {
-  artifacts: { key: 'latest'; value: BackupArtifact }
+  artifacts: { key: 'latest' | 'automatic'; value: BackupArtifact }
   snapshots: { key: SnapshotSlot | 'pending'; value: SnapshotPointer | { legacy: SnapshotSlot } }
   legacySnapshots: { key: SnapshotSlot; value: SafetySnapshot }
   snapshotParts: { key: [string, number]; value: SnapshotPart }
@@ -71,7 +78,18 @@ const getDB = () =>
     throw error
   }))
 
-export const readBackup = async () => (await getDB()).get('artifacts', 'latest')
+// Earlier versions shared `latest` between manual and automatic exports. Read old copies
+// in place, including on a full device where copying a ZIP during an upgrade could fail.
+export const readBackupArtifacts = async () => {
+  const tx = (await getDB()).transaction('artifacts')
+  const [latest, automatic] = await Promise.all([tx.store.get('latest'), tx.store.get('automatic')])
+  return {
+    manual: latest?.reason === 'automatic' ? undefined : latest,
+    automatic: automatic ?? (latest?.reason === 'automatic' ? latest : undefined),
+  }
+}
+export const readBackup = async () => (await readBackupArtifacts()).manual
+
 export const readSnapshotRecord = async (): Promise<SnapshotRecord | undefined> => {
   const tx = (await getDB()).transaction(['snapshots', 'legacySnapshots'])
   const slot = await tx.objectStore('snapshots').get('latest')
@@ -127,17 +145,117 @@ export const readSafetySnapshot = async (): Promise<SafetySnapshot | undefined> 
   }
   return result
 }
-export const readBackupPreferences = async (): Promise<BackupPreferences> =>
-  (await (await getDB()).get('preferences', 'settings')) ?? {
-    autoEnabled: true,
-    completedRounds: 0,
-    recentRoundIds: [],
+const defaults = (): BackupPreferences => ({
+  autoEnabled: true,
+  completedRounds: 0,
+  recentRoundIds: [],
+})
+export const readBackupPreferences = async (): Promise<BackupPreferences> => {
+  const current = (await (await getDB()).get('preferences', 'settings')) ?? defaults()
+  if (current.autoEnabled || (!current.recentRoundIds.length && !current.completedRounds)) {
+    return current
   }
-
-export const writeBackup = async (artifact: BackupArtifact) => {
-  const tx = (await getDB()).transaction('artifacts', 'readwrite')
-  await Promise.all([tx.store.put(artifact, 'latest'), tx.done])
+  // Older builds continued to remember round IDs while disabled. Scrub those at first read,
+  // rechecking inside the transaction so a concurrent opt-in is never overwritten.
+  return autoTransaction(async (tx) => {
+    const p = await preferencesIn(tx)
+    if (!p.autoEnabled && (p.recentRoundIds.length || p.completedRounds)) {
+      resetRounds(p)
+      await tx.objectStore('preferences').put(p, 'settings')
+    }
+    return p
+  })
 }
+
+const autoStores = ['preferences', 'artifacts'] as const
+type AutoTx = IDBPTransaction<BackupDB, typeof autoStores, 'readwrite'>
+// A quota error or synchronous IndexedDB exception must roll back every change, including deletion.
+async function autoTransaction<T>(run: (tx: AutoTx) => Promise<T>): Promise<T> {
+  const tx = (await getDB()).transaction(autoStores, 'readwrite')
+  try {
+    const [result] = await Promise.all([run(tx), tx.done])
+    return result
+  } catch (error) {
+    try {
+      tx.abort()
+    } catch {
+      /* transaction already aborted */
+    }
+    await tx.done.catch(() => {})
+    throw error
+  }
+}
+const preferencesIn = async (tx: AutoTx) =>
+  (await tx.objectStore('preferences').get('settings')) ?? defaults()
+const resetRounds = (p: BackupPreferences) => {
+  p.completedRounds = 0
+  p.recentRoundIds = []
+  p.revision = (p.revision ?? 0) + 1
+}
+
+export const changeAutomaticPreference = (enabled: boolean) =>
+  autoTransaction(async (tx) => {
+    const p = await preferencesIn(tx)
+    if (p.autoEnabled !== enabled || (!enabled && (p.recentRoundIds.length || p.completedRounds))) {
+      resetRounds(p)
+      p.autoEnabled = enabled
+      await tx.objectStore('preferences').put(p, 'settings')
+    }
+    return p
+  })
+
+export const AUTO_INTERVAL = 10
+export const countAutomaticRound = (roundId: string) =>
+  autoTransaction(async (tx) => {
+    const p = await preferencesIn(tx)
+    if (!p.autoEnabled || p.recentRoundIds.includes(roundId)) {
+      return { due: false, preferences: p }
+    }
+    p.recentRoundIds = [...p.recentRoundIds.slice(-199), roundId]
+    p.completedRounds += 1
+    await tx.objectStore('preferences').put(p, 'settings')
+    return { due: p.completedRounds >= AUTO_INTERVAL, preferences: p }
+  })
+
+export const commitAutomaticBackup = (artifact: BackupArtifact, revision: number) =>
+  autoTransaction(async (tx) => {
+    const p = await preferencesIn(tx)
+    if (!p.autoEnabled || (p.revision ?? 0) !== revision || p.completedRounds < AUTO_INTERVAL) {
+      return null
+    }
+    const artifacts = tx.objectStore('artifacts')
+    if ((await artifacts.get('latest'))?.reason === 'automatic') {
+      await artifacts.delete('latest')
+    }
+    await artifacts.put(artifact, 'automatic')
+    p.completedRounds %= AUTO_INTERVAL
+    p.revision = revision + 1
+    await tx.objectStore('preferences').put(p, 'settings')
+    return p
+  })
+
+export const removeAutomaticCopy = () =>
+  autoTransaction(async (tx) => {
+    const artifacts = tx.objectStore('artifacts')
+    if ((await artifacts.get('latest'))?.reason === 'automatic') {
+      await artifacts.delete('latest')
+    }
+    await artifacts.delete('automatic')
+    const p = await preferencesIn(tx)
+    resetRounds(p)
+    await tx.objectStore('preferences').put(p, 'settings')
+    return p
+  })
+
+export const writeBackup = (artifact: BackupArtifact) =>
+  autoTransaction(async (tx) => {
+    const artifacts = tx.objectStore('artifacts')
+    const old = await artifacts.get('latest')
+    if (old?.reason === 'automatic' && !(await artifacts.count('automatic'))) {
+      await artifacts.put(old, 'automatic')
+    }
+    await artifacts.put(artifact, 'latest')
+  })
 
 const snapshotStores = ['snapshots', 'snapshotParts', 'legacySnapshots'] as const
 type SnapshotTx = IDBPTransaction<BackupDB, typeof snapshotStores, 'readwrite'>
@@ -216,11 +334,6 @@ export const writeSafetySnapshot = (info: BackupMetadata, parts: AsyncIterable<S
   navigator.locks
     ? navigator.locks.request('chat-demo:safety-snapshot', () => stageSnapshot(info, parts))
     : stageSnapshot(info, parts)
-
-export const writeBackupPreferences = async (preferences: BackupPreferences) => {
-  const tx = (await getDB()).transaction('preferences', 'readwrite')
-  await Promise.all([tx.store.put(preferences, 'settings'), tx.done])
-}
 
 export const backupMetadata = (artifact: BackupMetadata): BackupMetadata => ({
   id: artifact.id,

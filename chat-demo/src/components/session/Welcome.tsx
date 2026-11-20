@@ -5,6 +5,7 @@ import { useSettings } from '../../services/settings.js'
 import { resolveLocale, useTranslate } from '../../i18n/index.js'
 import { WhaleLogo } from '../base/WhaleLogo.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
+import { AutoReadButton } from './AutoReadButton.js'
 import { MobileHeader } from './MobileHeader.js'
 import { ConversationControls } from './ConversationControls.js'
 import styles from './Welcome.module.css'
@@ -28,6 +29,7 @@ export const Welcome = () => {
         <header className={styles.header}>
           <ConversationControls sessionId={null} />
           <GlobalMemorySwitch sessionId={null} />
+          <AutoReadButton sessionId={null} />
         </header>
       )}
       <div className={styles.welcome}>

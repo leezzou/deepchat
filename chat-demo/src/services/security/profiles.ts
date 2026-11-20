@@ -1,4 +1,7 @@
 import { defaultApiOrigin, normalizeOrigin } from '../api/origin.js'
+import { allowsKeylessLocal, validWindow } from '../api/modelWindows.js'
+import { decodeWindows } from '../api/contextOverrides.js'
+import { restoreClaudeFacts } from '../api/anthropicOfficial.js'
 import type { ApiProfile } from '../settings.js'
 
 export const LEGACY_LIST = 'chat-demo:api-profiles'
@@ -15,19 +18,27 @@ function decodeList(text: string): ApiProfile[] {
     throw new Error('invalid-profile-list')
   }
   return list.map((raw, i) => {
-    if (!raw || typeof raw.apiKey !== 'string' || !raw.apiKey) {
+    if (!raw || typeof raw.apiKey !== 'string' || (!raw.apiKey && !allowsKeylessLocal(raw.origin, raw.protocol))) {
       throw new Error('invalid-profile')
     }
+    const reasoning = Object.entries(raw.discoveredReasoning ?? {}).filter(([key, v]) =>
+      key.startsWith('[') && (v === 'toggle' || v === 'fixed' || v === 'none'))
+    const discoveredWindows = decodeWindows(raw.discoveredWindows, false) as Record<string, number> | undefined
+    const kinds = Object.entries(raw.discoveredWindowKinds ?? {}).filter(([key, kind]) =>
+      discoveredWindows?.[key] && ['input', 'endpoint', 'instance', 'model'].includes(String(kind)))
     return {
       id: typeof raw.id === 'string' && raw.id ? raw.id : `legacy-${i + 1}`,
       name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim() : 'DeepSeek',
-      protocol: raw.protocol === 'openai' ? 'openai' : 'deepseek',
+      protocol: raw.protocol === 'anthropic' || raw.protocol === 'openai' ? raw.protocol : 'deepseek',
       origin: normalizeOrigin(typeof raw.origin === 'string' ? raw.origin : ''),
       model: typeof raw.model === 'string' ? raw.model.trim() : '',
-      contextWindow:
-        typeof raw.contextWindow === 'number' && raw.contextWindow > 0
-          ? raw.contextWindow
-          : undefined,
+      ...(raw.claudeModelFacts && { claudeModelFacts: restoreClaudeFacts(raw.origin, raw.claudeModelFacts) }),
+      contextWindow: validWindow(raw.contextWindow) ? raw.contextWindow : undefined,
+      ...(decodeWindows(raw.contextWindows) && { contextWindows: decodeWindows(raw.contextWindows) }),
+      ...(reasoning.length && { discoveredReasoning: Object.fromEntries(reasoning) as ApiProfile['discoveredReasoning'] }),
+      ...(discoveredWindows && { discoveredWindows }),
+      ...(kinds.length && { discoveredWindowKinds: Object.fromEntries(kinds) as ApiProfile['discoveredWindowKinds'] }),
+      ...(typeof raw.providerId === 'string' && { providerId: raw.providerId }),
       apiKey: raw.apiKey,
     }
   })

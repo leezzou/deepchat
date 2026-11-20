@@ -10,9 +10,16 @@ import com.getcapacitor.BridgeWebViewClient;
 final class AppNavigationClient extends BridgeWebViewClient {
     private final Bridge bridge;
 
-    AppNavigationClient(Bridge bridge) {
+    private final Runnable documentChanged;
+    AppNavigationClient(Bridge bridge, Runnable documentChanged) {
         super(bridge);
         this.bridge = bridge;
+        this.documentChanged = documentChanged;
+    }
+
+    @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap icon) {
+        documentChanged.run();
+        super.onPageStarted(view, url, icon);
     }
 
     private boolean navigate(Uri url) {

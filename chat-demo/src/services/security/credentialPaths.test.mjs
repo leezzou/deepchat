@@ -69,6 +69,7 @@ test('normal Android settings entry points verify changes in the vault and never
     useSettings,
     initializeCredentials,
     saveApiProfile,
+    saveProfileDiscovery,
     removeApiProfile,
     selectApiProfile,
     createApiProfile,
@@ -90,6 +91,21 @@ test('normal Android settings entry points verify changes in the vault and never
   await setApiKey('synthetic-edited')
   await selectApiProfile(profile.id)
   assert.equal(useSettings.getState().apiKey, profile.apiKey)
+  const deployment = { id: 'tenant/deployment', name: 'Deployment', contextWindow: 64000, source: 'instance', reasoning: 'toggle' }
+  const updated = useSettings.getState().apiProfiles.find(p => p.id === added.id)
+  const slot = JSON.stringify([updated.origin, updated.protocol, deployment.id])
+  setChatSource('account')
+  await saveProfileDiscovery(updated, deployment)
+  const saved = JSON.parse(envelope).profiles.find(p => p.id === added.id)
+  assert.equal(saved.discoveredWindows[slot], 64000)
+  assert.equal(saved.discoveredWindowKinds[slot], 'instance')
+  assert.equal(saved.discoveredReasoning[slot], 'toggle')
+  assert.equal(useSettings.getState().chatSource, 'account')
+  assert.equal(useSettings.getState().activeProfileId, profile.id)
+  await saveProfileDiscovery(added, { ...deployment, contextWindow: 123 }) // stale credential after edit
+  assert.equal(JSON.parse(envelope).profiles.find(p => p.id === added.id).discoveredWindows[slot], 64000)
+  await saveProfileDiscovery(updated, { id: deployment.id, name: deployment.name, source: 'endpoint' })
+  assert.equal(JSON.parse(envelope).profiles.find(p => p.id === added.id).discoveredReasoning[slot], undefined)
   await removeApiProfile(profile.id)
   assert.equal(useSettings.getState().apiKey, 'synthetic-edited')
   assert.ok(!envelope.includes(profile.apiKey))

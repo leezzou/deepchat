@@ -1,0 +1,17 @@
+{
+  "sources": [["百川智能 · 模型服务与上下文长度", "https://platform.baichuan-ai.com/prices"]],
+  "rows": [
+    ["Baichuan-M3-Plus", "Baichuan M3 Plus", 32000, null, null, 0],
+    ["Baichuan-M3", "Baichuan M3", 32000, null, null, 0],
+    ["Baichuan-M2-Plus", "Baichuan M2 Plus", 32000, null, null, 0],
+    ["Baichuan-M2", "Baichuan M2", 32000, null, null, 0],
+    ["Baichuan4-Turbo", "Baichuan 4 Turbo", 32000, null, null, 0],
+    ["Baichuan4-Air", "Baichuan 4 Air", 32000, null, null, 0],
+    ["Baichuan4", "Baichuan 4", 32000, null, null, 0],
+    ["Baichuan3-Turbo", "Baichuan 3 Turbo", 32000, null, null, 0],
+    ["Baichuan3-Turbo-128k", "Baichuan 3 Turbo 128K", 128000, null, null, 0],
+    ["Baichuan2-Turbo", "Baichuan 2 Turbo", 32000, null, null, 0],
+    ["Baichuan2-53B", "Baichuan 2 53B", 32000, null, null, 0],
+    ["Baichuan2-Turbo-192k", "Baichuan 2 Turbo 192K → Baichuan 3 Turbo 128K", 128000, null, null, 0]
+  ]
+}

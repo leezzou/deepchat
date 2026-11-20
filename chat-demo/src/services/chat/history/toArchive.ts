@@ -1,6 +1,8 @@
 import type { ServerToolUseBlock } from '../../api/types.js'
+import { usageMetrics } from '../../usage/totals.js'
 import { getVisibleMessages, normalizeSession } from '../branches.js'
 import { describeReply } from '../describe.js'
+import { canContinueReply } from '../reply.js'
 import type { AssistantMessage, Message, ReplyBlock, Session, UserMessage } from '../types.js'
 import { fail } from './errors.js'
 import type {
@@ -198,13 +200,13 @@ const replyStatus = ({ status, stopReason }: AssistantMessage): ChatMessageStatu
 }
 
 /** 最近一次请求的输入（含缓存）与输出之和，即这一条结束时的上下文 token。 */
-const contextTokens = ({ usage }: AssistantMessage) =>
-  usage
-    ? usage.input_tokens +
-      usage.cache_creation_input_tokens +
-      usage.cache_read_input_tokens +
-      usage.output_tokens
-    : 0
+const contextTokens = ({ usage }: AssistantMessage) => {
+  if (!usage) {
+    return 0
+  }
+  const { input, output } = usageMetrics(usage).metrics
+  return input === undefined || output === undefined ? 0 : input + output
+}
 
 /** 消息按父节点优先重新编号为 1…n，保证 parent_id 小于 id。 */
 const numberMessages = (messages: Message[]) => {
@@ -250,6 +252,9 @@ export const toSessionFile = (original: Session, exportImage: ExportImage, prese
       ...(message.role !== 'assistant' || message.contextUserId === undefined ? {} : {
         deepchat_context_user_id: message.contextUserId === null ? null : (ids.get(message.contextUserId) ?? null),
       }),
+      ...(message.role === 'assistant' && canContinueReply(
+        message.status === 'pending' || message.status === 'streaming' ? { ...message, status: 'stopped' } : message
+      ) && { deepchat_continue: message.stopReason === 'max_tokens' ? 'max_tokens' as const : 'stopped' as const }),
       status: message.role === 'user' ? 'FINISHED' : replyStatus(message),
       thinking_enabled: reply?.thinking ?? false,
       search_enabled: reply?.search ?? false,
@@ -263,6 +268,7 @@ export const toSessionFile = (original: Session, exportImage: ExportImage, prese
   return {
     id: session.id,
     title: session.title || null,
+    ...(session.titleSource && { deepchat_title_source: session.titleSource }),
     pinned: false,
     // 格式要求非空；空会话没有消息可指向，写 0。
     current_message_id: current ? id(current) : 0,

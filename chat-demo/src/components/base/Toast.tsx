@@ -8,7 +8,7 @@ import styles from './Toast.module.css'
 
 export const Toast = () => {
   const t = useTranslate()
-  const { id, message } = useToast()
+  const message = useToast((state) => state.message)
   const { present, closing } = useMotionPresence(message !== null, POPOVER_EXIT_MS)
   const last = useRef(message)
   useLayoutEffect(() => {
@@ -18,15 +18,17 @@ export const Toast = () => {
   }, [message, present])
   const visible = message ?? last.current
   if (!present || !visible) {
-    return null
+    // Keep the same live region mounted so assistive technology observes the text change.
+    return <div role="status" aria-live="polite" aria-atomic="true" />
   }
   const error = typeof visible !== 'string' && visible.type === 'error'
   return (
     <div
-      key={id}
       className={clsx(styles.toast, error && styles.error)}
       data-state={closing ? 'closing' : 'open'}
       role="status"
+      aria-live="polite"
+      aria-atomic="true"
     >
       {error ? (
         <span className={styles.icon}>

@@ -18,6 +18,7 @@ public class MainActivity extends BridgeActivity {
     private AccountScreen screen;
     private DshWebBridge accountBridge;
     private WorkBuddyChat workBuddy;
+    private ProfileChatBridge profileChat;
 
     @Override
     protected void load() {
@@ -30,6 +31,7 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
                 && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             workBuddy = new WorkBuddyChat(this, web);
+            profileChat = new ProfileChatBridge(this, web, security);
             account = new DshAccountHost(this);
             proxy = new DshLocalProxy(account);
             screen = new AccountScreen(this, account, proxy, systemBars, () -> web.evaluateJavascript(
@@ -44,7 +46,9 @@ public class MainActivity extends BridgeActivity {
             }));
         }
         super.load();
-        bridge.setWebViewClient(new AppNavigationClient(bridge));
+        bridge.setWebViewClient(new AppNavigationClient(bridge, () -> {
+            if (profileChat != null) profileChat.cancelAll();
+        }));
     }
 
     @Override public void onResume() {
@@ -70,6 +74,7 @@ public class MainActivity extends BridgeActivity {
         if (screen != null) screen.dismiss();
         if (accountBridge != null) accountBridge.close();
         if (workBuddy != null) workBuddy.close();
+        if (profileChat != null) profileChat.close();
         if (proxy != null) proxy.stop();
         if (account != null) account.close();
         super.onDestroy();
@@ -82,6 +87,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(WorkBuddyWalletPlugin.class);
         registerPlugin(WebDavPlugin.class);
         registerPlugin(HistoryArchivePlugin.class);
+        registerPlugin(DeviceVoicePlugin.class);
         super.onCreate(savedInstanceState);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
             WebView.setWebContentsDebuggingEnabled(false);

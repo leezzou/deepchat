@@ -2,6 +2,7 @@ declare const styles: {
   readonly "anchor": string;
   readonly "card": string;
   readonly "meta": string;
+  readonly "reference": string;
   readonly "siteIcon": string;
   readonly "siteName": string;
   readonly "divider": string;

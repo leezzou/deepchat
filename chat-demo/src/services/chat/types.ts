@@ -1,7 +1,6 @@
 import type { TranslationMessage } from '../../i18n/index.js'
 import type { ApiErrorKind } from '../api/client.js'
 import type {
-  ChatModel,
   MessageUsage,
   ServerToolBlock,
   StopDetails,
@@ -75,8 +74,8 @@ export type AssistantMessage = MessageBranch & {
   id: string
   role: 'assistant'
   createdAt: number
-  /** 未记录模型时为 null，续写使用当前默认模型。 */
-  model: ChatModel | null
+  /** Exact model ID used for the latest request. Older replies may not have a receipt. */
+  model: string | null
   /** 请求时是否开启深度思考 */
   thinking?: boolean
   /** 请求时是否声明 deepseek_web_search；关闭时仍声明 deepseek_read_url */
@@ -85,17 +84,17 @@ export type AssistantMessage = MessageBranch & {
   latestReminder?: string
   /** Local receipt for the latest model request for this reply. Kept out of normal history exports and shared images. */
   lastRequestMemories?: string[]
+  /** v54 records dispatched requests in the local usage ledger. */
+  usageLedger?: true
   /** 回答原属问题；单条删除重接后仍保留配对关系，null 表示原问题已删除。 */
   contextUserId?: string | null
   /** 是否允许作为续写前缀；仍需满足回复状态与内容限制。 */
-  prefix: boolean
+  prefix: boolean | 'text' // 恢复归档缺少思考签名，只能用已保存的回答正文续写。
   status: ReplyStatus
   /** 可识别的内容块按接收顺序排列；续写产生的块追加在已有块之后 */
   blocks: ReplyBlock[]
   stopReason?: StopReason
   stopDetails?: StopDetails
-  /** Tencent accepted a thinking request and returned an answer without visible reasoning. */
-  workBuddyReasoningUnavailable?: true
   /** 最近一次请求的用量，续写后更新 */
   usage?: MessageUsage
   error?: {
@@ -103,6 +102,8 @@ export type AssistantMessage = MessageBranch & {
     kind: ApiErrorKind | 'upload'
     message: string
     status?: number
+    /** Offer the official top-up link only for a verified DeepSeek API billing error. */
+    officialApiBilling?: true
     localMessage?: TranslationMessage
     /** 仅 upload：重新上传是否可能成功（网络、限流、服务端繁忙）；过大、格式不支持为 false */
     retryable?: boolean
@@ -114,6 +115,8 @@ export type Message = UserMessage | AssistantMessage
 export type Session = {
   id: string
   title: string
+  /** Manual titles are final, even when they match a localized placeholder. */
+  titleSource?: 'manual' | 'provisional'
   createdAt: number
   updatedAt: number
   /** 包含所有分支的消息，按创建顺序存储。 */
@@ -141,12 +144,13 @@ export type Session = {
 }
 
 /** 会话列表元数据；消息只在打开会话时加载。 */
-export type SessionSummary = Pick<Session, 'id' | 'title' | 'createdAt' | 'updatedAt'>
+export type SessionSummary = Pick<Session, 'id' | 'title' | 'titleSource' | 'createdAt' | 'updatedAt'>
 
 /** 显式提取字段，避免将完整会话的消息带进列表。 */
 export const toSessionSummary = (session: SessionSummary): SessionSummary => ({
   id: session.id,
   title: session.title,
+  ...(session.titleSource && { titleSource: session.titleSource }),
   createdAt: session.createdAt,
   updatedAt: session.updatedAt,
 })

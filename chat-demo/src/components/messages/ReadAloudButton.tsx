@@ -4,9 +4,7 @@ import {
   toggleReadAloud,
   useReadAloud,
 } from '../../services/speech/readAloud.js'
-import { getConversationRoute } from '../../services/api/access.js'
-import { useConversationModes } from '../../services/conversationMode/storage.js'
-import { useSettings } from '../../services/settings.js'
+import { useSpeechMode } from '../../services/speech/speechRoute.js'
 import { IconPlayMediaOutline16 } from '../base/icons.js'
 import { IconButton } from '../base/IconButton.js'
 import { showToast } from '../base/toastState.js'
@@ -25,18 +23,17 @@ export const ReadAloudButton = ({
 }) => {
   const t = useTranslate()
   const status = useReadAloud((state) => (state.messageId === messageId ? state.status : 'idle'))
-  useConversationModes((state) => state.data)
-  useSettings((state) => state.chatSource)
-  useSettings((state) => state.activeProfileId)
-  useSettings((state) => state.apiProfiles)
-  if (status === 'idle' && !getConversationRoute(sessionId).speech) {
+  const mode = useSpeechMode(sessionId, 'tts')
+  if (status === 'idle' && (mode === 'blocked' || mode === 'unavailable')) {
     return null
   }
   return (
     <IconButton
       icon={status === 'idle' ? <IconPlayMediaOutline16 /> : <ReadingBars mode={status} />}
       className={styles.action}
-      tooltip={status === 'idle' ? t('ttsPlay') : t('ttsStop')}
+      tooltip={
+        status === 'idle' ? t(mode === 'device' ? 'ttsOfflinePlay' : 'ttsPlay') : t('ttsStop')
+      }
       tooltipPlacement="bottom"
       onClick={() =>
         toggleReadAloud(

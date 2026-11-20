@@ -16,6 +16,12 @@
   font: var(--search-view-card-meta-font, 500 12px/17px var(--dsw-font-family));
 }
 
+.reference {
+  flex-shrink: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
 .siteIcon {
   flex-shrink: 0;
   width: 18px;

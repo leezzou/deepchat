@@ -152,7 +152,7 @@ test('first-send promotion and repeat A → B → A requests retain their own dr
     assert.equal(c.body.model, 'deepseek-v4-pro')
     assert.equal(c.body.system, 'TEMPLATE_ALPHA\n\n用户选用的本地记忆：\n- MEMORY_ALPHA')
     assert.equal(c.body.thinking.type, 'enabled')
-    assert.ok(c.body.tools.some((t) => t.type === 'deepseek_web_search'))
+    assert.deepEqual(c.body.tools ?? [], []) // DeepSeek documents native web tools on Flash only.
     assert.doesNotMatch(JSON.stringify(c.body), /B-one/)
   }
   const c = calls[1]
@@ -202,6 +202,8 @@ test('two conversations sharing one compatible profile accept independent model 
     calls.slice(before).map((c) => c.body.model),
     ['vendor/model-a:fast', 'model-b', 'vendor/model-a:fast']
   )
+  assert.equal(saved.get(ids[0]).messages.at(-1).model, 'vendor/model-a:fast')
+  assert.equal(saved.get(ids[1]).messages.at(-1).model, 'model-b')
   assert.equal(settings.useSettings.getState().apiProfiles[1].model, 'beta-text')
 })
 

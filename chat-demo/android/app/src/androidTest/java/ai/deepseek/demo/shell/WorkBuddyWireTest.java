@@ -32,12 +32,42 @@ public class WorkBuddyWireTest {
     @Test public void searchSendsOnlyQueryAndPermittedLimits() throws Exception {
         assertEquals("https://copilot.tencent.com/agenttool/v1/search", WorkBuddyWire.SEARCH);
         JSONObject search = WorkBuddyWire.body(chat("deepseek-v4.1-flash", true).put("query", "今日新闻"), true);
-        assertEquals(3, search.length());
+        assertEquals(2, search.length());
         assertEquals("今日新闻", search.getString("query"));
         assertEquals("text2text", search.getString("type"));
-        assertEquals(5, search.getInt("max_results"));
+        assertFalse(search.has("max_results"));
         try { WorkBuddyWire.body(chat("auto", true).put("query", "news"), true); fail(); }
         catch (java.io.IOException refused) { assertEquals("model", refused.getMessage()); }
+    }
+    @Test public void plannerEnforcesOwnTokenBudgetAndDisablesReasoning() throws Exception {
+        JSONObject request = chat("deepseek-v4.1-flash", true).put("purpose", "search_plan").put("max_tokens", 90000);
+        JSONObject plan = WorkBuddyWire.body(request, false);
+        assertEquals(256, plan.getInt("max_tokens"));
+        assertEquals("none", plan.getString("reasoning_effort"));
+        assertFalse(plan.has("purpose"));
+    }
+    @Test public void titleRequestPinsModelAndLimitsOutput() throws Exception {
+        JSONObject body = WorkBuddyWire.body(chat("deepseek-v4-pro", false).put("max_tokens", 90000), false);
+        assertEquals("deepseek-v4-pro", body.getString("model"));
+        assertEquals(48, body.getInt("max_tokens"));
+        assertEquals("none", body.getString("reasoning_effort"));
+        assertFalse(WorkBuddyWire.body(chat("deepseek-v4-pro", false), false).has("max_tokens"));
+    }
+    @Test public void searchRetainsMoreThanFiveRealRowsAndBoundsBytes() throws Exception {
+        JSONArray rows = new JSONArray();
+        for (int i = 0; i < 24; i++) {
+            rows.put(new JSONObject().put("url", "https://docs.example/" + i).put("title", "source " + i)
+                    .put("snippet", "text offline-bearer").put("readKey", "untrusted-upstream-key"));
+        }
+        JSONArray hits = parseResult(new JSONObject().put("results", rows)).getJSONArray("results");
+        assertEquals(24, hits.length());
+        assertEquals("https://docs.example/23", hits.getJSONObject(23).getString("url"));
+        assertFalse(hits.toString().contains("offline-bearer"));
+        assertFalse(hits.toString().contains("upstream-key"));
+        try {
+            WorkBuddyWire.searchResults(new ByteArrayInputStream(new byte[WorkBuddyWire.SEARCH_RESPONSE_BYTES + 1]), "offline-bearer");
+            fail("Oversized service payload was accepted");
+        } catch (java.io.IOException expected) { assertEquals("search_response_too_large", expected.getMessage()); }
     }
     @Test public void searchRetainsRealSnippetsAndProviderDenials() throws Exception {
         JSONObject row = new JSONObject().put("title", "新闻").put("url", "https://news.example/story").put("snippet", "今日摘要").put("ignored", "private");

@@ -9,6 +9,8 @@ type Frame = {
   contentType?: string
   model?: unknown
   revision?: unknown
+  catalog?: unknown
+  catalogRefresh?: boolean
   code?: string
   name?: string
   pending?: boolean
@@ -33,7 +35,7 @@ function post(message: object) {
   port.postMessage(JSON.stringify(message))
 }
 export async function manageWorkBuddy(
-  op: 'status' | 'begin' | 'poll' | 'cancelLogin' | 'model' | 'forget',
+  op: 'status' | 'begin' | 'poll' | 'cancelLogin' | 'model' | 'catalog' | 'forget',
   fields: object = {}
 ): Promise<Frame> {
   const id = createId()
@@ -66,8 +68,15 @@ export function workBuddyFetch(
   model: WorkBuddyModel,
   revision: string,
   operation:
-    | { op: 'chat'; messages: { role: string; content: string }[]; thinking: boolean }
-    | { op: 'search'; query: string },
+    | {
+        op: 'chat'
+        messages: { role: string; content: string }[]
+        thinking: boolean
+        purpose?: 'search_plan'
+        max_tokens?: number
+      }
+    | { op: 'search'; query: string }
+    | { op: 'read'; readKey: string },
   signal: AbortSignal
 ): Promise<Response> {
   const id = createId()
@@ -147,7 +156,11 @@ export function workBuddyFetch(
       }
     })
     try {
-      post({ ...operation, id, model, revision })
+      if (operation.op === 'read') {
+        post({ op: 'read', readKey: operation.readKey, id, model, revision })
+      } else {
+        post({ ...operation, id, model, revision })
+      }
     } catch (error) {
       finish()
       reject(error)

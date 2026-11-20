@@ -1,8 +1,8 @@
 import { create } from 'zustand'
-import { getChatAccess } from '../../services/api/access.js'
+import { getChatAccess, getConversationRoute } from '../../services/api/access.js'
 import { hasAccountBridge } from '../../shell/account.js'
 
-export type SettingsSection = 'general' | 'apiKey' | 'data' | 'memory' | 'security' | 'webdav'
+export type SettingsSection = 'general' | 'apiKey' | 'data' | 'memory' | 'security' | 'webdav' | 'contextModels'
 export type SettingsVisit = {
   id: number
   section: SettingsSection
@@ -43,6 +43,6 @@ export const ensureApiKey = (sessionId?: string | null) => {
   if (getChatAccess(sessionId)) {
     return true
   }
-  openSettings(hasAccountBridge ? 'general' : 'apiKey')
+  openSettings(hasAccountBridge || getConversationRoute(sessionId).workbuddy ? 'general' : 'apiKey')
   return false
 }

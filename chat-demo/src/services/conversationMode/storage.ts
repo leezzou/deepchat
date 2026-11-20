@@ -42,7 +42,7 @@ const identifier = (value: unknown) => {
   return id
 }
 export const isModelId = (id: unknown): id is string =>
-  typeof id === 'string' && /^[a-zA-Z0-9][a-zA-Z0-9_./:@+-]{0,255}$/.test(id) && !id.includes('://')
+  typeof id === 'string' && id.length <= 256 && /^~?[a-zA-Z0-9][a-zA-Z0-9_./:@+-]*$/.test(id) && !id.includes('://')
 
 function mode(input: Record<string, unknown>, templateIds: Set<string>): ConversationMode {
   const result: ConversationMode = {}

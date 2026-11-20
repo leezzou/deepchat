@@ -3,12 +3,11 @@ import clsx from 'clsx'
 import { memo } from 'react'
 import { IconRefreshOutline16, IconTrashOutline16, IconWarningOutline16 } from '../base/icons.js'
 import { describeReply } from '../../services/chat/describe.js'
-import { canContinueReply } from '../../services/chat/reply.js'
-import { continueReply, regenerateReply } from '../../services/chat/store.js'
+import { canResumeReply, continueReply, regenerateReply } from '../../services/chat/store.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import type { AssistantMessage as AssistantMessageType } from '../../services/chat/types.js'
 import { hasAccountBridge, openAccount } from '../../shell/account.js'
-import { openSettings } from '../settings/settingsDialogState.js'
+import { ensureApiKey, openSettings } from '../settings/settingsDialogState.js'
 import { IconButton } from '../base/IconButton.js'
 import { Button } from '../base/Button.js'
 import { Markdown } from '../markdown/Markdown.js'
@@ -64,8 +63,11 @@ export const AssistantMessage = memo(function AssistantMessage({
     .filter(Boolean)
     .join('\n\n')
   const copyText = responseText || notice?.text
-  const waiting = streaming && view.steps.length === 0 && !view.answer && !message.thinking
+  const waiting = streaming && view.steps.length === 0 && !view.answer
   const summaryEntry = `${message.id}-summary`
+  const stopHint = message.status === 'stopped' ? 'replyStopped' :
+    message.status === 'done' && message.stopReason === 'max_tokens' ? 'replyOutputLimit' : null
+  const resumable = isLast && canRegenerate && !!stopHint && canResumeReply(sessionId, message)
   return (
     <div className={styles.message}>
       {refused ? null : (
@@ -138,7 +140,7 @@ export const AssistantMessage = memo(function AssistantMessage({
         </div>
       ) : null}
       {!streaming && !refused && view.searchResults.length > 0 ? (
-        <div
+        <button type="button" data-search-sources aria-expanded={panelEntry === summaryEntry}
           className={clsx(styles.summary, panelEntry === summaryEntry && styles.summaryActive)}
           onClick={() => toggleSearchPanel(summaryEntry, view.searchResults)}
         >
@@ -149,7 +151,12 @@ export const AssistantMessage = memo(function AssistantMessage({
               { count: view.searchResults.length }
             )}
           </span>
-        </div>
+        </button>
+      ) : null}
+      {!streaming && !notice && stopHint ? (
+        <p className={styles.stopHint} role="status">
+          {t(stopHint)}{' '}{isLast && canRegenerate && !resumable ? t('replyResumeUnavailable') : null}
+        </p>
       ) : null}
       {streaming ? null : (
         <div className={styles.bottom} data-message-actions>
@@ -176,18 +183,24 @@ export const AssistantMessage = memo(function AssistantMessage({
               tooltipPlacement="bottom"
               disabled={busy || refused || !canRegenerate}
               onClick={() => {
+                if (!ensureApiKey(sessionId)) {
+                  return
+                }
                 stopReadAloud()
                 regenerateReply(sessionId, message.id)
               }}
             />
           </div>
-          {isLast && canRegenerate && canContinueReply(message) ? (
+          {resumable ? (
             <Button
               variant="outlined"
               size="s"
               className={styles.continueButton}
               disabled={busy}
               onClick={() => {
+                if (!ensureApiKey(sessionId)) {
+                  return
+                }
                 stopReadAloud()
                 continueReply(sessionId, message.id)
               }}

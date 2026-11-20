@@ -48,6 +48,10 @@ export const countRecordedReplies = (
       message.usage
     // Missing, malformed or fractional counters cannot represent a recorded response total.
     if (
+      input_tokens === undefined ||
+      cache_creation_input_tokens === undefined ||
+      cache_read_input_tokens === undefined ||
+      output_tokens === undefined ||
       ![input_tokens, cache_creation_input_tokens, cache_read_input_tokens, output_tokens].every(
         (n) => Number.isSafeInteger(n) && n >= 0
       )

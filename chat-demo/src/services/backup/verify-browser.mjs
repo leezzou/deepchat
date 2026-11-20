@@ -14,7 +14,7 @@ const entry = path.join(temporary, 'entry.ts')
 const modules = {
   backup: 'services/chat/backup.ts', db: 'services/chat/db.ts', store: 'services/chat/store.ts',
   drafts: 'services/chat/drafts.ts', storage: 'services/backup/storage.ts', automatic: 'services/backup/automatic.ts',
-  settings: 'services/settings.ts', archive: 'services/chat/history/exportArchive.ts',
+  toast: 'components/base/toastState.ts', settings: 'services/settings.ts', archive: 'services/chat/history/exportArchive.ts',
   toArchive: 'services/chat/history/toArchive.ts', toLocal: 'services/chat/history/toLocal.ts',
   schema: 'services/chat/history/schema.ts', zip: 'services/chat/history/zipWriter.ts',
   ...(process.argv.includes('--portable') && { crypto: 'services/backup/portableCrypto.ts', dav: 'services/backup/webDav.ts', metadata: 'services/backup/portableMetadata.ts', library: 'services/library/index.ts', modes: 'services/conversationMode/storage.ts' }),
@@ -132,7 +132,7 @@ try {
     check((await storage.readSafetySnapshot()).sessions[0].messages[0].id === 'u-old', 'valid import captures untouched source session')
     await backup.restoreSafetySnapshot()
     const stop = automatic.initializeAutoBackup()
-    await backup.setAutomaticBackup(true) // queue barrier after initialization
+    await backup.loadBackupState()
     check((await storage.readBackupPreferences()).completedRounds === 0, 'auto initialization ignores existing completed history')
     const send = async (index, status = 'done') => {
       const controller = new AbortController()
@@ -141,23 +141,27 @@ try {
       const session = { ...fixture, checkpoint: undefined, compactedThrough: undefined, excludedContextRoundIds: undefined, rootMessageId: user.id, messages: [user, reply] }
       store.useChatStore.setState({ sessionCache: { original: session }, streaming: { original: controller } })
       store.useChatStore.setState({ sessionCache: { original: { ...session, messages: [user, { ...reply, status, blocks: [{ type: 'text', text: 'answer' }] }] } }, streaming: {} })
-      await backup.setAutomaticBackup(true) // wait for the subscriber's queued operation
+      await backup.confirmBackupSaved(generated.id) // manual operation waits for subscriber's queued task
     }
     await send('error', 'error')
     await send('stopped', 'stopped')
     check((await storage.readBackupPreferences()).completedRounds === 0, 'errors and stopped requests do not count as completed rounds')
     for (let index = 1; index <= 9; index++) {await send(index)}
     check((await storage.readBackupPreferences()).completedRounds === 9, 'no automatic backup before ten completed rounds')
-    const beforeAuto = (await storage.readBackup()).id
+    check(!(await storage.readBackupArtifacts()).automatic, 'nine rounds leave the automatic slot empty')
     await send(10)
-    const automaticBackup = await storage.readBackup()
-    check(automaticBackup.id !== beforeAuto && automaticBackup.reason === 'automatic' && automaticBackup.saveStatus === 'generated', 'tenth completed round generates a local backup without downloading')
+    const automaticBackup = (await storage.readBackupArtifacts()).automatic
+    check(automaticBackup?.reason === 'automatic' && automaticBackup.saveStatus === 'generated', 'tenth completed round generates a local backup without downloading')
+    check((await storage.readBackup()).id === generated.id, 'automatic write preserves the manual export')
     check((await storage.readBackupPreferences()).completedRounds === 0, 'automatic counter resets only after successful generation')
     await send(10)
     check((await storage.readBackupPreferences()).completedRounds === 0, 'retry of the same user round does not count twice')
     stop()
     return results
   })
+  if (!snapshotScale) {
+    results.push(...await page.evaluate((await import('./verify-automatic.mjs')).verifyAutomatic))
+  }
   assert.equal(pageErrors.length, 0, pageErrors.join('\n'))
   process.stdout.write(JSON.stringify({ passed: results.length, checks: results, temporary }, null, 2) + '\n')
   }

@@ -35,6 +35,7 @@ final class DshAccountHost {
     private final SharedPreferences prefs;
     private final ExecutorService workers = Executors.newCachedThreadPool();
     private final SecureRandom rng = new SecureRandom();
+    private String revision = java.util.UUID.randomUUID().toString();
     private String grant, name = "", avatar = "", error = "";
     private Attempt active;
     private boolean closed;
@@ -107,6 +108,8 @@ final class DshAccountHost {
             cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, decode(prefs.getString("iv", ""))));
             JSONObject saved = new JSONObject(new String(cipher.doFinal(decode(prefs.getString("ciphertext", ""))), StandardCharsets.UTF_8));
             grant = saved.getString("token"); name = saved.optString("name"); avatar = validPicture(saved.optString("avatar"));
+            if (saved.has("revision")) revision = saved.getString("revision");
+            else saveCredential(grant, name, avatar); // upgrade an existing grant without exporting its token
         } catch (Exception invalid) { error = "此设备上的登录凭据无法读取，请重新授权。"; }
         if (grant == null) restorePending();
         else if (avatar.isEmpty()) refreshProfile();
@@ -126,7 +129,7 @@ final class DshAccountHost {
     synchronized String token() { return grant; }
     synchronized boolean signedIn() { return grant != null; }
     synchronized JSONObject status() throws Exception {
-        return new JSONObject().put("signedIn", signedIn()).put("pending", active != null).put("exchanging", active != null && active.receivedCode != null).put("name", name).put("avatar", avatar).put("error", error);
+        return new JSONObject().put("signedIn", signedIn()).put("revision", signedIn() ? revision : "").put("pending", active != null).put("exchanging", active != null && active.receivedCode != null).put("name", name).put("avatar", avatar).put("error", error);
     }
     synchronized JSONObject beginLogin() throws Exception {
         if (closed) throw new IOException("账户页已关闭。");
@@ -316,7 +319,7 @@ final class DshAccountHost {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.ENCRYPT_MODE, key());
             byte[] encrypted = cipher.doFinal(new JSONObject()
-                    .put("token", token).put("name", display).put("avatar", picture)
+                    .put("token", token).put("revision", revision).put("name", display).put("avatar", picture)
                     .toString().getBytes(StandardCharsets.UTF_8));
             return prefs.edit()
                     .putString("iv", encode(cipher.getIV()))
@@ -373,6 +376,7 @@ final class DshAccountHost {
                 JSONObject profile = profileOf(result.optJSONObject("user"));
                 String display = profileName(profile);
                 String picture = profilePicture(profile);
+                revision = java.util.UUID.randomUUID().toString();
                 if (!saveCredential(received, display, picture)) {
                     throw new PlatformFailure("设备未能安全保存登录凭据，请解锁手机并检查可用存储后重试。");
                 }

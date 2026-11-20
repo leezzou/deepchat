@@ -1,9 +1,9 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { resolveLocale, useTranslate } from '../../i18n/index.js'
-import { loadRecordedUsage } from '../../services/chat/db.js'
-import { sumUsageDays, totalTokens } from '../../services/chat/recordedUsage.js'
+import { USAGE_CHANGED, readUsageLedger, type UsageRow } from '../../services/usage/ledger.js'
+import { summarizeUsage } from '../../services/usage/totals.js'
 import { useSettings } from '../../services/settings.js'
 import { hasAccountBridge, returnToAccount } from '../../shell/account.js'
 import { openExternal } from '../../shell/native.js'
@@ -29,183 +29,330 @@ export const ApiUsageDialog = () => {
     const show = (event: Event) => {
       closing.current = false
       setLeaving(false)
-      setSource(event instanceof CustomEvent && event.detail?.fromAccount === true ? 'account' : 'settings')
+      setSource(
+        event instanceof CustomEvent && event.detail?.fromAccount === true ? 'account' : 'settings'
+      )
     }
     window.addEventListener(usageEvent, show)
     return () => window.removeEventListener(usageEvent, show)
   }, [])
   useLayoutEffect(() => {
-    if (!mobile && leaving) setSource(null)
+    if (!mobile && leaving) {
+      setSource(null)
+    }
   }, [mobile, leaving])
   const close = () => {
-    if (closing.current) return
+    if (closing.current) {
+      return
+    }
     closing.current = true
-    if (source === 'account' && hasAccountBridge) returnToAccount()
-    if (mobile) setLeaving(true)
-    else setSource(null)
+    if (source === 'account' && hasAccountBridge) {
+      returnToAccount()
+    }
+    if (mobile) {
+      setLeaving(true)
+    } else {
+      setSource(null)
+    }
   }
   const title = t('usageTitle')
-  if (mobile) return source ? (
-    <MobileUsagePage title={title} source={source} leaving={leaving} onClose={close} onExited={() => setSource(null)}>
-      <UsageReport />
-    </MobileUsagePage>
-  ) : null
-  return (
-    <ModalPresence>{source ? (
-      <Modal title={title} closable onClose={close} className={styles.dialog} mainClassName={styles.desktopBody}>
+  if (mobile) {
+    return source ? (
+      <MobileUsagePage
+        title={title}
+        source={source}
+        leaving={leaving}
+        onClose={close}
+        onExited={() => setSource(null)}
+      >
         <UsageReport />
-      </Modal>
-    ) : null}</ModalPresence>
+      </MobileUsagePage>
+    ) : null
+  }
+  return (
+    <ModalPresence>
+      {source ? (
+        <Modal
+          title={title}
+          closable
+          onClose={close}
+          className={styles.dialog}
+          mainClassName={styles.desktopBody}
+        >
+          <UsageReport />
+        </Modal>
+      ) : null}
+    </ModalPresence>
   )
 }
 
 /** Keep the native focus trap and its transparent backdrop until the page has slid away. */
-const MobileUsagePage = ({ title, source, leaving, onClose, onExited, children }: {
-  title: string; source: UsageSource; leaving: boolean; onClose: () => void; onExited: () => void; children: ReactNode
+const MobileUsagePage = ({
+  title,
+  source,
+  leaving,
+  onClose,
+  onExited,
+  children,
+}: {
+  title: string
+  source: UsageSource
+  leaving: boolean
+  onClose: () => void
+  onExited: () => void
+  children: ReactNode
 }) => {
   const dialog = useRef<HTMLDialogElement>(null)
   useLayoutEffect(() => {
-    const page = dialog.current!
+    const page = dialog.current
+    if (!page) {
+      return
+    }
     const previous = document.activeElement
     page.showModal()
     page.focus({ preventScroll: true })
     return () => {
       page.close()
-      if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true })
+      if (previous instanceof HTMLElement && previous.isConnected) {
+        previous.focus({ preventScroll: true })
+      }
     }
   }, [])
   const surface = useRouteMotion<HTMLDivElement>(true, leaving, onExited)
   useRouteBack(onClose)
   return createPortal(
-    <dialog ref={dialog} tabIndex={-1} aria-label={title} className={styles.mobileDialog}
-      data-usage-source={source} data-route-position={leaving ? 'leaving' : 'front'}
-      onCancel={(event) => { event.preventDefault(); onClose() }}>
-      <div ref={surface} className={settings.page} data-route-position={leaving ? 'leaving' : 'front'}
-        {...(leaving ? { inert: '' } : {})}>
+    <dialog
+      ref={dialog}
+      tabIndex={-1}
+      aria-label={title}
+      className={styles.mobileDialog}
+      data-usage-source={source}
+      data-route-position={leaving ? 'leaving' : 'front'}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <div
+        ref={surface}
+        className={settings.page}
+        data-route-position={leaving ? 'leaving' : 'front'}
+        {...(leaving ? { inert: '' } : {})}
+      >
         <MobileSettingsHeader title={title} onBack={onClose} />
         <div className={`${settings.body} ${styles.mobileBody}`}>{children}</div>
       </div>
-    </dialog>, document.body
+    </dialog>,
+    document.body
   )
 }
 
-type Report = Awaited<ReturnType<typeof loadRecordedUsage>>
-const periods = [7, 30] as const
-const categories = [
-  ['usageInput', 'input'],
-  ['usageCacheWrite', 'cacheWrite'],
-  ['usageCacheRead', 'cacheRead'],
-  ['usageOutput', 'output'],
-] as const
+type Period = 1 | 7 | 30 | 'all'
+type Totals = ReturnType<typeof summarizeUsage>
+const periods: Period[] = [1, 7, 30, 'all']
+const purposeNames = {
+  chat: 'usageChat',
+  regenerate: 'usageRegenerate',
+  continue: 'usageContinue',
+  summary: 'usageSummary',
+  title: 'usageTitleRequest',
+  'search-plan': 'usageSearchPlan',
+  legacy: 'usageLegacy',
+} as const
+const statusNames = {
+  done: 'usageDone',
+  failed: 'usageFailed',
+  stopped: 'usageStopped',
+  pending: 'usagePending',
+  interrupted: 'usageInterrupted',
+} as const
+// A legacy receipt can lack a model ID. Keep that filter separate from All models.
+const unknownModel = '\u0001unknown'
+const pageSize = 10
+const midnight = (at: number, offset = 0) => {
+  const date = new Date(at)
+  return +new Date(date.getFullYear(), date.getMonth(), date.getDate() + offset)
+}
+const displayRoute = (id: string, t: ReturnType<typeof useTranslate>) =>
+  id === 'legacy' || !id ? t('usageUnknown') : id === 'DeepSeek account' ? t('usageAccount') : id
+const unique = (values: string[]) => Array.from(new Set(values)).sort((a, b) => a.localeCompare(b))
 
-const UsageReport = () => {
+function UsageReport() {
   const t = useTranslate()
-  const [period, setPeriod] = useState<7 | 30>(7)
-  const [report, setReport] = useState<Report | 'error' | null>(null)
-  const [revision, setRevision] = useState(0)
+  const locale = useSettings((s) => resolveLocale(s.locale))
+  const [period, setPeriod] = useState<Period>(7)
+  const [provider, setProvider] = useState('')
+  const [model, setModel] = useState('')
+  const [snapshot, setSnapshot] = useState<{ rows: UsageRow[]; at: number }>()
+  const [error, setError] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [revision, refresh] = useState(0)
   const [linkError, setLinkError] = useState(false)
   useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>
+    const changed = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => refresh((n) => n + 1), 150)
+    }
+    window.addEventListener(USAGE_CHANGED, changed)
+    return () => {
+      window.removeEventListener(USAGE_CHANGED, changed)
+      clearTimeout(timer)
+    }
+  }, [])
+  useEffect(() => {
     const controller = new AbortController()
-    void loadRecordedUsage(controller.signal)
-      .then(
-        (data) => {
-          if (!controller.signal.aborted) setReport(data)
-        },
-        () => {
-          if (!controller.signal.aborted) setReport('error')
+    setLoading(true)
+    void readUsageLedger(controller.signal)
+      .then((rows) => {
+        if (!controller.signal.aborted) {
+          setSnapshot({ rows, at: Date.now() })
+          setError(false)
         }
-      )
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setError(true)
+        }
+      })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false)
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
       })
     return () => controller.abort()
   }, [revision])
-  const refresh = () => {
-    setLoading(true)
-    setRevision((value) => value + 1)
-  }
-  const openPlatform = async () => {
-    setLinkError(false)
-    try {
-      await openExternal('https://platform.deepseek.com/usage')
-    } catch {
-      setLinkError(true)
+  const providers = useMemo(() => unique((snapshot?.rows ?? []).map((r) => r.provider)), [snapshot])
+  const models = useMemo(
+    () =>
+      unique(
+        (snapshot?.rows ?? [])
+          .filter((r) => !provider || r.provider === provider)
+          .map((r) => r.model)
+      ),
+    [provider, snapshot]
+  )
+  const rows = useMemo(() => {
+    if (!snapshot) {
+      return []
     }
-  }
+    const start = period === 'all' ? -Infinity : midnight(snapshot.at, 1 - period)
+    return snapshot.rows.filter(
+      (r) =>
+        r.at >= start &&
+        r.at <= snapshot.at &&
+        (!provider || provider === r.provider) &&
+        (!model || model === (r.model || unknownModel))
+    )
+  }, [snapshot, period, provider, model])
+  const dateTime = useMemo(
+    () => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }),
+    [locale]
+  )
   return (
     <div data-api-usage className={styles.report}>
-      <div className={styles.group}>
-        <button
-          type="button"
-          data-api-usage-official
-          className={styles.official}
-          onClick={openPlatform}
-        >
-          <span>
-            <strong>{t('usageOfficial')}</strong>
-            <small>{t('usageOfficialHint')}</small>
-          </span>
-          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
-            <path
-              d="M5 15 15 5m-8 0h8v8"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
-        {linkError && (
-          <p className={styles.status} role="alert">
-            {t('usageOfficialError')}
-          </p>
-        )}
-      </div>
       <section>
-        <h2>{t('usageLocal')}</h2>
+        <div className={styles.sectionHeader}>
+          <h2>{t('usageLocal')}</h2>
+          <button
+            type="button"
+            className={styles.refresh}
+            disabled={loading}
+            onClick={() => refresh((n) => n + 1)}
+            aria-label={t('usageRefresh')}
+            title={t('usageRefresh')}
+          >
+            <IconRefreshOutline16 />
+          </button>
+        </div>
         <div className={styles.group}>
-          <div className={styles.controls}>
-            <div role="group" aria-label={t('usagePeriod')} className={styles.periods}>
-              {periods.map((days) => (
-                <button
-                  key={days}
-                  type="button"
-                  data-usage-days={days}
-                  aria-pressed={days === period}
-                  onClick={() => setPeriod(days)}
-                >
-                  <span>{t('usageDays', { days })}</span>
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              className={styles.refresh}
-              onClick={refresh}
-              disabled={loading}
-              aria-label={t('usageRefresh')}
-              title={t('usageRefresh')}
-            >
-              <IconRefreshOutline16 />
-            </button>
+          <div role="group" aria-label={t('usagePeriod')} className={styles.periods}>
+            {periods.map((p) => (
+              <button
+                type="button"
+                data-usage-days={p}
+                key={p}
+                aria-pressed={period === p}
+                onClick={() => setPeriod(p)}
+              >
+                <span>
+                  {p === 1
+                    ? t('usageToday')
+                    : p === 'all'
+                      ? t('usageAllTime')
+                      : t('usageDays', { days: p })}
+                </span>
+              </button>
+            ))}
           </div>
-          {report === null ? (
-            <p className={styles.status} role="status">
-              {t('usageLoading')}
-            </p>
-          ) : report === 'error' ? (
-            <p className={styles.status} role="alert">
+          {snapshot && (
+            <div className={styles.filters}>
+              <label>
+                {t('usageProvider')}
+                <select
+                  data-usage-filter="provider"
+                  value={provider}
+                  onChange={(e) => {
+                    setProvider(e.target.value)
+                    setModel('')
+                  }}
+                >
+                  <option value="">{t('usageAllProviders')}</option>
+                  {providers.filter(Boolean).map((id) => (
+                    <option key={id} value={id}>
+                      {displayRoute(id, t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t('usageModel')}
+                <select
+                  data-usage-filter="model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                >
+                  <option value="">{t('usageAllModels')}</option>
+                  {models.map((id) => (
+                    <option key={id} value={id || unknownModel}>
+                      {displayRoute(id, t)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          )}
+          {error && (
+            <p role="alert" className={styles.status}>
               {t('usageError')}
             </p>
-          ) : (
-            <UsageResults report={report} period={period} />
+          )}
+          {!error && !snapshot && (
+            <p role="status" className={styles.status}>
+              {t('usageLoading')}
+            </p>
+          )}
+          {snapshot && (
+            <div data-usage-loaded="">
+              {rows.length ? (
+                <ReportResults
+                  key={JSON.stringify([period, provider, model])}
+                  rows={rows}
+                  locale={locale}
+                />
+              ) : (
+                <div className={styles.empty} role="status">
+                  <strong>{t('usageEmpty')}</strong>
+                  <p>{t(snapshot.rows.length ? 'usageFilteredEmpty' : 'usageEmptyHint')}</p>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </section>
       <div className={styles.group}>
         <details className={styles.details}>
-          <summary tabIndex={0}>
+          <summary>
             {t('usageAbout')}
             <IconChevronRightOutline14 />
           </summary>
@@ -214,100 +361,209 @@ const UsageReport = () => {
             <p>{t('usageNote')}</p>
           </div>
         </details>
+        <button
+          type="button"
+          data-api-usage-official
+          className={styles.official}
+          onClick={() => {
+            setLinkError(false)
+            void openExternal('https://platform.deepseek.com/usage').catch(() => setLinkError(true))
+          }}
+        >
+          <span>
+            <strong>{t('usageOfficial')}</strong>
+            <small>{t('usageOfficialHint')}</small>
+          </span>
+          <IconChevronRightOutline14 />
+        </button>
+        {linkError && (
+          <p className={styles.status} role="alert">
+            {t('usageOfficialError')}
+          </p>
+        )}
       </div>
-      {report && report !== 'error' && <Updated time={report.asOf} />}
+      {snapshot && (
+        <p className={styles.updated}>
+          {t('usageUpdated', { time: dateTime.format(snapshot.at) })}
+        </p>
+      )}
     </div>
   )
 }
 
-const Updated = ({ time }: { time: number }) => {
+const fields = [
+  ['input', 'usageInput'],
+  ['inputHit', 'usageInputHit'],
+  ['inputRate', 'usageInputRate'],
+  ['output', 'usageOutput'],
+  ['outputHit', 'usageOutputHit'],
+  ['outputRate', 'usageOutputRate'],
+  ['cacheWrite', 'usageCacheWrite'],
+] as const
+function Metrics({ counts, locale }: { counts: Totals; locale: string }) {
   const t = useTranslate()
-  const locale = useSettings((state) => resolveLocale(state.locale))
-  const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' })
-  return <p className={styles.updated}>{t('usageUpdated', { time: dateTime.format(time) })}</p>
+  const number = useMemo(() => new Intl.NumberFormat(locale), [locale])
+  const percent = useMemo(
+    () => new Intl.NumberFormat(locale, { style: 'percent', maximumFractionDigits: 1 }),
+    [locale]
+  )
+  return (
+    <dl className={styles.breakdown}>
+      {fields.map(([key, label]) => {
+        const isRate = key === 'inputRate' || key === 'outputRate'
+        const field = key === 'inputRate' ? 'inputHit' : key === 'outputRate' ? 'outputHit' : key
+        const count = counts[field]
+        let value: string,
+          text: string,
+          reported = count.reported
+        if (isRate) {
+          const cache = counts[key === 'inputRate' ? 'inputHit' : 'outputHit']
+          reported = cache.paired
+          const ratio = cache.base > 0n ? Number(cache.pairedHits) / Number(cache.base) : undefined
+          value = ratio == null ? 'missing' : String(Number((ratio * 100).toFixed(1)))
+          text =
+            ratio == null ? t(reported ? 'usageNoBase' : 'usageMissing') : percent.format(ratio)
+        } else {
+          value = reported ? String(count.value) : 'missing'
+          text = reported ? number.format(count.value) : t('usageMissing')
+        }
+        return (
+          <div key={key}>
+            <dt>{t(label)}</dt>
+            <dd data-usage-metric={key} data-value={value}>
+              {text}
+              {reported > 0 && reported < counts.requests && (
+                <small>{t('usagePartial', { known: reported, total: counts.requests })}</small>
+              )}
+            </dd>
+          </div>
+        )
+      })}
+    </dl>
+  )
 }
 
-const UsageResults = ({ report, period }: { report: Report; period: 7 | 30 }) => {
+function Pager({
+  index,
+  pages,
+  setIndex,
+}: {
+  index: number
+  pages: number
+  setIndex: (i: number) => void
+}) {
   const t = useTranslate()
-  const locale = useSettings((state) => resolveLocale(state.locale))
-  const date = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric' })
-  const shortDate = new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' })
-  const number = new Intl.NumberFormat(locale)
-  const days = report.days.slice(-period)
-  const sum = sumUsageDays(days)
-  const peak = Math.max(1, ...days.map(([, counts]) => Number(totalTokens(counts))))
+  if (pages <= 1) {
+    return null
+  }
+  return (
+    <div className={styles.pager}>
+      <button type="button" disabled={index === 0} onClick={() => setIndex(index - 1)}>
+        {t('usagePrevious')}
+      </button>
+      <span aria-live="polite">{t('usagePage', { page: index + 1, pages })}</span>
+      <button type="button" disabled={index + 1 === pages} onClick={() => setIndex(index + 1)}>
+        {t('usageNext')}
+      </button>
+    </div>
+  )
+}
+function ReportResults({ rows, locale }: { rows: UsageRow[]; locale: string }) {
+  const t = useTranslate()
+  const [requestPage, setRequestPage] = useState(0)
+  const [dayPage, setDayPage] = useState(0)
+  const counts = useMemo(() => summarizeUsage(rows), [rows])
+  const byDay = useMemo(() => {
+    const days = new Map<number, UsageRow[]>()
+    for (const row of rows) {
+      const at = midnight(row.at)
+      const group = days.get(at)
+      if (group) {
+        group.push(row)
+      } else {
+        days.set(at, [row])
+      }
+    }
+    return Array.from(days, ([at, records]) => ({ at, counts: summarizeUsage(records) }))
+  }, [rows])
+  const format = useMemo(() => new Intl.NumberFormat(locale), [locale])
+  const date = useMemo(() => new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }), [locale])
+  const time = useMemo(
+    () => new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'medium' }),
+    [locale]
+  )
+  const requestsPages = Math.ceil(rows.length / pageSize),
+    daysPages = Math.ceil(byDay.length / pageSize)
+  const ri = Math.min(requestPage, requestsPages - 1),
+    di = Math.min(dayPage, daysPages - 1)
+  const hasTokens = counts.input.reported + counts.output.reported > 0
+  const total = counts.input.value + counts.output.value
   return (
     <>
-      <p data-usage-loaded="" className={styles.range}>
-        {date.formatRange(days[0][0], report.asOf)}
-      </p>
-      {sum.replies ? (
-        <>
-          <div className={styles.overview}>
-            <div className={styles.total}>
-              <span>{t('usageTotal')}</span>
-              <strong data-usage-total={String(totalTokens(sum))}>
-                {number.format(totalTokens(sum))}
-              </strong>
-            </div>
-            <div className={styles.chart} aria-hidden="true">
-              {days.map(([day, counts]) => (
-                <div key={day}>
-                  <span style={{ height: `${(Number(totalTokens(counts)) / peak) * 100}%` }} />
-                </div>
-              ))}
-            </div>
-            <div className={styles.axis} aria-hidden="true">
-              <span>{shortDate.format(days[0][0])}</span>
-              <span>{shortDate.format(days.at(-1)![0])}</span>
-            </div>
-          </div>
-          <dl className={styles.breakdown}>
-            {categories.map(([label, field]) => (
-              <div key={field}>
-                <dt>{t(label)}</dt>
-                <dd>{number.format(sum[field])}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className={styles.coverage}>
-            <span>{t('usageCoverage')}</span>
-            <span>{number.format(sum.replies)}</span>
-          </div>
-          <details className={styles.details}>
-            <summary tabIndex={0}>
-              {t('usageDaily')}
-              <IconChevronRightOutline14 />
-            </summary>
-            <table aria-label={t('usageDaily')}>
-              <thead>
-                <tr>
-                  <th scope="col">{t('usageDate')}</th>
-                  <th scope="col">{t('usageTotal')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {days
-                  .slice()
-                  .reverse()
-                  .map(([day, counts]) => (
-                    <tr key={day}>
-                      <th scope="row">{date.format(day)}</th>
-                      <td>
-                        {counts.replies ? number.format(totalTokens(counts)) : t('usageNoRecord')}
-                      </td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </details>
-        </>
-      ) : (
-        <div className={styles.empty} role="status">
-          <strong>{t('usageEmpty')}</strong>
-          <p>{t('usageEmptyHint')}</p>
+      <div data-usage-summary>
+        <div className={styles.overview}>
+          <span>{t('usageTotal')}</span>
+          <strong data-usage-total={hasTokens ? String(total) : 'missing'}>
+            {hasTokens ? format.format(total) : t('usageMissing')}
+          </strong>
+          <small>{t('usageRequestsCount', { count: format.format(counts.requests) })}</small>
         </div>
-      )}
+        <Metrics counts={counts} locale={locale} />
+        <p className={styles.explainer}>{t('usageRateNote')}</p>
+      </div>
+      <details className={styles.details}>
+        <summary>
+          {t('usageDaily')}
+          <IconChevronRightOutline14 />
+        </summary>
+        <div className={styles.rows}>
+          {byDay.slice(di * pageSize, (di + 1) * pageSize).map((day) => (
+            <details key={day.at} className={styles.entry}>
+              <summary>
+                <span>{date.format(day.at)}</span>
+                <small>
+                  {t('usageRequestsCount', { count: format.format(day.counts.requests) })}
+                </small>
+              </summary>
+              <Metrics counts={day.counts} locale={locale} />
+            </details>
+          ))}
+          <Pager index={di} pages={daysPages} setIndex={setDayPage} />
+        </div>
+      </details>
+      <details data-usage-requests className={styles.details}>
+        <summary>
+          {t('usageRequests')}
+          <IconChevronRightOutline14 />
+        </summary>
+        <div className={styles.rows}>
+          {rows.slice(ri * pageSize, (ri + 1) * pageSize).map((row) => (
+            <details
+              data-usage-row
+              key={row.id}
+              data-provider={row.provider}
+              data-model={row.model}
+              data-status={row.status}
+              data-purpose={row.purpose}
+              className={styles.entry}
+            >
+              <summary>
+                <span>
+                  <strong>{displayRoute(row.model, t)}</strong>
+                  <small>
+                    {displayRoute(row.provider, t)} · {t(purposeNames[row.purpose])} ·{' '}
+                    {t(statusNames[row.status])}
+                  </small>
+                  <time dateTime={new Date(row.at).toISOString()}>{time.format(row.at)}</time>
+                </span>
+                <IconChevronRightOutline14 />
+              </summary>
+              <Metrics counts={summarizeUsage([row])} locale={locale} />
+            </details>
+          ))}
+          <Pager index={ri} pages={requestsPages} setIndex={setRequestPage} />
+        </div>
+      </details>
     </>
   )
 }

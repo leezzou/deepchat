@@ -6,6 +6,7 @@ import type { Session } from '../../services/chat/types.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
 import { MessageList } from '../messages/MessageList.js'
 import { ContextBanner } from './ContextBanner.js'
+import { AutoReadButton } from './AutoReadButton.js'
 import { MobileHeader } from './MobileHeader.js'
 import { ConversationControls } from './ConversationControls.js'
 import styles from './SessionView.module.css'
@@ -34,6 +35,7 @@ export const SessionView = ({
           </div>
           <ConversationControls key={session.id} sessionId={session.id} />
           <GlobalMemorySwitch sessionId={session.id} />
+          <AutoReadButton sessionId={session.id} />
         </header>
       )}
       <MessageList

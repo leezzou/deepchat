@@ -16,19 +16,24 @@ import {
 import { MAX_PORTABLE_BYTES, PortableError } from '../backup/portableCrypto.js'
 import {
   backupMetadata,
+  changeAutomaticPreference,
+  commitAutomaticBackup,
+  countAutomaticRound,
+  removeAutomaticCopy,
   readBackup,
+  readBackupArtifacts,
   readBackupPreferences,
   readSnapshotParts,
   readSnapshotRecord,
   writeBackup,
-  writeBackupPreferences,
   writeSafetySnapshot,
   type BackupArtifact,
   type BackupMetadata,
   type SnapshotPart,
 } from '../backup/storage.js'
 import * as db from './db.js'
-import { replaceHistory, useChatStore } from './store.js'
+import { flushChatPersistence, replaceHistory, useChatStore } from './store.js'
+import { useSettings } from '../settings.js'
 import type { Session } from './types.js'
 import { captureDrafts, useDrafts } from './drafts.js'
 import {
@@ -72,14 +77,15 @@ const metadata = (reason: BackupMetadata['reason'], sessionCount: number): Backu
 let loadingState: Promise<void> | undefined
 export const loadBackupState = (): Promise<void> =>
   (loadingState ??= (async () => {
-    const [latest, safety, preferences] = await Promise.all([
-      readBackup(),
+    const [{ manual, automatic }, safety, preferences] = await Promise.all([
+      readBackupArtifacts(),
       readSnapshotRecord(),
       readBackupPreferences(),
     ])
     useBackupState.setState({
       ready: true,
-      latest: latest ? backupMetadata(latest) : null,
+      latest: manual ? backupMetadata(manual) : null,
+      automatic: automatic ? backupMetadata(automatic) : null,
       safety: safety ? backupMetadata(safety) : null,
       autoEnabled: preferences.autoEnabled,
       completedRounds: preferences.completedRounds,
@@ -105,7 +111,7 @@ async function* readCurrentSessions(): AsyncGenerator<Session> {
   }
 }
 
-const generateBackup = async (reason: 'manual' | 'automatic'): Promise<BackupArtifact> => {
+const generateManualBackup = async (): Promise<BackupArtifact> => {
   await loadBackupState()
   if (!useChatStore.getState().ready) {
     throw new Error('History has not finished loading')
@@ -113,7 +119,7 @@ const generateBackup = async (reason: 'manual' | 'automatic'): Promise<BackupArt
   useBackupState.setState({ operation: 'generating' })
   try {
     const { exportArchive } = await import('./history/exportArchive.js')
-    const info = metadata(reason, useChatStore.getState().sessions.length)
+    const info = metadata('manual', useChatStore.getState().sessions.length)
     const blob = await exportArchive(readCurrentSessions())
     const artifact = { ...info, blob }
     await writeBackup(artifact)
@@ -125,8 +131,7 @@ const generateBackup = async (reason: 'manual' | 'automatic'): Promise<BackupArt
 }
 
 /** 生成可再次导入的 ZIP，并保留在本机。保存到文件由独立用户操作触发。 */
-export const exportHistory = (): Promise<BackupArtifact> =>
-  enqueueBackup(() => generateBackup('manual'))
+export const exportHistory = (): Promise<BackupArtifact> => enqueueBackup(generateManualBackup)
 
 /** 分享或发起下载并不代表已持久保存；只记录系统实际返回的交付状态。 */
 export const saveLatestBackup = () =>
@@ -391,34 +396,169 @@ export const saveSafetySnapshot = () =>
     }
   })
 
-export const setAutomaticBackup = (autoEnabled: boolean) =>
-  enqueueBackup(async () => {
-    await loadBackupState()
-    const preferences = await readBackupPreferences()
-    await writeBackupPreferences({ ...preferences, autoEnabled })
-    useBackupState.setState({ autoEnabled })
-  })
+// Privacy actions bypass the archive queue: an expensive ZIP must never delay opt-out.
+let automaticEpoch = 0
+let working: AbortController | undefined
+let privacyActions = 0
+let channel: BroadcastChannel | undefined
 
-/** 仅由运行中的请求完成事件调用；失败/停止/旧历史加载都不增加计数。 */
-export const recordCompletedBackupRound = (roundId: string): Promise<boolean> =>
-  enqueueBackup(async () => {
+/** Refresh open settings when a second window changes the device-wide preference or copy. */
+export const observeAutomaticSettings = () => {
+  if (typeof BroadcastChannel !== 'undefined') {
+    channel = new BroadcastChannel('chat-demo:automatic-backup')
+  }
+  const refresh = async () => {
+    if (document.hidden || privacyActions) {
+      return
+    }
+    try {
+      await loadBackupState()
+      const [{ automatic }, p] = await Promise.all([readBackupArtifacts(), readBackupPreferences()])
+      if (privacyActions) {
+        return
+      }
+      useBackupState.setState({
+        automatic: automatic ? backupMetadata(automatic) : null,
+        autoEnabled: p.autoEnabled,
+        completedRounds: p.completedRounds,
+      })
+    } catch {
+      useBackupState.setState({ error: 'load' })
+    }
+  }
+  if (channel) {
+    channel.onmessage = refresh
+  }
+  document.addEventListener('visibilitychange', refresh)
+  return () => {
+    document.removeEventListener('visibilitychange', refresh)
+    channel?.close()
+    channel = undefined
+  }
+}
+const cancelAutomaticWork = () => {
+  automaticEpoch++
+  working?.abort()
+}
+
+const manageAutomatic = async (enabled?: boolean) => {
+  const deleting = enabled === undefined
+  privacyActions++
+  cancelAutomaticWork()
+  try {
     await loadBackupState()
-    const preferences = await readBackupPreferences()
-    if (preferences.recentRoundIds.includes(roundId)) {
+    const p = deleting ? await removeAutomaticCopy() : await changeAutomaticPreference(enabled)
+    useBackupState.setState({
+      autoEnabled: p.autoEnabled,
+      completedRounds: p.completedRounds,
+      ...(deleting && { automatic: null }),
+      error: null,
+    })
+    channel?.postMessage('changed')
+  } finally {
+    privacyActions--
+  }
+}
+export const setAutomaticBackup = (enabled: boolean) => manageAutomatic(enabled)
+export const deleteAutomaticBackup = () => manageAutomatic()
+
+/** Only an explicit tap in settings can open the system save/share UI. */
+export const saveAutomaticBackup = async () => {
+  const { automatic } = await readBackupArtifacts()
+  if (!automatic) {
+    throw new Error('No automatic backup is available')
+  }
+  return saveBlob(automatic.name, automatic.blob)
+}
+
+const buildAutomaticArchive = async (ids: string[], signal: AbortSignal): Promise<Blob> => {
+  const worker = new Worker(new URL('../backup/automaticArchive.worker.ts', import.meta.url))
+  const abortError = () => new DOMException('Cancelled', 'AbortError')
+  let abort: (() => void) | undefined
+  try {
+    return await new Promise<Blob>((resolve, reject) => {
+      abort = () => reject(abortError())
+      if (signal.aborted) {
+        return abort()
+      }
+      signal.addEventListener('abort', abort, { once: true })
+      worker.onmessage = ({ data }) =>
+        data?.blob instanceof Blob
+          ? resolve(data.blob)
+          : reject(new Error('Could not build local ZIP'))
+      worker.onerror = (event) => {
+        event.preventDefault()
+        reject(new Error('Could not build local ZIP'))
+      }
+      worker.postMessage({ ids, locale: useSettings.getState().locale })
+    })
+  } finally {
+    if (abort) {
+      signal.removeEventListener('abort', abort)
+    }
+    worker.terminate()
+  }
+}
+
+/** Count only completions observed live. The queue orders exports against imports and restores,
+ * but never enters the foreground operation state or disables the conversation or settings. */
+export const recordCompletedBackupRound = (roundId: string): Promise<boolean> => {
+  const epoch = automaticEpoch
+  if (privacyActions) {
+    return Promise.resolve(false)
+  }
+  return enqueueBackup(async () => {
+    await loadBackupState()
+    if (epoch !== automaticEpoch) {
       return false
     }
-    preferences.recentRoundIds = [...preferences.recentRoundIds.slice(-199), roundId]
-    if (preferences.autoEnabled) {
-      preferences.completedRounds += 1
-    }
-    await writeBackupPreferences(preferences)
-    useBackupState.setState({ completedRounds: preferences.completedRounds })
-    if (!preferences.autoEnabled || preferences.completedRounds < 10) {
+    const { due, preferences } = await countAutomaticRound(roundId)
+    if (epoch !== automaticEpoch) {
       return false
     }
-    await generateBackup('automatic')
-    preferences.completedRounds %= 10
-    await writeBackupPreferences(preferences)
-    useBackupState.setState({ completedRounds: preferences.completedRounds })
-    return true
+    useBackupState.setState({
+      autoEnabled: preferences.autoEnabled,
+      completedRounds: preferences.completedRounds,
+    })
+    if (!due) {
+      return false
+    }
+    const controller = new AbortController()
+    working = controller
+    try {
+      // The final reply is persisted immediately after the store's completion notification.
+      await flushChatPersistence()
+      if (controller.signal.aborted) {
+        return false
+      }
+      const ids = currentIds()
+      if (!ids.length) {
+        return false
+      }
+      const info = metadata('automatic', ids.length)
+      const blob = await buildAutomaticArchive(ids, controller.signal)
+      if (controller.signal.aborted) {
+        return false
+      }
+      const p = await commitAutomaticBackup({ ...info, blob }, preferences.revision ?? 0)
+      if (!p) {
+        return false
+      }
+      // A concurrent disable retains an already-committed ZIP. A delete clears it afterwards.
+      useBackupState.setState({ automatic: info })
+      if (controller.signal.aborted) {
+        return false
+      }
+      useBackupState.setState({ completedRounds: p.completedRounds, error: null })
+      channel?.postMessage('changed')
+      return true
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return false
+      }
+      throw error
+    } finally {
+      working = undefined
+    }
   })
+}

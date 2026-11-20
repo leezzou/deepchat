@@ -117,12 +117,32 @@ test('only exact and independently authorized WorkBuddy routes are available', a
   useWorkBuddyState.setState({ metadata: null })
   assert.equal(getChatAccess(), null)
 })
+test('preserves reported WorkBuddy usage after finish, with errors kept distinct from completed answers', async () => {
+  const sse = (...chunks) => chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')
+  respond(200, sse(
+    { choices: [{ delta: { reasoning: '比较两款屏幕。', reasoning_content: '比较两款屏幕。' } }] },
+    { choices: [{ delta: { content: '结果相同' }, finish_reason: 'stop' }] },
+    { choices: [], usage: { prompt_tokens: 90, completion_tokens: 17, prompt_tokens_details: { cached_tokens: 25 } } }
+  ))
+  const events = await drain(access, { ...body, thinking: { type: 'enabled' } })
+  assert.equal(events.filter((event) => event.delta?.type === 'thinking_delta').map((event) => event.delta.thinking).join(''), '比较两款屏幕。')
+  const done = events.find((event) => event.type === 'message_delta')
+  assert.equal(done.delta.stop_reason, 'end_turn')
+  assert.equal(done.usage.cache_read_input_tokens, 25)
+  assert.equal(done.usage.output_tokens, 17)
+  respond(200, sse({ choices: [{ delta: { content: 'partial' }, finish_reason: 'error' }] }))
+  await assert.rejects(drain(), /Interrupted|中断/)
+  respond(200, sse({ choices: [{ delta: { refusal: '无法回答' }, finish_reason: 'stop' }] }))
+  const refused = await drain()
+  assert.equal(refused.find((event) => event.type === 'message_delta').delta.stop_reason, 'refusal')
+})
+
 test('direct chat preserves requested model, system text, Unicode and SSE reasoning/text', async () => {
   respond(
     200,
     'data: {"model":"deepseek-v4.1-flash","choices":[{"delta":{"reasoning_content":"想"}}]}\n\ndata: {"model":"deepseek-v4.1-flash","choices":[{"delta":{"content":"你好"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
   )
-  const events = await drain()
+  const events = await drain(access, { ...body, thinking: { type: 'enabled' } })
   const call = calls.filter((x) => x.op === 'chat').at(-1)
   assert.deepEqual(Object.keys(call).sort(), [
     'id',
@@ -218,7 +238,8 @@ test('search retrieves only this question and grounds the selected model; reply 
     tools: [searchTool],
     thinking: { type: 'enabled' },
   })
-  const [search, chat] = calls.slice(start).filter((x) => x.op !== 'cancel')
+  const search = calls.slice(start).find((x) => x.op === 'search')
+  const chat = calls.slice(start).find((x) => x.op === 'chat')
   assert.deepEqual(search, {
     op: 'search',
     query: '帮我找更新文档',
@@ -291,7 +312,7 @@ test('failed search, malformed search, cancellation and changed grant stop the r
   await assert.rejects(drain(access, content), /account_changed/)
   assert.equal(calls.slice(start).filter((x) => x.op === 'chat').length, 1)
 })
-test('off switches omit search and send thinking false; provider omission is visible when thinking was requested', async () => {
+test('off switches omit tools and discard unsolicited reasoning; omitted reasoning stays absent', async () => {
   const start = calls.length
   respond(200, answer)
   const events = await drain(access, {
@@ -312,9 +333,334 @@ test('off switches omit search and send thinking false; provider omission is vis
     blocks: [],
     status: 'pending',
   })
-  assert.equal(result.workBuddyReasoningUnavailable, true)
+  assert.equal(
+    result.blocks.some((block) => block.type === 'thinking'),
+    false
+  )
+  assert.equal(
+    missing.some((event) => 'workBuddyReasoningUnavailable' in event),
+    false
+  )
   assert.equal(buildReplyView(result, false).answer.text, '文档已更新')
   assert.equal(missing.at(-1).type, 'message_stop')
+})
+
+function sendPlan(id, plan) {
+  delivery(
+    id,
+    200,
+    'text/event-stream',
+    `data: ${JSON.stringify({ choices: [{ delta: { content: JSON.stringify(plan) }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`
+  )
+}
+function viewOf(events) {
+  const indexes = new Map()
+  return buildReplyView(
+    events.reduce((reply, e) => applyEvent(reply, e, 1, indexes), {
+      blocks: [],
+      status: 'pending',
+    }),
+    false
+  )
+}
+const comparison = {
+  ...body,
+  tools: [searchTool],
+  system: 'secret-system-canary',
+  messages: [
+    { role: 'user', content: 'checkpoint-canary' },
+    { role: 'user', content: 'private customer: AmberLedger 001' },
+    { role: 'assistant', content: [{ type: 'text', text: 'private-answer-canary' }] },
+    { role: 'latest_reminder', content: 'reminder-canary' },
+    { role: 'user', content: '我在比较 MiraLoop X2 和 Kubo Air 这两款耳机' },
+    { role: 'assistant', content: [{ type: 'text', text: '可以核对这两款的公开参数。' }] },
+    { role: 'user', content: '那它们的续航呢？请逐篇核对原文。' },
+  ],
+}
+
+test('resolves follow-up with same-grant planner; isolates private history, reads nine public results and resolves split citations', async () => {
+  const start = calls.length
+  let round = 0
+  const rows = Array.from({ length: 9 }, (_, i) => ({
+    title: `Source ${i + 1}`,
+    url: `https://review${i}.example/news`,
+    snippet: '独立的测评摘要',
+    readKey: `native-only-${i}`,
+  }))
+  reply = ({ id, op, purpose, readKey }) => {
+    if (purpose === 'search_plan') {
+      return sendPlan(id, {
+        queries: ['MiraLoop X2 Kubo Air 续航规格', 'MiraLoop X2 Kubo Air 续航实测'],
+        multi: true,
+        read: true,
+      })
+    }
+    if (op === 'search') {
+      return delivery(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({
+          results:
+            round++ === 0
+              ? rows.slice(0, 6)
+              : [{ ...rows[0], url: rows[0].url + '?utm_source=x#old' }, ...rows.slice(6)],
+        })
+      )
+    }
+    if (op === 'read') {
+      return delivery(
+        id,
+        200,
+        'application/json',
+        JSON.stringify({ text: 'Body for ' + readKey.split('-').at(-1) + ' 权威资料'.repeat(80) })
+      )
+    }
+    if (op === 'chat') {
+      return delivery(
+        id,
+        200,
+        'text/event-stream',
+        ['实测显示[S', '7]。可参考[S9][S999]']
+          .map((content) => `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`)
+          .join('') + 'data: [DONE]\n\n'
+      )
+    }
+  }
+  const events = await drain(access, comparison)
+  const sent = calls.slice(start).filter((x) => x.op !== 'cancel')
+  const planner = sent[0]
+  assert.equal(planner.purpose, 'search_plan')
+  assert.equal(planner.thinking, false)
+  assert.ok(sent.every((req) => req.model === access.model && req.revision === revision))
+  assert.match(planner.messages[1].content, /MiraLoop X2 和 Kubo Air/)
+  assert.doesNotMatch(planner.messages[1].content, /canary|AmberLedger/)
+  assert.deepEqual(
+    sent.filter((x) => x.op === 'search').map((x) => x.query),
+    ['MiraLoop X2 Kubo Air 续航规格', 'MiraLoop X2 Kubo Air 续航实测']
+  )
+  const reads = sent.filter((x) => x.op === 'read')
+  assert.equal(reads.length, 9)
+  assert.ok(reads.every((x) => !('url' in x) && !('messages' in x)))
+  const evidence = sent
+    .at(-1)
+    .messages.find((row) => row.content.startsWith('WorkBuddy search results')).content
+  assert.match(evidence, /Body for 8/)
+  assert.doesNotMatch(evidence, /native-only-|canary/)
+  assert.doesNotMatch(JSON.stringify(events), /native-only-/)
+  const view = viewOf(events)
+  assert.equal(view.searchResults.length, 9)
+  assert.equal(view.sources.length, 9)
+  assert.deepEqual(view.answer, {
+    text: '实测显示。可参考',
+    markdown: '实测显示[citation:7]。可参考[citation:9]',
+  })
+})
+
+test('single plain query gets a bounded second search only if needed; denied reads retain snippets', async () => {
+  const content = {
+    ...body,
+    tools: [searchTool],
+    messages: [{ role: 'user', content: '新品动态' }],
+  }
+  for (const sufficient of [true, false]) {
+    const start = calls.length
+    reply = ({ id, op }) => {
+      if (op === 'search') {
+        return delivery(
+          id,
+          200,
+          'application/json',
+          JSON.stringify({
+            results: (sufficient ? [1, 2] : [1]).map((n) => ({
+              url: `https://docs.example/${n}`,
+              readKey: `read-${n}`,
+              snippet: sufficient
+                ? 'Independent and substantive primary release notes covering the new product.'
+                : '保留的摘要',
+            })),
+          })
+        )
+      }
+      if (op === 'read') {
+        return delivery(id, 403, 'application/json', '{"error":{"message":"reader denied"}}')
+      }
+      if (op === 'chat') {
+        return delivery(id, 200, 'text/event-stream', answer)
+      }
+    }
+    const events = await drain(access, content)
+    const sent = calls.slice(start).filter((x) => x.op !== 'cancel')
+    assert.equal(sent.filter((x) => x.op === 'search').length, sufficient ? 1 : 2)
+    assert.equal(sent.filter((x) => x.op === 'read').length, sufficient ? 0 : 1)
+    const evidence = sent
+      .at(-1)
+      .messages.find((row) => row.content.startsWith('WorkBuddy search results')).content
+    assert.doesNotMatch(evidence, /"page"/)
+    assert.match(evidence, sufficient ? /primary release notes/ : /保留的摘要/)
+    assert.equal(viewOf(events).answer.text, '文档已更新')
+  }
+})
+
+test('planner errors fall back to current safe question, explicit privacy abstention and sensitive input make zero search calls', async () => {
+  for (const mode of ['malformed', 'abstain', 'sensitive-plan', 'sensitive-question']) {
+    const start = calls.length
+    reply = ({ id, op, purpose }) => {
+      if (purpose === 'search_plan') {
+        return sendPlan(
+          id,
+          mode === 'malformed'
+            ? 'not a plan'
+            : { queries: mode === 'sensitive-plan' ? ['API key abcxyz'] : [] }
+        )
+      }
+      if (op === 'search') {
+        return delivery(id, 200, 'application/json', '{"results":[]}')
+      }
+      if (op === 'chat') {
+        return delivery(id, 200, 'text/event-stream', answer)
+      }
+    }
+    const content =
+      mode === 'sensitive-question'
+        ? {
+            ...comparison,
+            messages: [
+              ...comparison.messages,
+              { role: 'user', content: '请查询私有项目及密码 hunter2' },
+            ],
+          }
+        : comparison
+    await drain(access, content)
+    const sent = calls.slice(start).filter((req) => req.op === 'search')
+    if (mode === 'malformed') {
+      assert.equal(sent[0].query, comparison.messages.at(-1).content.normalize('NFKC'))
+    } else {
+      assert.equal(sent.length, 0)
+    }
+  }
+})
+
+test('abort and credential changes during planner or page read prevent later search or answer dispatch', async () => {
+  for (const stage of ['plan', 'read']) {
+    for (const fault of ['cancel', 'account_changed']) {
+      const start = calls.length
+      const controller = new AbortController()
+      reply = ({ id, op, purpose }) => {
+        if ((purpose === 'search_plan' && stage === 'plan') || op === 'read') {
+          if (fault === 'cancel') {
+            controller.abort()
+          } else {
+            frame(id, { type: 'error', code: fault })
+          }
+        } else if (purpose === 'search_plan') {
+          sendPlan(id, { queries: ['MiraLoop X2 续航'], read: true })
+        } else if (op === 'search') {
+          delivery(
+            id,
+            200,
+            'application/json',
+            '{"results":[{"url":"https://docs.example/x","readKey":"opaque"}]}'
+          )
+        }
+      }
+      await assert.rejects(
+        drain(access, comparison, controller.signal),
+        fault === 'cancel' ? { name: 'AbortError' } : /account_changed/
+      )
+      assert.equal(
+        calls.slice(start).some((req) => req.op === 'chat' && !req.purpose),
+        false
+      )
+      if (stage === 'plan') {
+        assert.equal(
+          calls.slice(start).some((req) => req.op === 'search'),
+          false
+        )
+      }
+    }
+  }
+})
+
+test('disabled reasoning, empty reasoning and whitespace-only reasoning emit no thinking blocks', async () => {
+  for (const [thinking, reasoning] of [
+    ['disabled', 'do not display'],
+    ['enabled', '  '],
+    ['enabled', ''],
+  ]) {
+    respond(
+      200,
+      `data: ${JSON.stringify({ choices: [{ delta: { reasoning_content: reasoning } }] })}\n\n` +
+        answer
+    )
+    const events = await drain(access, { ...body, thinking: { type: thinking } })
+    assert.equal(
+      events.some(
+        (event) =>
+          event.content_block?.type === 'thinking' || event.delta?.type === 'thinking_delta'
+      ),
+      false
+    )
+    assert.ok(viewOf(events).answer)
+  }
+})
+
+test('bounds UTF-8 evidence and filters local, credential-bearing and duplicate sources across rounds', async () => {
+  const { byteLength, searchSources, withSearchEvidence } = await import('./search.ts')
+  const seen = new Set()
+  const hits = []
+  for (let round = 0; round < 3; round++) {
+    const results = Array.from({ length: 24 }, (_, i) => ({
+      url: `https://docs.example/${round}/${i}`,
+      title: '标题'.repeat(200),
+      snippet: '内容😀'.repeat(500),
+      readKey: 'opaque-only',
+    }))
+    hits.push(
+      ...searchSources(
+        {
+          results: [
+            { url: 'http://127.1/secret' },
+            { url: 'https://name:pass@docs.example/x' },
+            { url: 'https://hidden.local/x' },
+            ...results,
+          ],
+        },
+        seen,
+        round
+      )
+    )
+    assert.equal(
+      searchSources({ results: [{ ...results[0], url: results[0].url + '#section' }] }, seen)
+        .length,
+      0
+    )
+  }
+  assert.equal(hits.length, 72)
+  const { messages, ids } = withSearchEvidence([{ role: 'user', content: '核对' }], 0, hits)
+  const serialized = messages.at(-2).content.split('\n')[1]
+  assert.ok(byteLength(serialized) <= 12 * 1024)
+  assert.equal(ids.size, JSON.parse(serialized).length)
+  assert.ok(ids.has('S1') && ids.has('S25') && ids.has('S49'))
+  assert.doesNotMatch(serialized, /opaque-only|hidden\.local|127\.1|name:pass|�/)
+})
+
+test('text-only WorkBuddy rejects attachment requests before any search or planner dispatch', async () => {
+  const start = calls.length
+  const content = {
+    ...comparison,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'file', file_id: 'attachment-canary' } },
+          { type: 'text', text: '请搜索一下' },
+        ],
+      },
+    ],
+  }
+  await assert.rejects(drain(access, content), /Text messages only/)
+  assert.equal(calls.length, start)
 })
 
 test('model quota refusals still reach the chat for both HTTP and SSE', async () => {

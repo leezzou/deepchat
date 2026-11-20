@@ -1,0 +1,1 @@
+{"rows":[["gpt-oss-120b","OpenAI GPT OSS",131072,null,40960,1],["llama-3.3-70b",null,null,null,null,0],["qwen-3.8-27b","Qwen 3.8 27B",65536,null,32768,1]],"sources":[["DeepChat preset · ID only","https://api.cerebras.ai/v1"],["cerebras · official","https://api.cerebras.ai/public/v1/models"]]}

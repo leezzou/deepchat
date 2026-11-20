@@ -1,4 +1,5 @@
 import { translate } from '../../i18n/index.js'
+import { publicSourceUrl } from '../api/searchCitations.js'
 import type {
   ServerToolKind,
   TextCitation,
@@ -161,7 +162,7 @@ const joinTextBlocks = (
     text += block.text
     const indexes = new Set<number>()
     for (const citation of block.citations ?? []) {
-      indexes.add(registry.add(citation.url, citation.title, null).index)
+      if (publicSourceUrl(citation.url)) indexes.add(registry.add(citation.url, citation.title, null).index)
     }
     const body = indexes.size > 0 ? block.text.trimEnd() : block.text
     markdown += body
@@ -182,7 +183,9 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
   }
 
   const registry = new SourceRegistry()
-  const searchResults: Source[] = []
+  const lastAnswerIndex = reply.blocks.findLastIndex(
+    (block) => block.type === 'text' && !block.isTemplate && block.text.trim()
+  )
   const steps: Step[] = []
   const mergedSearch = new Map<ServerToolKind, SearchStep>()
   let mergedThinking: ThinkingStep | null = null
@@ -197,21 +200,19 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     if (result?.type === 'web_search_tool_result') {
       for (const item of result.content) {
         if (item.type === 'web_search_result') {
-          const source = registry.add(item.url, item.title, item.page_age, item)
-          if (!searchResults.includes(source)) {
-            searchResults.push(source)
-          }
+          if (publicSourceUrl(item.url)) registry.add(item.url, item.title, item.page_age, item)
         }
       }
     } else if (
       result?.type === 'web_fetch_tool_result' &&
       result.content.type === 'web_fetch_result' &&
-      block.kind === 'deep_search'
+      publicSourceUrl(result.content.url)
     ) {
       registry.add(result.content.url, result.content.content.title, result.content.published_at)
     }
   }
 
+  const hasToolSteps = reply.blocks.some((block) => block.type === 'server_tool_use')
   const flushPreamble = () => {
     if (pendingText.length === 0) {
       return
@@ -236,11 +237,17 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
       return
     }
     if (block.type === 'thinking') {
-      // 相邻思考块沿用同一个圆点和 Markdown；原始块与签名不变。
+      // Keep signed protocol blocks intact, but render only reasoning the user can actually read.
+      if (reply.thinking === false) {
+        return
+      }
       if (mergedThinking) {
         mergedThinking.blocks.push(block)
-      } else if (block.thinking) {
-        flushPreamble()
+      } else if (block.thinking.trim()) {
+        // A continued answer can start another reasoning phase between two parts of its body.
+        if (hasToolSteps) {
+          flushPreamble()
+        }
         mergedThinking = { type: 'thinking', key: `thinking-${index}`, blocks: [block] }
         steps.push(mergedThinking)
       }
@@ -262,7 +269,8 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     ) {
       return
     }
-    flushPreamble()
+    // A provider may append a final signed tool snapshot after its answer.
+    if (streaming || index < lastAnswerIndex) flushPreamble()
     const { kind, input } = block
     const status = getStatus(result, streaming)
     const last = steps.at(-1)
@@ -272,7 +280,7 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
       const found =
         result?.type === 'web_search_tool_result'
           ? result.content.flatMap((item) =>
-              item.type === 'web_search_result'
+              item.type === 'web_search_result' && publicSourceUrl(item.url)
                 ? [registry.add(item.url, item.title, item.page_age, item)]
                 : []
             )
@@ -342,7 +350,9 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     steps,
     answer: answer && answer.text ? answer : null,
     sources: registry.list,
-    searchResults,
+    // Providers can supply citation annotations without any search-call trace.
+    // The source drawer includes each real returned URL, including those citation-only replies.
+    searchResults: registry.list,
   }
 }
 

@@ -1,12 +1,7 @@
-import {
-  IconMenuDouble24,
-  IconNewChatOutline20,
-  IconSpeakerWaves24,
-  IconSpeakerWavesOff24,
-} from '../base/icons.js'
+import { IconMenuDouble24, IconNewChatOutline20 } from '../base/icons.js'
 import { useTranslate } from '../../i18n/index.js'
 import { newChat, useChatStore } from '../../services/chat/store.js'
-import { setAutoRead, useSettings } from '../../services/settings.js'
+import { AutoReadButton } from './AutoReadButton.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { IconButton } from '../base/IconButton.js'
 import { openMobileSider, rememberChat, useMobileSider } from '../sider/mobileSiderState.js'
@@ -18,7 +13,6 @@ import styles from './MobileHeader.module.css'
 export const MobileHeader = ({ title }: { title?: string }) => {
   const t = useTranslate()
   const activeId = useChatStore((state) => state.activeId)
-  const autoRead = useSettings((state) => state.autoRead)
   const hasUpdate = useUpdateNotice((state) => state.available !== null)
   const hasParent = useMobileSider((state) => state.parents.length > 0)
   return (
@@ -46,14 +40,7 @@ export const MobileHeader = ({ title }: { title?: string }) => {
         <GlobalMemorySwitch sessionId={activeId} />
       </div>
       <div className={styles.right}>
-        <IconButton
-          size="xl"
-          tone="primary"
-          icon={autoRead ? <IconSpeakerWaves24 /> : <IconSpeakerWavesOff24 />}
-          aria-label={t('autoReadAloud')}
-          aria-pressed={autoRead}
-          onClick={() => setAutoRead(!autoRead)}
-        />
+        <AutoReadButton sessionId={activeId} mobile />
         <IconButton
           size="xl"
           tone="primary"

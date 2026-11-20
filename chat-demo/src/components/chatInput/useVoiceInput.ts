@@ -1,17 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { TranslationMessage } from '../../i18n/index.js'
+import type { TranslationKey, TranslationMessage } from '../../i18n/index.js'
 import { transcribe } from '../../services/api/speech.js'
 import { startRecording, type Recording } from '../../services/speech/recorder.js'
-import { requireChatAccess, type ChatAccess } from '../../services/api/access.js'
+import {
+  getConversationRoute,
+  requireChatAccess,
+  type ChatAccess,
+} from '../../services/api/access.js'
+import { observeDeviceVoice, recognizeLocally } from '../../services/speech/deviceVoice.js'
+import {
+  speechIdentity,
+  speechLanguage,
+  speechMode,
+  subscribeSpeechRoute,
+  useSpeechMode,
+} from '../../services/speech/speechRoute.js'
+import { useSettings } from '../../services/settings.js'
 import { showToast } from '../base/toastState.js'
 
 export type VoiceInputStatus = 'idle' | 'recording' | 'transcribing'
-
-/**
- * 录音依赖 getUserMedia，只在安全上下文可用（HTTPS、localhost、file://）。
- * 普通 HTTP 页面上直接禁用入口，避免点击后必然失败。
- */
-const AVAILABLE = typeof window === 'undefined' || window.isSecureContext
 
 const describeRecordingError = (error: unknown): TranslationMessage => {
   if (error instanceof DOMException) {
@@ -25,134 +32,199 @@ const describeRecordingError = (error: unknown): TranslationMessage => {
   return { key: 'voiceInputFailed' }
 }
 
-/**
- * 语音输入（oneshot）：点击开始录音，再次点击结束并转写，结果交给 onText 填入输入框。
- * 转写中再次点击取消。录满 120 秒自动结束。
- */
+type Operation = {
+  identity: string
+  controller: AbortController
+  source?: ChatAccess
+  recording?: Recording
+  local?: ReturnType<typeof recognizeLocally>
+  timer?: ReturnType<typeof setTimeout>
+}
+
 export const useVoiceInput = (sessionId: string | null, onText: (text: string) => void) => {
   const [status, setStatus] = useState<VoiceInputStatus>('idle')
-  /** 本次录音已录秒数，只在录音中递增 */
   const [seconds, setSeconds] = useState(0)
-  const sourceRef = useRef<ChatAccess | null>(null)
-  const recordingRef = useRef<Recording | null>(null)
-  const controllerRef = useRef<AbortController | null>(null)
-  const operationRef = useRef(0)
+  const active = useRef<Operation | null>(null)
   const onTextRef = useRef(onText)
   onTextRef.current = onText
+  const mode = useSpeechMode(sessionId, 'asr')
+  const locale = useSettings((state) => state.locale)
+  const localRoute = !getConversationRoute(sessionId).speech
+  useEffect(
+    () => (localRoute ? observeDeviceVoice(speechLanguage()) : undefined),
+    [locale, localRoute]
+  )
 
-  const cancelOperation = useCallback(() => {
-    operationRef.current++
-    recordingRef.current?.cancel()
-    recordingRef.current = null
-    controllerRef.current?.abort()
-    controllerRef.current = null
+  const release = useCallback(() => {
+    const op = active.current
+    active.current = null
+    if (!op) {
+      return
+    }
+    clearTimeout(op.timer)
+    op.controller.abort()
+    op.recording?.cancel()
+    op.local?.cancel()
   }, [])
-
   const cancel = useCallback(() => {
-    cancelOperation()
+    release()
     setStatus('idle')
-  }, [cancelOperation])
+  }, [release])
 
-  const finish = useCallback(async () => {
-    const recording = recordingRef.current
-    if (!recording) {
-      // 仍在等待麦克风授权时也允许取消；迟到的录音对象会立即释放。
+  useEffect(() => {
+    const unsubscribe = subscribeSpeechRoute(() => {
+      if (active.current && active.current.identity !== speechIdentity(sessionId)) {
+        cancel()
+      }
+    })
+    const onHidden = () => {
+      if (document.hidden) {
+        cancel()
+      }
+    }
+    document.addEventListener('visibilitychange', onHidden)
+    return () => {
+      unsubscribe()
+      document.removeEventListener('visibilitychange', onHidden)
+      release()
+    }
+  }, [sessionId, release, cancel])
+
+  const deliver = (op: Operation, text: string) => {
+    if (active.current !== op || op.identity !== speechIdentity(sessionId)) {
+      return
+    }
+    if (text.trim()) {
+      onTextRef.current(text.trim())
+    } else {
+      showToast({ key: 'voiceInputEmpty' })
+    }
+  }
+  const deadline = (op: Operation, ms: number) => {
+    clearTimeout(op.timer)
+    op.timer = setTimeout(() => {
+      if (active.current !== op) {
+        return
+      }
+      cancel()
+      showToast({ key: 'voiceInputFailed' })
+    }, ms)
+  }
+  const finish = async (op: Operation) => {
+    if (active.current !== op) {
+      return
+    }
+    if (!op.recording && !op.local) {
       cancel()
       return
     }
-    const operation = operationRef.current
-    recordingRef.current = null
-    let controller: AbortController | null = null
+    setStatus('transcribing')
+    deadline(op, op.local ? 8000 : 60_000)
+    if (op.local) {
+      op.local.finish()
+      return
+    }
     try {
-      let audio: Blob | null
-      try {
-        audio = await recording.stop()
-      } finally {
-        recording.cancel()
-      }
-      if (operationRef.current !== operation || !audio) {
+      const audio = await op.recording?.stop()
+      if (active.current !== op || !audio || !op.source) {
         return
       }
-      controller = new AbortController()
-      controllerRef.current = controller
-      setStatus('transcribing')
-      const access = sourceRef.current
-      if (!access || JSON.stringify(access) !== JSON.stringify(requireChatAccess(sessionId))) {
-        throw new Error('录音期间模型方案已更改')
-      }
-      const text = await transcribe(access, audio, controller.signal)
-      if (controller.signal.aborted || operationRef.current !== operation) {
+      if (
+        op.identity !== speechIdentity(sessionId) ||
+        speechMode(sessionId, 'asr') !== 'official' ||
+        JSON.stringify(op.source) !== JSON.stringify(requireChatAccess(sessionId))
+      ) {
         return
       }
-      if (text.trim()) {
-        onTextRef.current(text.trim())
-      } else {
-        showToast({ key: 'voiceInputEmpty' })
-      }
-    } catch {
-      if (operationRef.current === operation && !controller?.signal.aborted) {
-        showToast({ key: 'voiceInputFailed' })
+      deliver(op, await transcribe(op.source, audio, op.controller.signal))
+    } catch (error) {
+      if (active.current === op) {
+        showToast(describeRecordingError(error))
       }
     } finally {
-      if (operationRef.current === operation) {
-        controllerRef.current = null
-        setStatus('idle')
+      if (active.current === op) {
+        cancel()
       }
     }
-  }, [cancel, sessionId])
-
-  const toggle = useCallback(async () => {
-    if (!AVAILABLE) {
+  }
+  const available =
+    mode === 'device' ||
+    (mode === 'official' && window.isSecureContext && !!navigator.mediaDevices?.getUserMedia)
+  const label: TranslationKey =
+    mode === 'device'
+      ? 'voiceOfflineInput'
+      : mode === 'official'
+        ? available
+          ? 'voiceInput'
+          : window.isSecureContext
+            ? 'voiceInputNoDevice'
+            : 'voiceInputRequiresHttps'
+        : mode === 'blocked'
+          ? 'voiceRouteUnavailable'
+          : 'voiceOfflineUnavailable'
+  const toggle = async () => {
+    const prior = active.current
+    if (prior) {
+      if (status === 'recording') {
+        await finish(prior)
+      } else {
+        cancel()
+      }
       return
     }
-    if (status === 'recording') {
-      await finish()
+    if (!available || mode !== speechMode(sessionId, 'asr')) {
       return
     }
-    if (status === 'transcribing') {
-      cancel()
-      return
-    }
-    const operation = ++operationRef.current
+    const op: Operation = { identity: speechIdentity(sessionId), controller: new AbortController() }
+    active.current = op
+    setSeconds(0)
     setStatus('recording')
+    deadline(op, 125_000)
     try {
-      sourceRef.current = requireChatAccess(sessionId)
-      const recording = await startRecording(() => {
-        if (operationRef.current === operation) {
-          showToast({ key: 'voiceInputLimitReached' })
-          void finish()
+      if (mode === 'device') {
+        op.local = recognizeLocally(speechLanguage())
+        deliver(op, await op.local.result)
+        if (active.current === op) {
+          cancel()
         }
-      })
-      if (operationRef.current !== operation) {
-        recording.cancel()
-        return
+      } else {
+        op.source = requireChatAccess(sessionId)
+        const recording = await startRecording(() => {
+          if (active.current === op) {
+            showToast({ key: 'voiceInputLimitReached' })
+            void finish(op)
+          }
+        })
+        if (active.current === op) {
+          op.recording = recording
+        } else {
+          recording.cancel()
+        }
       }
-      recordingRef.current = recording
     } catch (error) {
-      if (operationRef.current === operation) {
-        setStatus('idle')
+      if (active.current === op) {
+        cancel()
         showToast(describeRecordingError(error))
       }
     }
-  }, [status, finish, cancel, sessionId])
-
+  }
   useEffect(() => {
     if (status !== 'recording') {
       return
     }
     const startedAt = Date.now()
-    setSeconds(0)
-    // 半秒刷新一次，让显示的秒数与实际录音时长保持一致
-    const timer = setInterval(() => {
-      setSeconds(Math.floor((Date.now() - startedAt) / 1000))
-    }, 500)
+    const timer = setInterval(() => setSeconds(Math.floor((Date.now() - startedAt) / 1000)), 500)
     return () => clearInterval(timer)
   }, [status])
-
-  useEffect(() => cancelOperation, [cancelOperation])
-
-  /** 当前录音的频谱分析节点，未录音时为 null */
-  const getAnalyser = useCallback(() => recordingRef.current?.analyser ?? null, [])
-
-  return { status, seconds, getAnalyser, toggle, cancel, available: AVAILABLE }
+  const getAnalyser = useCallback(() => active.current?.recording?.analyser ?? null, [])
+  return {
+    status,
+    seconds,
+    getAnalyser,
+    toggle,
+    cancel,
+    available,
+    label,
+    local: mode === 'device',
+  }
 }

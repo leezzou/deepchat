@@ -37,7 +37,13 @@ export const subscribeSecurity = (listener: () => void) => {
   return () => window.removeEventListener('deepchat:security-change', listener)
 }
 let sequence = 0
-const pending = new Map<string, { resolve: (value: unknown) => void; reject: (e: Error) => void }>()
+type Waiter = {
+  resolve: (value: unknown) => void
+  reject: (e: Error) => void
+  modelChunks?: string[]
+  chars: number
+}
+const pending = new Map<string, Waiter>()
 if (port) {
   port.onmessage = ({ data }) => {
     const frame = JSON.parse(data)
@@ -49,7 +55,28 @@ if (port) {
     if (!waiter) {
       return
     }
+    if (waiter.modelChunks && typeof frame.modelChunk === 'string') {
+      waiter.chars += frame.modelChunk.length
+      if (
+        waiter.chars <= 8 * 1024 * 1024 &&
+        frame.modelChunk.length <= 32768 &&
+        waiter.modelChunks.length < 257
+      ) {
+        waiter.modelChunks.push(frame.modelChunk)
+      } else {
+        pending.delete(frame.id)
+        waiter.reject(new Error('size'))
+      }
+      return
+    }
     pending.delete(frame.id)
+    if (waiter.modelChunks?.length && !frame.error) {
+      if (frame.value?.length !== waiter.chars) {
+        waiter.reject(new Error('incomplete'))
+        return
+      }
+      frame.value.body = waiter.modelChunks.join('')
+    }
     if (frame.error) {
       waiter.reject(new Error(String(frame.error)))
     } else {
@@ -71,6 +98,8 @@ async function call<T>(op: string, fields: object = {}): Promise<T> {
       op === 'configure' ? 180_000 : 20_000
     )
     pending.set(id, {
+      modelChunks: op === 'listModels' ? [] : undefined,
+      chars: 0,
       resolve: (value) => {
         window.clearTimeout(timer)
         resolve(value as T)
@@ -94,13 +123,35 @@ export async function refreshSecurity() {
     publish(await call<SecurityState>('status'))
   }
 }
-export function syncLockAppearance(theme: 'system' | 'light' | 'dark', locale: 'system' | 'en-US' | 'zh-CN') {
+export function syncLockAppearance(
+  theme: 'system' | 'light' | 'dark',
+  locale: 'system' | 'en-US' | 'zh-CN'
+) {
   if (port && isSecurityUnlocked()) {
     void call('appearance', { theme, locale }).catch(() => {})
   }
 }
 export async function configureLock(enabled: boolean) {
   publish(await call<SecurityState>('configure', { enabled }))
+}
+let modelSequence = 0
+export async function nativeModelRequest(
+  fields: { endpoint: string; url: string; key: string; auth: string; model?: string },
+  signal: AbortSignal
+) {
+  if (signal.aborted) {
+    throw new Error('aborted')
+  }
+  const requestId = String(++modelSequence)
+  const abort = () => {
+    void call('cancelModels', { requestId }).catch(() => {})
+  }
+  signal.addEventListener('abort', abort, { once: true })
+  try {
+    return await call<{ status: number; body: string }>('listModels', { ...fields, requestId })
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
 }
 export const nativeProfileVault = {
   read: () => call<string | null>('read'),

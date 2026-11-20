@@ -1,8 +1,9 @@
 import clsx from 'clsx'
 import { useIsMobile } from '../../app/viewport.js'
-import { useTranslate } from '../../i18n/index.js'
+import { useTranslate, type TranslationKey } from '../../i18n/index.js'
 import { IconMicFill16, IconMicOutline16, IconVoiceCircle24 } from '../base/icons.js'
 import { Tooltip } from '../base/Tooltip.js'
+import { showToast } from '../base/toastState.js'
 import type { VoiceInputStatus } from './useVoiceInput.js'
 import styles from './VoiceButton.module.css'
 
@@ -15,12 +16,13 @@ import styles from './VoiceButton.module.css'
 export const VoiceButton = ({
   status,
   disabled = false,
+  label: idleLabel,
   seconds,
   onClick,
 }: {
   status: VoiceInputStatus
-  /** 非安全上下文中按钮置灰，tooltip 提示录音需要 HTTPS */
   disabled?: boolean
+  label: TranslationKey
   /** 本次录音已录秒数，录音中显示在按钮左侧 */
   seconds: number
   onClick: () => void
@@ -29,13 +31,9 @@ export const VoiceButton = ({
   const isMobile = useIsMobile()
   const recording = status === 'recording'
 
-  const label = disabled
-    ? t('voiceInputRequiresHttps')
-    : recording
-      ? t('voiceInputStop')
-      : status === 'transcribing'
-        ? t('voiceInputCancel')
-        : t('voiceInput')
+  const label = t(
+    recording ? 'voiceInputStop' : status === 'transcribing' ? 'voiceInputCancel' : idleLabel
+  )
 
   return (
     <>
@@ -52,7 +50,9 @@ export const VoiceButton = ({
           aria-pressed={recording}
           aria-disabled={disabled}
           onClick={() => {
-            if (!disabled) {
+            if (disabled) {
+              showToast(label)
+            } else {
               onClick()
             }
           }}

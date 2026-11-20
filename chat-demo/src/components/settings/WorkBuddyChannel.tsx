@@ -11,7 +11,6 @@ import {
   selectWorkBuddyModel,
   signInWorkBuddy,
   useWorkBuddyState,
-  WORKBUDDY_MODELS,
 } from '../../services/workbuddy/provider.js'
 import { Button } from '../base/Button.js'
 import { Select } from '../base/Select.js'
@@ -43,7 +42,7 @@ function signInMessage(raw: string, en: boolean): string {
 export function WorkBuddyChannel() {
   const en = useSettings((s) => resolveLocale(s.locale) !== 'zh-CN')
   const active = useSettings((s) => s.chatSource === 'workbuddy')
-  const { metadata, name, pending } = useWorkBuddyState()
+  const { metadata, models, name, pending } = useWorkBuddyState()
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const mounted = useRef(false),
@@ -142,10 +141,22 @@ export function WorkBuddyChannel() {
             <div className="wb-row">
               <span className="wb-label">{en ? 'Default model' : '默认模型'}</span>
               <Select
-                disabled={busy}
+                disabled={busy || models.length === 0}
+                placeholder={
+                  models.length
+                    ? en
+                      ? 'Choose a model'
+                      : '选择模型'
+                    : en
+                      ? 'No available models'
+                      : '暂无可用模型'
+                }
                 ariaLabel={en ? 'WorkBuddy model' : 'WorkBuddy 模型'}
                 value={metadata.model}
-                options={WORKBUDDY_MODELS.map((value) => ({ value, label: value }))}
+                options={models.map(({ id, name }) => ({
+                  value: id,
+                  label: name === id ? id : `${name} · ${id}`,
+                }))}
                 onChange={(model) => void run(() => selectWorkBuddyModel(model))}
               />
             </div>

@@ -171,14 +171,49 @@ final class WorkBuddySession {
         JSONObject saved = record(), result = new JSONObject().put("type", "status").put("pending", pending());
         if (saved.has("access") && (usableRefresh(saved) || saved.optLong("expiresAt") <= 0 || saved.getLong("expiresAt") > System.currentTimeMillis())) {
             result.put("model", saved.getString("model")).put("revision", saved.getString("revision")).put("name", saved.optString("name"));
+            result.put("catalog", saved.optJSONArray("catalog"));
+            long age = System.currentTimeMillis() - saved.optLong("catalogCheckedAt");
+            result.put("catalogRefresh", age < 0 || age >= (saved.has("catalog") ? 300_000 : 30_000));
         }
         return result;
     }
-    synchronized void changeModel(String model) throws Exception {
-        if (!WorkBuddyChat.allowedModel(model)) throw new IOException("model");
+    private JSONObject checkedRecord(String revision) throws Exception {
         JSONObject saved = record();
         if (!saved.has("access")) throw new IOException("sign_in_required");
+        if (!saved.getString("revision").equals(revision)) throw new IOException("account_changed");
+        return saved;
+    }
+    void refreshCatalog(String revision) throws Exception {
+        JSONObject account;
+        synchronized (this) {
+            checkedRecord(revision);
+            account = account();
+        }
+        org.json.JSONArray catalog;
+        try { catalog = WorkBuddyCatalog.fetch(account); }
+        catch (IOException | org.json.JSONException unavailable) { catalog = null; }
+        synchronized (this) {
+            JSONObject saved = checkedRecord(revision);
+            // An explicitly restricted account must not gain fallback IDs on a transient failure.
+            if (catalog == null && saved.has("catalog")) {
+                org.json.JSONArray previous = saved.getJSONArray("catalog"), conservative = new org.json.JSONArray();
+                for (int i = 0; i < previous.length(); i++) {
+                    JSONObject entry = previous.getJSONObject(i);
+                    if (WorkBuddyCatalog.allows(null, entry.getString("id"))) conservative.put(entry);
+                }
+                catalog = conservative;
+            }
+            saved.put("catalog", catalog).put("catalogCheckedAt", System.currentTimeMillis());
+            vault.write(saved.toString());
+        }
+    }
+    synchronized void changeModel(String model, String revision) throws Exception {
+        JSONObject saved = checkedRecord(revision);
+        if (!WorkBuddyCatalog.allows(saved.optJSONArray("catalog"), model)) throw new IOException("model");
         vault.write(saved.put("model", model).toString());
+    }
+    synchronized void changeModel(String model) throws Exception {
+        changeModel(model, record().optString("revision"));
     }
     synchronized void forget() throws Exception { cancel(); vault.write(""); }
 }

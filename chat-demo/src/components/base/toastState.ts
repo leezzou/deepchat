@@ -11,9 +11,19 @@ const DURATION = 3000
 const LINK_DURATION = 5000
 let timer = 0
 
-export const showToast = (message: LinkedMessage | string) => {
+export const showToast = (message: LinkedMessage | string, durationMs?: number) => {
   window.clearTimeout(timer)
   useToast.setState((state) => ({ id: state.id + 1, message }))
   const duration = typeof message !== 'string' && message.link ? LINK_DURATION : DURATION
-  timer = window.setTimeout(() => useToast.setState({ message: null }), duration)
+  timer = window.setTimeout(() => useToast.setState({ message: null }), durationMs ?? duration)
+  return useToast.getState().id
+}
+
+/** Dismiss only the caller’s notice, even if a more important toast replaced it. */
+export const dismissToast = (id: number | undefined) => {
+  if (id !== useToast.getState().id) {
+    return
+  }
+  window.clearTimeout(timer)
+  useToast.setState({ message: null })
 }

@@ -16,7 +16,6 @@ const contentTypes = {
   '.webp': 'image/webp',
 }
 
-
 async function serveOffline(context) {
   const external = []
   await context.route('**/*', async (route) => {
@@ -25,10 +24,7 @@ async function serveOffline(context) {
       external.push(url.origin)
       return route.abort()
     }
-    const filename = path.join(
-      dist,
-      url.pathname === '/' ? 'index.html' : url.pathname.slice(1)
-    )
+    const filename = path.join(dist, url.pathname === '/' ? 'index.html' : url.pathname.slice(1))
     const ext = path.extname(filename)
     let body = await readFile(filename)
     // Disabling the unrelated release watcher keeps this report-only test completely offline.
@@ -67,7 +63,7 @@ for (const [locale, width, dark] of [
       await entry.click()
       await page.locator('[data-usage-loaded]').waitFor()
       const reportDialog = page.getByRole('dialog', {
-        name: locale === 'en-US' ? 'API usage' : 'API 使用情况',
+        name: locale === 'en-US' ? 'Model usage' : '模型用量',
         exact: true,
       })
       assert.equal(await page.locator('[data-usage-total]').count(), 0)
@@ -149,49 +145,97 @@ for (const [locale, width, dark] of [
           tx.onabort = () => reject(tx.error)
         })
         raw.close()
-        const get = IDBObjectStore.prototype.get
-        window.detailReads = []
-        IDBObjectStore.prototype.get = function (key) {
-          if (['files', 'filesStaging', 'sessions', 'sessionsStaging'].includes(this.name)) {
-            window.detailReads.push([this.name, key])
-          }
-          return get.call(this, key)
-        }
+        const ledger = await new Promise((resolve, reject) => {
+          const req = indexedDB.open('deepchat-usage')
+          req.onsuccess = () => resolve(req.result)
+          req.onerror = () => reject(req.error)
+        })
+        const seed = ledger.transaction(['meta', 'requests'], 'readwrite')
+        seed.objectStore('meta').delete('legacy') // Simulate the first open after upgrading a v53 device.
+        const rows = seed.objectStore('requests')
+        const base = { provider: 'QA API', model: 'qa-model', purpose: 'chat', status: 'done' }
+        rows.put({
+          ...base,
+          id: 'paired',
+          at: now,
+          input: 100,
+          output: 20,
+          inputHit: 50,
+          outputHit: 0,
+        })
+        rows.put({ ...base, id: 'unpaired', at: now - 1, input: 900, output: 80 })
+        rows.put({ ...base, id: 'hit-only', at: now - 2, inputHit: 9, outputHit: 1 })
+        rows.put({
+          ...base,
+          id: 'other',
+          at: now - 3,
+          provider: 'Local',
+          model: 'local:model',
+          input: 10,
+          output: 10,
+          outputHit: 5,
+        })
+        for (let index = 0; index < 11; index++)
+          rows.put({ ...base, id: 'missing' + index, at: now - index - 10, status: 'failed' })
+        await new Promise((resolve, reject) => {
+          seed.oncomplete = resolve
+          seed.onabort = () => reject(seed.error)
+        })
+        ledger.close()
         window.open = (url, target, options) => {
           window.openedReport = [url, target, options]
           return null
         }
         window.dispatchEvent(new Event('deepchat:open-api-usage'))
       })
-      await page.locator('[data-usage-total="100"]').waitFor()
-      assert.deepEqual(await page.evaluate(() => window.detailReads), [
-        ['sessionsStaging', 'legacy'],
-      ])
       const report = page.locator('[data-api-usage]')
+      await report.locator('[data-usage-total="1220"]').waitFor()
+      const summary = report.locator('[data-usage-summary]')
+      const metric = (el, key) =>
+        el.locator(`[data-usage-metric="${key}"]`).getAttribute('data-value')
+      await report.locator('[data-usage-filter="provider"]').selectOption('QA API')
+      await report.locator('[data-usage-filter="model"]').selectOption('qa-model')
+      await report.locator('[data-usage-total="1100"]').waitFor()
+      assert.equal(await metric(summary, 'input'), '1000')
+      assert.equal(await metric(summary, 'inputHit'), '59')
+      assert.equal(await metric(summary, 'inputRate'), '50')
+      assert.equal(await metric(summary, 'outputHit'), '1')
+      assert.equal(await metric(summary, 'outputRate'), '0')
+      assert.equal(await metric(summary, 'cacheWrite'), 'missing')
+      assert.match(await summary.locator('[data-usage-metric="inputRate"]').innerText(), /1.*14/)
+      const daily = report
+        .locator('details')
+        .filter({
+          has: page.locator('summary', { hasText: locale === 'en-US' ? 'By date' : '按日期查看' }),
+        })
+        .first()
+      await daily.locator(':scope > summary').click()
+      const day = daily.locator('details').first()
+      await day.locator('summary').click()
+      assert.equal(await metric(day, 'inputRate'), '50')
+      await daily.locator(':scope > summary').click()
+      const requests = report.locator('[data-usage-requests]')
+      await requests.locator(':scope > summary').click()
+      assert.equal(await requests.locator('[data-usage-row]').count(), 10)
+      const paired = requests.locator('[data-usage-row]').first()
+      await paired.locator('summary').click()
+      assert.equal(await metric(paired, 'outputHit'), '0')
+      const next = requests.getByRole('button', { name: locale === 'en-US' ? 'Next' : '下一页' })
+      await next.click()
+      const missing = requests.locator('[data-usage-row]').first()
+      await missing.locator('summary').click()
+      assert.equal(await metric(missing, 'outputHit'), 'missing')
+      await report.locator('[data-usage-filter="provider"]').selectOption('legacy')
+      await report.locator('[data-usage-days="1"]').click()
+      await report.locator('[data-usage-total="100"]').waitFor()
       await report.locator('[data-usage-days="30"]').click()
       await report.locator('[data-usage-total="120"]').waitFor()
-      assert.equal(
-        await report.locator('[data-usage-days="30"]').getAttribute('aria-pressed'),
-        'true'
-      )
-      assert.deepEqual(await report.locator('dl dd').allTextContents(), ['108', '2', '4', '6'])
+      await report.locator('[data-usage-days="all"]').click()
+      await report.locator('[data-usage-total="134"]').waitFor()
       if (process.env.API_USAGE_SHOTS)
         await page.screenshot({
           path: path.join(process.env.API_USAGE_SHOTS, `usage-${width}-recorded.png`),
         })
-      const refresh = report.getByRole('button', {
-        name: locale === 'zh-CN' ? '刷新统计' : 'Refresh usage',
-      })
-      await refresh.focus()
-      await page.keyboard.press('Tab')
-      assert.equal(await page.evaluate(() => document.activeElement.tagName), 'SUMMARY')
-      await page.keyboard.press('Enter')
-      assert.equal(await report.locator('tbody tr').count(), 30)
-      assert.equal(await report.locator('tbody tr').first().locator('td').innerText(), '100')
-      assert.equal(
-        await report.locator('tbody tr').nth(1).locator('td').innerText(),
-        locale === 'zh-CN' ? '无记录' : 'No record'
-      )
       assert.ok(await report.evaluate((el) => el.scrollWidth <= el.clientWidth))
       await report.locator('[data-api-usage-official]').click()
       assert.deepEqual(await page.evaluate(() => window.openedReport), [
@@ -199,9 +243,11 @@ for (const [locale, width, dark] of [
         '_blank',
         'noopener',
       ])
+      const refresh = report.getByRole('button', {
+        name: locale === 'en-US' ? 'Refresh usage' : '刷新统计',
+      })
       await refresh.click()
-      await page.waitForFunction(() => window.detailReads.length === 2)
-      await report.locator('[data-usage-total="120"]').waitFor()
+      await report.locator('[data-usage-total="134"]').waitFor()
       await page.keyboard.press('Escape')
       await report.waitFor({ state: 'detached' })
       if (width === 390) {
@@ -240,10 +286,16 @@ for (const [locale, width, dark] of [
 for (const reducedMotion of ['no-preference', 'reduce']) {
   test(`Settings preserves each parent and consumes Back during exit (${reducedMotion})`, async () => {
     const browser = await chromium.launch({
-      executablePath: process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      executablePath:
+        process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     })
     try {
-      const context = await browser.newContext({ viewport: { width: 390, height: 530 }, hasTouch: true, locale: 'zh-CN', reducedMotion })
+      const context = await browser.newContext({
+        viewport: { width: 390, height: 530 },
+        hasTouch: true,
+        locale: 'zh-CN',
+        reducedMotion,
+      })
       await serveOffline(context)
       const page = await context.newPage()
       page.setDefaultTimeout(5000)
@@ -251,7 +303,8 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
       page.on('pageerror', (error) => errors.push(error.message))
       await page.goto(origin)
       const route = (name) => page.locator(`[data-settings-route="${name}"]`)
-      const front = (name) => page.locator(`[data-settings-route="${name}"][data-route-position="front"]:not([inert])`)
+      const front = (name) =>
+        page.locator(`[data-settings-route="${name}"][data-route-position="front"]:not([inert])`)
       const back = async (from, to) => {
         await route(from).getByRole('button', { name: '返回', exact: true }).click()
         await route(from).waitFor({ state: 'detached' })
@@ -268,30 +321,50 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
       await usage.waitFor()
       const parentShift = await usage.evaluate(async (dialog) => {
         const parent = document.querySelector('[data-settings-route="apiKey"]')
-        await Promise.allSettled([...parent.getAnimations(), ...dialog.firstElementChild.getAnimations()].map((a) => a.finished))
+        await Promise.allSettled(
+          [...parent.getAnimations(), ...dialog.firstElementChild.getAnimations()].map(
+            (a) => a.finished
+          )
+        )
         return new DOMMatrix(getComputedStyle(parent).transform).m41
       })
       assert.equal(parentShift < 0, reducedMotion === 'no-preference')
       await page.keyboard.press('Escape')
       if (reducedMotion === 'no-preference') await page.keyboard.press('Escape')
-      await usage.waitFor({state: 'detached'})
+      await usage.waitFor({ state: 'detached' })
       await front('apiKey').waitFor()
-      await page.evaluate(() => { document.documentElement.dir = 'rtl' })
+      await page.evaluate(() => {
+        document.documentElement.dir = 'rtl'
+      })
       await enter('apiKey', /申请官方 API Key/, 'guide')
       const rtl = await front('guide').evaluate(async (el) => {
         const parent = document.querySelector('[data-settings-route="apiKey"]')
         await Promise.allSettled(parent.getAnimations().map((a) => a.finished))
-        return [new DOMMatrix(getComputedStyle(parent).transform).m41, new DOMMatrix(getComputedStyle(el.querySelector('header svg')).transform).m11]
+        return [
+          new DOMMatrix(getComputedStyle(parent).transform).m41,
+          new DOMMatrix(getComputedStyle(el.querySelector('header svg')).transform).m11,
+        ]
       })
       assert.equal(rtl[0] > 0, reducedMotion === 'no-preference')
       assert.equal(rtl[1], -1)
-      await page.evaluate(() => { document.documentElement.dir = 'ltr' })
+      await page.evaluate(() => {
+        document.documentElement.dir = 'ltr'
+      })
       await page.evaluate(() => history.back())
-      await route('guide').waitFor({state: 'detached'})
+      await route('guide').waitFor({ state: 'detached' })
       await front('apiKey').waitFor()
       await enter('apiKey', /添加|新增/, 'apiEdit')
       await back('apiEdit', 'apiKey')
-      await back('apiKey', 'root')
+      // First launch opens the API-key route directly. Back returns to chat.
+      await front('apiKey').getByRole('button', { name: '返回' }).click()
+      await route('apiKey').waitFor({ state: 'detached' })
+      await page.getByRole('button', { name: /^打开边栏/ }).click()
+      await page.getByRole('button', { name: '设置', exact: true }).click()
+      await front('root').locator('[data-usage-home-entry]').click()
+      await usage.locator('[data-usage-loaded]').waitFor()
+      await usage.getByRole('button', { name: '返回' }).click()
+      await usage.waitFor({ state: 'detached' })
+      await front('root').waitFor()
       await enter('root', /数据管理/, 'data')
       const importFromLink = front('data').getByRole('button', { name: '从 DeepSeek 链接导入' })
       await importFromLink.click()
@@ -307,14 +380,19 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
       await back('location', 'profile')
       await back('profile', 'root')
       const rootScroll = route('root').locator(':scope > div').last()
-      const start = await rootScroll.evaluate((el) => { el.scrollTop = el.scrollHeight; return el.scrollTop })
+      const start = await rootScroll.evaluate((el) => {
+        el.scrollTop = el.scrollHeight
+        return el.scrollTop
+      })
       assert.ok(start > 0)
-      await route('root').getByRole('button', { name: /朗读音色/ }).click()
-      const voice = page.getByRole('dialog', { name: '朗读音色', exact: true })
+      await route('root')
+        .getByRole('button', { name: /朗读音色/ })
+        .click()
+      const voice = page.getByRole('dialog', { name: /朗读音色$/ })
       await voice.waitFor()
       await page.keyboard.press('Escape')
       if (reducedMotion === 'no-preference') await page.keyboard.press('Escape')
-      await voice.waitFor({state: 'detached'})
+      await voice.waitFor({ state: 'detached' })
       await front('root').waitFor()
       const font = route('root').getByRole('button', { name: /字体大小/ })
       await font.scrollIntoViewIfNeeded()
@@ -329,24 +407,27 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
         child.querySelector('header button').click()
         await Promise.resolve()
         const leaving = child.dataset.routePosition === 'leaving' && child.isConnected
-        if (leaving && motion) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+        if (leaving && motion)
+          document.dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+          )
         return { parentX, leaving }
       }, reducedMotion === 'no-preference')
       assert.equal(popObservations.parentX < 0, reducedMotion === 'no-preference')
       assert.equal(popObservations.leaving, reducedMotion === 'no-preference')
-      await route('fontSize').waitFor({state:'detached'})
+      await route('fontSize').waitFor({ state: 'detached' })
       await front('root').waitFor()
       assert.equal(await rootScroll.evaluate((el) => el.scrollTop), before)
       assert.ok(await font.evaluate((el) => el === document.activeElement))
       await page.keyboard.press('Escape')
-      await route('root').waitFor({state:'detached'})
+      await route('root').waitFor({ state: 'detached' })
       const drawer = page.locator('[class^="drawer-"]')
-      await page.getByRole('button', { name: '打开边栏', exact: true }).click()
+      assert.equal(await drawer.getAttribute('aria-hidden'), 'false')
       const settings = drawer.getByRole('button', { name: '设置', exact: true })
       await settings.click()
       await front('root').waitFor()
       await page.keyboard.press('Escape')
-      await route('root').waitFor({state:'detached'})
+      await route('root').waitFor({ state: 'detached' })
       assert.equal(await drawer.getAttribute('aria-hidden'), 'false')
       assert.ok(await settings.evaluate((el) => el === document.activeElement))
       assert.deepEqual(errors, [])

@@ -10,6 +10,8 @@ import { countRecordedReplies, makeUsageDays } from './recordedUsage.js'
 import { toSessionSummary, type Session, type SessionSummary } from './types.js'
 
 const DB_VERSION = 12
+const validTokens = (n: unknown): n is number =>
+  typeof n === 'number' && Number.isSafeInteger(n) && n >= 0
 
 /** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份。 */
 export type StoredFile = { id: string; blob: Blob }
@@ -119,6 +121,64 @@ export const loadSessionSummaries = (): Promise<SessionSummary[]> =>
     (await tx.objectStore(summaries[g]).getAll()).map(toSessionSummary)
   )
 
+/** The old format saved only the last response's usage on each message, with no reliable provider. */
+export const loadLegacyUsageRows = (signal: AbortSignal) =>
+  transact([...summaries, ...sessions], 'readonly', async (tx, g) => {
+    const rows: import('../usage/ledger.js').UsageRow[] = []
+    let cursor = await tx.objectStore(summaries[g]).openCursor()
+    while (cursor) {
+      signal.throwIfAborted()
+      if (cursor.value.latestUsageAt !== null) {
+        const session = await tx.objectStore(sessions[g]).get(cursor.primaryKey)
+        for (const message of session?.messages ?? []) {
+          if (
+            message.role !== 'assistant' ||
+            message.usageLedger ||
+            !message.usage ||
+            !Number.isFinite(message.createdAt)
+          ) {
+            continue
+          }
+          const {
+            input_tokens,
+            output_tokens,
+            cache_read_input_tokens,
+            cache_creation_input_tokens,
+          } = message.usage
+          if (
+            !validTokens(input_tokens) ||
+            !validTokens(output_tokens) ||
+            !validTokens(cache_read_input_tokens) ||
+            !validTokens(cache_creation_input_tokens)
+          ) {
+            continue
+          }
+          const input = input_tokens + cache_read_input_tokens + cache_creation_input_tokens
+          rows.push({
+            id: JSON.stringify(['legacy', cursor.primaryKey, message.id]),
+            at: message.createdAt,
+            provider: 'legacy',
+            model: '',
+            purpose: 'legacy',
+            status:
+              message.status === 'done'
+                ? 'done'
+                : message.status === 'error'
+                  ? 'failed'
+                  : 'interrupted',
+            input: validTokens(input) ? input : undefined,
+            output: output_tokens,
+            // v53 supplied its own zeros for absent cache fields. Only positive values have provenance.
+            inputHit: cache_read_input_tokens || undefined,
+            cacheWrite: cache_creation_input_tokens || undefined,
+          })
+        }
+      }
+      cursor = await cursor.continue()
+    }
+    return rows
+  })
+
 /** Read one session at a time, only from the active generation. Never load attachment blobs. */
 export const loadRecordedUsage = (signal: AbortSignal, now = Date.now()) =>
   transact([...summaries, ...sessions], 'readonly', async (tx, g) => {
@@ -175,6 +235,7 @@ export const renameSession = (id: string, title: string): Promise<void> =>
     const session = await store.get(id)
     if (session) {
       session.title = title
+      session.titleSource = 'manual'
       await store.put(session)
       await tx.objectStore(summaries[g]).put(storedSummary(session))
     }

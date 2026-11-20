@@ -3,6 +3,10 @@
 }
 
 .title {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
   display: flex;
   align-items: center;
   height: 34px;
@@ -10,7 +14,7 @@
   color: var(--dsw-alias-label-secondary);
   cursor: pointer;
   user-select: none;
-  transition: color 0.2s;
+  transition: color 0.18s;
 
   &:hover {
     color: var(--dsw-alias-label-primary);
@@ -35,6 +39,12 @@
 .shimmer {
   color: var(--dsw-alias-label-secondary);
   animation: thinkingPulse 1.6s ease-in-out infinite alternate;
+}
+
+.title:focus-visible,
+.row.clickable:focus-visible {
+  outline: 2px solid var(--dsw-alias-brand-primary);
+  outline-offset: 2px;
 }
 
 @keyframes thinkingPulse {
@@ -133,6 +143,9 @@
   font: var(--dsw-font-markdown-small);
 
   &.clickable {
+    border: 0;
+    padding: 0;
+    background: transparent;
     width: fit-content;
     cursor: pointer;
   }

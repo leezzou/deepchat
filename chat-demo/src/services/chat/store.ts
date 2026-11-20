@@ -1,4 +1,6 @@
 import { create } from 'zustand'
+import { endpointProvider, warmModelWindows } from '../api/modelWindows.js'
+import { isDeepSeekApiOrigin } from '../api/providerParity.js'
 import { createId } from '../../utils/id.js'
 import { ApiError, streamMessage } from '../api/client.js'
 import {
@@ -7,7 +9,7 @@ import {
   requireChatAccess,
   type ChatAccess,
 } from '../api/access.js'
-import type { ChatModel, CreateMessageRequest } from '../api/types.js'
+import type { CreateMessageRequest } from '../api/types.js'
 import {
   extractFileIds,
   getFileErrorCode,
@@ -16,6 +18,7 @@ import {
 } from '../api/errors.js'
 import { cancelUpload, describeUploadError, uploadAttachment, useUploads } from '../attachments.js'
 import { usesDeepSeekFileLimits } from '../attachmentLimits.js'
+import { isOpenAiFiles, OPENAI_FILE_BYTES, originalFileIssue } from '../api/fileCapabilities.js'
 import {
   getConversationMode,
   setConversationMode,
@@ -26,10 +29,12 @@ import {
 } from '../conversationMode/storage.js'
 import { conversationInstructions } from '../conversationMode/prompt.js'
 import { promoteLibraryDraft, removeLibrarySession, setDraftFolder } from '../library/index.js'
+import { promoteSearchGrant } from '../api/searchConsent.js'
 import { useSettings } from '../settings.js'
 import { resolveLocale } from '../../i18n/index.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
+import { historyTopic, needsTopic, providerTitle, questionTopic, refineTopic } from './titles.js'
 import {
   clearAllDrafts,
   clearDraft,
@@ -39,7 +44,7 @@ import {
 } from './drafts.js'
 import { createLatestReminder } from './latestReminder.js'
 import { useContextPreferences } from './contextPreferences.js'
-import { estimateRequestTokens, indexRequestFiles, requestFileLimit } from './contextBudget.js'
+import { estimateRequestTokens, estimateTokens, indexRequestFiles, requestFileLimit } from './contextBudget.js'
 import { createContextBatcher } from './contextStreamBatcher.js'
 import { buildMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
 export { previewMessageDeletion, type MessageDeletionMode } from './contextDeletion.js'
@@ -62,8 +67,6 @@ import {
   type UserMessage,
 } from './types.js'
 
-/** deepseek-flash 同时支持深度思考与图片输入 */
-const MODEL: ChatModel = 'deepseek-flash'
 /** 保留最近打开的详情；当前会话、生成中及尚未成功保存的会话不淘汰。 */
 const SESSION_CACHE_LIMIT = 5
 /** 安全审核固定开启，所有请求都走扩展模式 */
@@ -84,8 +87,8 @@ const serverTools = (search: boolean): CreateMessageRequest['tools'] => {
   return tools
 }
 
-/** 允许自动补标题的请求；手动重命名后取消本轮标题写入，包含主动清空标题的情况。 */
-const titleRequests = new Set<AbortController>()
+/** Optional title-only requests run separately from the foreground response. */
+const titleJobs = new Map<string, AbortController>()
 
 type ChatState = {
   ready: boolean
@@ -140,7 +143,7 @@ const isSessionBusy = (id: string) => Boolean(getStreamController(id) || get().c
 export const cancelCompaction = (id: string) => get().compacting[id]?.abort()
 
 const sameSummary = (a: SessionSummary, b: SessionSummary) =>
-  a.title === b.title && a.createdAt === b.createdAt && a.updatedAt === b.updatedAt
+  a.title === b.title && a.titleSource === b.titleSource && a.createdAt === b.createdAt && a.updatedAt === b.updatedAt
 
 const sessionAccess = new Map<string, number>()
 const unsavedSessions = new Set<string>()
@@ -170,6 +173,7 @@ const trimSessionCache = () => {
       (id) =>
         id !== state.activeId &&
         !Object.hasOwn(state.streaming, id) &&
+        !titleJobs.has(id) &&
         !unsavedSessions.has(id) &&
         !deletingSessions.has(id)
     )
@@ -435,7 +439,7 @@ const createReply = (sessionId: string, contextUserId: string): AssistantMessage
     role: 'assistant',
     contextUserId,
     createdAt: Date.now(),
-    model: route.protocol === 'deepseek' ? route.nativeModel : null,
+    model: route.model,
     thinking: thinking && route.thinking,
     search: search && route.search,
     prefix: true,
@@ -521,9 +525,15 @@ const ensureSessionLoaded = (id: string): Promise<void> => {
       }
       const settled = settleInterrupted(normalizeSession(stored))
       // 读取期间可能已在列表重命名，保留最新元数据，不能让旧读取覆盖它。
-      const session = sameSummary(settled, summary) ? settled : { ...settled, ...summary }
+      const latest = sameSummary(settled, summary) ? settled : { ...settled, ...summary }
+      const session = needsTopic(latest)
+        ? historyTopic(latest, getVisibleMessages(latest), resolveLocale(useSettings.getState().locale))
+        : latest
       touchSession(id)
-      set((state) => ({ sessionCache: { ...state.sessionCache, [id]: session } }))
+      set((state) => ({
+        sessionCache: { ...state.sessionCache, [id]: session },
+        sessions: sameSummary(session, summary) ? state.sessions : state.sessions.map((s) => s.id === id ? toSessionSummary(session) : s),
+      }))
       if (session !== stored) {
         persist(id)
       }
@@ -574,6 +584,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
     for (const controller of [
       ...Object.values(get().streaming),
       ...Object.values(get().compacting),
+      ...titleJobs.values(),
     ]) {
       controller.abort()
     }
@@ -708,17 +719,14 @@ export const renameSession = (id: string, title: string) => {
   if (get().importingHistory || deletingSessions.has(id)) {
     return
   }
-  const controller = getStreamController(id)
-  if (controller) {
-    titleRequests.delete(controller)
-  }
+  titleJobs.get(id)?.abort()
   if (getSession(id)) {
-    updateSession(id, (session) => ({ ...session, title }))
+    updateSession(id, (session) => ({ ...session, title, titleSource: 'manual' }))
     persist(id)
   } else {
     set((state) => ({
       sessions: state.sessions.map((session) =>
-        session.id === id ? { ...session, title } : session
+        session.id === id ? { ...session, title, titleSource: 'manual' } : session
       ),
     }))
     void db.renameSession(id, title).catch(db.reportStorageError('rename session'))
@@ -743,6 +751,7 @@ const removeSessionData = async (id: string): Promise<boolean> => {
   deletingSessions.add(id)
   try {
     getStreamController(id)?.abort()
+    titleJobs.get(id)?.abort()
     cancelCompaction(id)
     // 等本会话的流收尾，避免删除之后又被收尾保存写回来。
     await waitForIdle(id)
@@ -843,6 +852,9 @@ export function applyConversationMode(sessionId: string | null, mode: Conversati
     return false
   }
   setConversationMode(sessionId, mode, next.destination)
+  if (sessionId && (previous.destination !== next.destination || previous.model !== next.model)) {
+    titleJobs.get(sessionId)?.abort()
+  }
   if (previous.destination !== next.destination || previous.needsApproval) {
     for (const item of getDraft(sessionId).attachments) {
       if (useUploads.getState().tasks[item.id]) {
@@ -916,6 +928,7 @@ export const sendMessage = (targetSessionId: string | null) => {
     promoteConversationMode(createdId, selected, route.destination, () =>
       promoteLibraryDraft(createdId)
     )
+    promoteSearchGrant(route, createdId)
     createEmptySession(sessionId, '')
   } else if (!getConversationMode(sessionId).profileId) {
     setConversationMode(sessionId, selected, route.destination)
@@ -939,9 +952,12 @@ export const sendMessage = (targetSessionId: string | null) => {
     })),
     createdAt: now,
   }
+  const topic = needsTopic(current) ? questionTopic(question, resolveLocale(useSettings.getState().locale)) : undefined
+  const firstTopic = !current.messages.length && topic && !topic.provisional ? topic : undefined
   const reply = createReply(sessionId, question.id)
   updateSession(sessionId, (session) => ({
     ...appendBranch(session, history.at(-1)?.id ?? null, [question, reply]),
+    ...(topic && { title: topic.title, titleSource: topic.provisional ? 'provisional' : undefined }),
     updatedAt: now,
   }))
   if (files.length > 0) {
@@ -952,7 +968,7 @@ export const sendMessage = (targetSessionId: string | null) => {
   }
   persist(sessionId)
   clearSentDraft(targetSessionId)
-  void streamReply(sessionId, reply, { history, question })
+  void streamReply(sessionId, reply, { history, question }, firstTopic)
   return true
 }
 
@@ -984,7 +1000,7 @@ export const regenerateReply = (sessionId: string, messageId?: string) => {
     updatedAt: Date.now(),
   }))
   persist(sessionId)
-  void streamReply(sessionId, reply, { history, question })
+  void streamReply(sessionId, reply, { history, question, regenerate: true })
 }
 
 /** 编辑提问后新增同父版本，保留原文件；旧问题的所有回答与后续对话仍可切回。 */
@@ -1061,6 +1077,15 @@ export const selectMessageVersion = (sessionId: string, messageId: string) => {
   persist(sessionId)
 }
 
+export const canResumeReply = (sessionId: string, reply: AssistantMessage) => {
+  if (canContinueReply(reply)) {
+    return true
+  }
+  const route = getConversationRoute(sessionId)
+  const nativeThinking = route.protocol === 'deepseek' && route.thinking && (reply.thinking ?? useSettings.getState().thinking)
+  return nativeThinking && canContinueReply(reply, true)
+}
+
 /** 继续最后一条未完成的回答：保留原消息与开关，仅将新流的内容追加到原块之后。 */
 export const continueReply = (sessionId: string, messageId: string) => {
   if (get().importingHistory || deletingSessions.has(sessionId)) {
@@ -1077,17 +1102,19 @@ export const continueReply = (sessionId: string, messageId: string) => {
     question?.role !== 'user' ||
     previous?.role !== 'assistant' ||
     previous.id !== messageId ||
-    !isReplyForQuestion(previous, question) ||
-    !canContinueReply(previous)
+    !isReplyForQuestion(previous, question)
   ) {
     return
   }
   const { thinking, search } = useSettings.getState()
   const route = getConversationRoute(sessionId)
+  if (!canResumeReply(sessionId, previous)) {
+    return
+  }
   const reply: AssistantMessage = {
     ...previous,
     // 未记录请求配置的回复，续写时使用默认模型和当前开关。
-    model: route.protocol === 'deepseek' ? route.nativeModel : null,
+    model: route.model,
     thinking: route.thinking && (previous.thinking ?? thinking),
     search: route.search && (previous.search ?? search),
     status: 'pending',
@@ -1139,7 +1166,7 @@ export const retryUpload = (sessionId: string, messageId: string) => {
   void streamReply(sessionId, reply, { history: path.slice(0, index - 1), question })
 }
 
-type Request = { history: Message[]; question: UserMessage; prefix?: AssistantMessage }
+type Request = { history: Message[]; question: UserMessage; prefix?: AssistantMessage; regenerate?: boolean }
 
 /** 把补传得到的 serverId 写回会话里所有引用同一附件的消息（编辑、重新生成会共用附件） */
 const saveServerIds = (sessionId: string, serverIds: Map<string, string>) => {
@@ -1227,6 +1254,26 @@ const prepareFiles = async (
   // 服务端判定 file_id 失效时会清掉会话里的 serverId，先用最新消息替换请求快照，
   // 否则快照里仍是旧 id，补传会直接复用它。
   request = refreshRequest(sessionId, request)
+  const route = getConversationRoute(sessionId)
+  const rounds = requestContext(sessionId, request).rounds
+  let originalBytes = 0
+  for (const turn of [request.question, ...rounds.map(([user]) => user)]) {
+    for (const file of turn.files) {
+      if (!route.files) {
+        throw new ApiError('protocol', { key: 'originalFileUnsupported' })
+      }
+      if (isOpenAiFiles(route.origin)) {
+        originalBytes += file.size
+        if (file.size >= OPENAI_FILE_BYTES || originalBytes > OPENAI_FILE_BYTES) {
+          throw new ApiError('protocol', { key: 'uploadOpenAiFileSize' })
+        }
+      }
+      const issue = originalFileIssue(route.origin, { name: file.name, type: file.mimeType, isImage: file.isImage })
+      if (issue) {
+        throw new ApiError('protocol', { key: issue })
+      }
+    }
+  }
   const serverIds = new Map<string, string>()
   // 停止生成立即生效；上传本身不取消（输入框与其他消息可能共用同一任务），完成后照常写回 serverId
   const aborted = new Promise<never>((_, reject) => {
@@ -1368,15 +1415,21 @@ const waitForRetry = (attempt: number, signal: AbortSignal) =>
  * 补传失败时回复记为 upload 错误，可重试。
  * 服务端判定 file_id 失效时重新补传后重发，退避重试且次数有上限，超过则按原始报错收尾。
  */
-const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request) => {
+const streamReply = async (sessionId: string, initial: AssistantMessage, request: Request, firstTopic?: ReturnType<typeof questionTopic>) => {
   const configuration = () =>
     JSON.stringify([getChatAccess(sessionId), getConversationRoute(sessionId).contextWindow])
-  const initialConfiguration = configuration()
-  const route = getConversationRoute(sessionId)
+  let initialConfiguration = configuration()
+  let route = getConversationRoute(sessionId)
+  const grant = getChatAccess(sessionId)
+  const initialAccess = JSON.stringify(grant)
+  const destination = route.destination
   const { system, memories } = conversationInstructions(sessionId)
   const controller = new AbortController()
-  if (!getSession(sessionId)?.title) {
-    titleRequests.add(controller)
+  const acceptsTitle = () => {
+    const session = getSession(sessionId)
+    return firstTopic && session && session.titleSource !== 'manual' && session.title === firstTopic.title &&
+      session.rootMessageId === request.question.id && !deletingSessions.has(sessionId) && !get().importingHistory &&
+      getConversationRoute(sessionId).destination === destination && JSON.stringify(getChatAccess(sessionId)) === initialAccess
   }
   set((state) => ({
     streaming: { ...state.streaming, [sessionId]: controller },
@@ -1391,11 +1444,20 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
   controller.signal.addEventListener('abort', flush, { once: true })
 
   try {
+    const warming = warmModelWindows(endpointProvider(route.origin, route.profile?.providerId))
+    if (warming) {
+      await warming
+      if (JSON.stringify(getChatAccess(sessionId)) === initialAccess) {
+        route = getConversationRoute(sessionId)
+        initialConfiguration = configuration()
+      }
+    }
     for (let attempt = 0; ; attempt += 1) {
       /** 附件补齐前出错属于上传失败，请求还没有发出 */
       let preparing = true
       let receivedContent = false
       try {
+        controller.signal.throwIfAborted()
         if (configuration() !== initialConfiguration) {
           preparing = false
           throw new ApiError('protocol', { key: 'contextSummaryChanged' })
@@ -1424,17 +1486,22 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         persist(sessionId)
         const buildMessages = () => {
           const session = getSession(sessionId)
-          return toRequestMessages(
+          const messages = toRequestMessages(
             prepared.history,
             prepared.question,
             prepared.prefix,
-            initial.thinking ?? false,
+            route.protocol === 'deepseek' && (initial.thinking ?? false),
             latestReminder,
             session?.checkpoint?.text,
             session?.compactedThrough,
             session?.excludedContextRoundIds,
             session?.checkpoint?.coveredMessageIds
           )
+          if (prepared.prefix && route.protocol !== 'deepseek') {
+            // Ask the selected model to continue without depending on assistant prefill.
+            messages.push({ role: 'user', content: 'Continue the preceding incomplete answer from where it stopped. Write only the remaining text, in the same language and format.' })
+          }
+          return messages
         }
         const files = indexRequestFiles([...prepared.history, prepared.question])
         const assertFileLimits = (messages: ReturnType<typeof toRequestMessages>) => {
@@ -1447,11 +1514,15 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
           }
         }
         let messages = buildMessages()
-        let exceedsBudget = false
+        const window = route.contextWindow
+        // Portable search plans from the latest user turn, which during continuation is our suffix instruction.
+        const canUseTools = route.search && (!prepared.prefix || route.protocol === 'deepseek')
+        const tools = canUseTools ? serverTools(initial.search ?? false) : []
+        const overhead = estimateTokens(JSON.stringify({ system, tools }))
+        const inputTokens = () => estimateRequestTokens(messages, files) + overhead
         if (useContextPreferences.getState().autoCompact) {
-          const { compactSession, contextWindowTokens } = await import('./compact.js')
-          const window = contextWindowTokens(sessionId)
-          if (estimateRequestTokens(messages, files) >= window * 0.8) {
+          const { compactSession } = await import('./compact.js')
+          if (inputTokens() >= window * 0.8) {
             // Compaction cannot remove attachments from the current question.
             assertFileLimits(toRequestMessages([], prepared.question))
             const result = await compactSession(sessionId, {
@@ -1470,11 +1541,11 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             }
             messages = buildMessages()
             // 失败不降级为截断；仍超窗时保留问题和原文，交由用户选择轮次再重试。
-            exceedsBudget = estimateRequestTokens(messages, files) >= window * 0.95
           }
         }
         assertFileLimits(messages)
-        if (exceedsBudget) {
+        // Leave 5% for output and tokenizer variance, including when automatic summaries are off.
+        if (inputTokens() >= Math.min(window * 0.95, route.context.input ?? Infinity)) {
           throw new ApiError('protocol', { key: 'contextRequestTooLarge' })
         }
         controller.signal.throwIfAborted()
@@ -1484,19 +1555,20 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
         const events = streamMessage(
           access,
           {
-            model: route.protocol === 'deepseek' ? route.nativeModel : MODEL,
+            model: route.model,
             system,
             messages,
             thinking: { type: route.thinking && initial.thinking ? 'enabled' : 'disabled' },
             safety_check: SAFETY_CHECK,
-            tools: route.search ? serverTools(initial.search ?? false) : [],
-            ...(titleRequests.has(controller) ? { title: { enabled: true } } : {}),
+            tools,
+            ...(route.protocol === 'deepseek' && acceptsTitle() ? { title: { enabled: true } } : {}),
           },
           controller.signal,
           () => {
-            reply = { ...reply, lastRequestMemories: memories }
+            reply = { ...reply, usageLedger: true, lastRequestMemories: memories }
             updateReply(sessionId, reply)
-          }
+          },
+          request.prefix ? 'continue' : request.regenerate ? 'regenerate' : 'chat'
         )
         const blockIndexes = new Map<number, number>()
         for await (const event of events) {
@@ -1505,13 +1577,12 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             event.type === 'message_delta' &&
             (event.delta.stop_reason === 'end_turn' || event.delta.stop_reason === 'max_tokens') &&
             event.delta.title?.trim() &&
-            titleRequests.has(controller) &&
-            !controller.signal.aborted &&
-            !get().importingHistory
+            route.protocol === 'deepseek' && !controller.signal.aborted && acceptsTitle()
           ) {
-            const title = event.delta.title.trim()
-            updateSession(sessionId, (session) => (session.title ? session : { ...session, title }))
-            titleRequests.delete(controller)
+            const title = providerTitle(event.delta.title, request.question.content)
+            if (title) {
+              updateSession(sessionId, (session) => ({ ...session, title }))
+            }
           }
           reply = applyEvent(reply, event, Date.now(), blockIndexes)
           batcher.schedule()
@@ -1553,6 +1624,8 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
             kind: error.kind,
             message: error.message,
             status: error.status,
+            ...(error.status === 402 && grant?.source === 'api' && isDeepSeekApiOrigin(grant.config.origin)
+              ? { officialApiBilling: true as const } : {}),
             // 上下文超限：换成「开启新对话」的提示，比原始报错可读
             localMessage: isContextOverflow(error)
               ? { key: 'replyContextFull' }
@@ -1568,7 +1641,6 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       }
     }
   } finally {
-    titleRequests.delete(controller)
     streamFlushes.delete(sessionId)
     controller.signal.removeEventListener('abort', flush)
     batcher.finish()
@@ -1578,5 +1650,24 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
       ),
     }))
     persist(sessionId)
+    if (firstTopic?.excerpt && grant && route.protocol !== 'deepseek' && reply.status === 'done' &&
+        reply.stopReason === 'end_turn' && reply.blocks.some(b => b.type === 'text' && !b.isTemplate && b.text.trim()) &&
+        !controller.signal.aborted && acceptsTitle()) {
+      const job = new AbortController()
+      titleJobs.set(sessionId, job)
+      const timer = setTimeout(() => job.abort(), 12_000)
+      void refineTopic(grant, firstTopic.excerpt, job).then(title => {
+        if (title && !job.signal.aborted && acceptsTitle()) {
+          updateSession(sessionId, session => ({ ...session, title }))
+          persist(sessionId)
+        }
+      }).catch(() => { /* The local title is already saved. */ }).finally(() => {
+        clearTimeout(timer)
+        if (titleJobs.get(sessionId) === job) {
+          titleJobs.delete(sessionId)
+        }
+        trimSessionCache()
+      })
+    }
   }
 }

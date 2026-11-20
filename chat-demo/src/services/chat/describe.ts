@@ -28,6 +28,9 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
     if (kind === 'upload') {
       return { text: message || translate('uploadFileStatusFailed') }
     }
+    if (kind === 'interrupted') {
+      return { text: translate('replyInterrupted') }
+    }
     if (kind === 'network') {
       return { text: translate('commonNetworkErrorToast') }
     }
@@ -38,7 +41,9 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
       case 'unauthorized':
         return { text: translate('replyInvalidApiKey'), action: 'apiKey' }
       case 'insufficientBalance':
-        return { text: translate('replyInsufficientBalance'), action: 'topUp' }
+        return reply.error.officialApiBilling
+          ? { text: translate('replyInsufficientBalance'), action: 'topUp' }
+          : { text: translate('replyProviderBalance') }
       case 'rateLimited':
         return { text: translate('replyRateLimited') }
       case 'serverBusy':
@@ -58,9 +63,6 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
   }
   if (template) {
     return { text: template, presentation: 'response' }
-  }
-  if (reply.workBuddyReasoningUnavailable) {
-    return { text: translate('workBuddyReasoningUnavailable') }
   }
   return null
 }

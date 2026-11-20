@@ -204,6 +204,9 @@ const message: Read<ChatMessage> = (value) => {
     parent_id: nullable(count)(item.parent_id),
     ...(item.deepchat_local_id === undefined ? {} : { deepchat_local_id: string(item.deepchat_local_id) }),
     role: oneOf('USER', 'ASSISTANT')(item.role),
+    ...(item.deepchat_continue === undefined ? {} : {
+      deepchat_continue: oneOf('stopped', 'max_tokens')(item.deepchat_continue),
+    }),
     ...(item.deepchat_context_user_id === undefined ? {} : {
       deepchat_context_user_id: nullable(count)(item.deepchat_context_user_id),
     }),
@@ -303,6 +306,9 @@ export const readSessionFile: Read<SessionFile> = (value) => {
     id: sessionId(item.id),
     title: nullable(string)(item.title),
     pinned: false,
+    ...(item.deepchat_title_source === undefined ? {} : {
+      deepchat_title_source: oneOf('manual', 'provisional')(item.deepchat_title_source),
+    }),
     current_message_id: count(item.current_message_id),
     inserted_at: time(item.inserted_at),
     updated_at: time(item.updated_at),

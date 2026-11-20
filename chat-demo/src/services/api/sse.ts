@@ -117,7 +117,9 @@ export async function* readServerSentEvents(
   let finished = false
   try {
     for (;;) {
+      signal?.throwIfAborted()
       const { done, value } = await reader.read()
+      signal?.throwIfAborted()
       if (done) {
         finished = true
         yield* decoder.push(textDecoder.decode())
