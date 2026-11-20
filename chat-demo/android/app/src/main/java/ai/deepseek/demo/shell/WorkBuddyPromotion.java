@@ -5,12 +5,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /** Only the rate and scheduling fields of Tencent's modelPromotions can cross the bridge. */
 final class WorkBuddyPromotion {
-    private static final Pattern PRICE = Pattern.compile("([0-9]{1,5}(?:\\.[0-9]{1,8})?)[x×]", Pattern.CASE_INSENSITIVE);
     private WorkBuddyPromotion() {}
 
     static Map<String, JSONArray> byModel(JSONArray promotions) throws JSONException {
@@ -65,13 +62,13 @@ final class WorkBuddyPromotion {
         // Announcements participate in upstream priority but carry no price, even with a 'free' badge.
         JSONObject discount = promo.optJSONObject("discount");
         if ("discount".equals(promo.optString("kind")) && discount != null) {
-            String explicit = discount.optString("discountedCredits", "").trim();
-            if (!explicit.isEmpty()) {
-                Matcher price = PRICE.matcher(explicit);
-                if (price.matches()) rule.put("price", Double.parseDouble(price.group(1)));
+            Object explicit = discount.opt("discountedCredits");
+            if (explicit instanceof String && !((String) explicit).trim().isEmpty()) {
+                Double price = WorkBuddyCatalog.multiplier(explicit);
+                if (price != null) rule.put("price", price);
             } else if (discount.opt("factor") instanceof Number) {
                 double factor = discount.getDouble("factor");
-                if (factor >= 0 && factor < 1) rule.put("factor", factor);
+                if (factor > 0 && factor < 1) rule.put("factor", factor);
             }
         }
         return rule;

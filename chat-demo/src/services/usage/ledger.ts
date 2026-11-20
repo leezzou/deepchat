@@ -20,6 +20,8 @@ export type UsageRow = {
   at: number
   provider: string
   model: string
+  /** WorkBuddy's distinct, validated serving attribution; accounting stays on the request model. */
+  responseModel?: string
   purpose: UsagePurpose
   status: UsageStatus
   input?: number
@@ -95,6 +97,12 @@ export function beginUsage(access: ChatAccess, model: string, purpose: UsagePurp
   let counts: Record<string, number> = {}
   persist(row)
   return {
+    attributeResponse(model: string) {
+      if (row.responseModel !== model) {
+        row.responseModel = model
+        persist(row)
+      }
+    },
     sample(usage: object | undefined) {
       if (!usage) {
         return

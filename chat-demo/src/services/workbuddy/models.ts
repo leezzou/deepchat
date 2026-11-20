@@ -75,6 +75,7 @@ export function setWorkBuddyCatalog(raw: unknown): WorkBuddyModelInfo[] {
   }
   return (current = [...models.values()])
 }
+export const workBuddyCatalogIds = () => current.map(({ id }) => id)
 export const getWorkBuddyModel = (id: unknown) => current.find((m) => m.id === id)
 export const isWorkBuddyModel = (id: unknown): id is WorkBuddyModel =>
   Boolean(getWorkBuddyModel(id))

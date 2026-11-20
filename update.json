@@ -1,8 +1,8 @@
 {
-  "version": "1.0.55",
+  "version": "1.0.56",
   "publishedAt": "2026-11-20",
-  "notes": "分享预览和长图按正文样式排版，Markdown 导出保留源文。设置首页可直接切换外观。模型用量新增趋势图、渠道与型号排行、输入与输出缓存命中图。多档上下文默认使用当前最高档。WorkBuddy 模型和积分倍率随腾讯更新，免费项单独标记，联网搜索改进了追问与正文核对。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.55",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.55/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.55/deepchat.apk"
+  "notes": "点输入框中的模型名即可切换。WorkBuddy 可按名称或 ID 搜索，选前可看免费状态与积分倍率。修复混元将服务端别名或统计帧误报为切换模型的问题。设置和侧栏采用登录账号的头像和昵称，双登录可选择展示身份。重新设计两个账号页及各项二级设置。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.56",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.56/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.56/deepchat.apk"
 }

@@ -232,6 +232,32 @@ public class DshAccountOfflineTest {
         assertSignedIn();
     }
 
+    @Test public void delayedNameWithExistingAvatarIsProjectedIntoSameRevisionAndRestored() throws Exception {
+        JSONObject challenge = beginAuthorization();
+        String avatar = "https://offline.invalid/fixture.png";
+        net.json("POST", AUTH + "auth_exchange", 200, success(new JSONObject().put("token", GRANT)
+                .put("user", new JSONObject().put("id_profile", new JSONObject().put("picture", avatar)))));
+        try (PipedInputStream source = new PipedInputStream(); PipedOutputStream output = new PipedOutputStream(source)) {
+            OfflineHttps.Exchange pending = net.expect("GET", PLATFORM + "/auth-api/v0/users/current", 200, "application/json", source);
+            callback(new URI(challenge.getString("redirect_uri")), challenge.getString("state"), 200);
+            JSONObject initial = awaitCompletion();
+            assertEquals("", initial.getString("name"));
+            assertEquals(avatar, initial.getString("avatar"));
+            assertEquals(GRANT, pending.await().getRequestProperty("x-dsh-auth-token"));
+            java.util.concurrent.CountDownLatch updated = new java.util.concurrent.CountDownLatch(1);
+            host.setSessionListener(updated::countDown);
+            String body = success(new JSONObject().put("email", "private mailbox").put("id_profile", new JSONObject().put("name", NAME)));
+            output.write(body.getBytes(StandardCharsets.UTF_8));
+            output.close();
+            assertTrue(updated.await(10, TimeUnit.SECONDS));
+            assertEquals(initial.getString("revision"), host.status().getString("revision"));
+            assertFalse(host.status().toString().contains("private mailbox"));
+            assertSignedIn();
+            reopenHost();
+            assertSignedIn();
+        }
+    }
+
     @Test public void browserGetsHtmlBeforeFailedExchangeAndHostShowsSafeReason() throws Exception {
         JSONObject challenge = beginAuthorization();
         String state = challenge.getString("state");

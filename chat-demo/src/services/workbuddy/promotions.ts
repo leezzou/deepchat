@@ -95,12 +95,8 @@ export function promotionRate(base: number | undefined, rules: unknown, timestam
   let multiplier = base
   if (winner?.price !== undefined && Number.isFinite(winner.price) && winner.price >= 0) {
     multiplier = winner.price
-  } else if (typeof winner?.factor === 'number' && winner.factor >= 0 && winner.factor < 1) {
-    if (winner.factor === 0) {
-      multiplier = 0
-    } else if (base !== undefined) {
-      multiplier = Number((base * winner.factor).toPrecision(12))
-    }
+  } else if (base !== undefined && typeof winner?.factor === 'number' && winner.factor > 0 && winner.factor < 1) {
+    multiplier = Number((base * winner.factor).toPrecision(12))
   }
   const rate =
     multiplier === undefined

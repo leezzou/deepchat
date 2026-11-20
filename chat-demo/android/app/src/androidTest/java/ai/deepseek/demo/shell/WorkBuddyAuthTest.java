@@ -26,6 +26,7 @@ public final class WorkBuddyAuthTest {
     private static final String REFRESH = "offline-refresh-training-fixture";
     private final OfflineHttps net = new OfflineHttps();
     private WorkBuddySession session;
+    private Context vaultContext;
 
     @BeforeClass public static void installNetwork() throws Exception { OfflineHttps.install(); }
     @Before public void setUp() {
@@ -33,9 +34,10 @@ public final class WorkBuddyAuthTest {
         Context base = InstrumentationRegistry.getInstrumentation().getTargetContext();
         File folder = new File(base.getCacheDir(), "workbuddy-test-" + UUID.randomUUID());
         assertTrue(folder.mkdir());
-        session = new WorkBuddySession(new ContextWrapper(base) {
+        vaultContext = new ContextWrapper(base) {
             @Override public File getNoBackupFilesDir() { return folder; }
-        });
+        };
+        session = new WorkBuddySession(vaultContext);
     }
     @After public void finish() throws Exception { try { session.forget(); } finally { net.finish(); } }
     private OfflineHttps.Exchange start() throws Exception {
@@ -119,6 +121,60 @@ public final class WorkBuddyAuthTest {
         assertFalse(account.has("refresh"));
         session.forget();
         assertFalse(session.status().has("revision"));
+    }
+    private String loginWithProfile(JSONObject profile) throws Exception {
+        start();
+        net.json("GET", HOST + "/v2/plugin/auth/token?state=" + STATE, 200, new JSONObject().put("code", 0)
+                .put("data", new JSONObject().put("accessToken", ACCESS).put("refreshToken", REFRESH)).toString());
+        net.json("GET", HOST + "/v2/plugin/login/account?state=" + STATE, 200, new JSONObject().put("code", 0)
+                .put("data", profile.put("uid", "one").put("type", "personal")).toString());
+        session.poll();
+        return session.status().getString("revision");
+    }
+    @Test public void delayedPersonalAccountFieldsAreRestoredWithoutOtherAccountOrSessionData() throws Exception {
+        String avatar = "https://images.example.org/account.png";
+        String revision = loginWithProfile(new JSONObject().put("nickname", "First").put("avatarUrl", "file:///private"));
+        assertEquals("", session.status().getString("avatar"));
+        org.json.JSONArray accounts = new org.json.JSONArray()
+                .put(new JSONObject().put("uid", "other").put("type", "personal").put("nickname", "Different person"))
+                .put(new JSONObject().put("uid", "one").put("type", "personal").put("enterprise_id", "other").put("nickname", "Workspace"))
+                .put(new JSONObject().put("uid", "one").put("type", "personal").put("nickname", " Current ")
+                        .put("avatar_url", avatar).put("email", "private mailbox"));
+        OfflineHttps.Exchange exchange = net.json("GET", HOST + "/v2/plugin/accounts", 200, new JSONObject().put("code", 0)
+                .put("data", new JSONObject().put("accounts", accounts)).toString());
+        JSONObject result = session.refreshProfile(revision);
+        assertEquals(5, result.length());
+        assertTrue(result.getLong("profileVersion") > 0);
+        assertEquals("Current", result.getString("name"));
+        assertEquals(avatar, result.getString("avatar"));
+        assertEquals(revision, result.getString("revision"));
+        assertEquals("Bearer " + ACCESS, exchange.await().getRequestProperty("Authorization"));
+        assertNull(exchange.await().getRequestProperty("X-Refresh-Token"));
+        assertFalse(exchange.await().getInstanceFollowRedirects());
+        session = new WorkBuddySession(vaultContext);
+        JSONObject status = session.status();
+        assertEquals(avatar, status.getString("avatar"));
+        assertEquals("Current", status.getString("name"));
+        for (String hidden : new String[]{"private mailbox", "Different person", "Workspace", ACCESS, REFRESH}) assertFalse(status.toString().contains(hidden));
+        session.forget();
+        assertFalse(session.status().has("name"));
+        assertFalse(session.status().has("avatar"));
+    }
+    @Test public void lateAccountListCannotRestoreProfileAfterLogout() throws Exception {
+        String revision = loginWithProfile(new JSONObject().put("avatarUrl", "https://images.example.org/first.png"));
+        assertEquals("https://images.example.org/first.png", session.status().getString("avatar"));
+        try (java.io.PipedInputStream source = new java.io.PipedInputStream(); java.io.PipedOutputStream output = new java.io.PipedOutputStream(source)) {
+            OfflineHttps.Exchange pending = net.expect("GET", HOST + "/v2/plugin/accounts", 200, "application/json", source);
+            java.util.concurrent.FutureTask<JSONObject> read = new java.util.concurrent.FutureTask<>(() -> session.refreshProfile(revision));
+            new Thread(read).start();
+            pending.await();
+            session.forget();
+            output.write("{\"code\":0,\"data\":{\"accounts\":[{\"uid\":\"one\",\"type\":\"personal\",\"nickname\":\"Old\"}]}}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            output.close();
+            try { read.get(10, java.util.concurrent.TimeUnit.SECONDS); fail(); }
+            catch (java.util.concurrent.ExecutionException changed) { assertEquals("sign_in_required", changed.getCause().getMessage()); }
+            assertFalse(session.status().has("revision"));
+        }
     }
     private static java.io.InputStream timeout() {
         return new java.io.InputStream() {

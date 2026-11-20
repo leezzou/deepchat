@@ -172,8 +172,7 @@ export function ConversationControls({
               ? en
                 ? 'Review model'
                 : '检查模型'
-              : modelName(route.model)}
-            {template ? ` · ${template.name}` : ''}
+              : (template?.name ?? (en ? 'Conversation settings' : '会话设置'))}
           </span>
           <IconChevronDownOutline14 />
         </span>
@@ -184,7 +183,7 @@ export function ConversationControls({
     </>
   )
 }
-function ModePanel({ sessionId, close }: { sessionId: string | null; close: () => void }) {
+export function ModePanel({ sessionId, close }: { sessionId: string | null; close: () => void }) {
   const en = useEnglish()
   const mobile = useIsMobile()
   useLibrarySnapshot()

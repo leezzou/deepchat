@@ -20,7 +20,7 @@ import { IconButton } from '../base/IconButton.js'
 import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { showToast } from '../base/toastState.js'
 import { openSettings } from '../settings/settingsDialogState.js'
-import { hasAccountBridge, openAccount } from '../../shell/account.js'
+import { useAccountIdentity } from '../../services/identity.js'
 import { closeMobileSider, rememberChat, setSidebarView, useMobileSider } from './mobileSiderState.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SessionItem } from './SessionItem.js'
@@ -46,17 +46,33 @@ const AvatarGlyph = () => (
   </svg>
 )
 
+function IdentityAvatar({ url }: { url: string | null }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <span className={styles.avatar}>
+      {url && !failed
+        ? <img className={styles.avatarImage} src={url} alt="" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+        : <AvatarGlyph />}
+    </span>
+  )
+}
+
+function SidebarIdentity({ english }: { english: boolean }) {
+  const { selected } = useAccountIdentity()
+  const name = selected?.name ?? (english ? 'Account' : '账号')
+  return (
+    <button type="button" data-sidebar-identity className={styles.accountButton}
+      onClick={() => openSettings('account')} aria-label={selected ? `${name} · ${english ? 'Account' : '账号'}` : name}>
+      <IdentityAvatar key={`${selected?.revision}:${selected?.avatar}`} url={selected?.avatar ?? null} />
+      <span className={styles.userName} dir="auto">{name}</span>
+    </button>
+  )
+}
+
 /** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
 export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean }) {
   const t = useTranslate()
   const english = useSettings((state) => resolveLocale(state.locale) === 'en-US')
-  const accountSignedIn = useSettings((state) => state.accountSignedIn)
-  const accountName = useSettings((state) => state.accountName)
-  const accountAvatar = useSettings((state) => state.accountAvatar)
-  const localName = useSettings((state) => state.displayName)
-  const localAvatar = useSettings((state) => state.avatar)
-  const userName = accountSignedIn && accountName ? accountName : localName
-  const avatar = accountSignedIn ? accountAvatar : localAvatar
   const hasUpdate = useUpdateNotice((state) => state.available !== null)
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
@@ -166,8 +182,8 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
             type="button"
             className={styles.newChat}
             onClick={() => {
-              if (useChatStore.getState().importingHistory) return
-              if (activeId) rememberChat()
+              if (useChatStore.getState().importingHistory) {return}
+              if (activeId) {rememberChat()}
               newChat(folder?.id)
             }}
           >
@@ -243,43 +259,15 @@ export const Sider = memo(function Sider({ mobile = false }: { mobile?: boolean 
           )}
         </div>
       </div>
-      {mobile ? (
-        <div className={styles.footer}>
-          <button
-            type="button"
-            className={styles.accountButton}
-            aria-label={`${userName} · ${english ? 'DeepSeek account' : 'DeepSeek 账号'}`}
-            onClick={() => {
-              if (hasAccountBridge) {
-                openAccount()
-              } else {
-                showToast(english ? 'Open DeepChat on Android to manage your DeepSeek account.' : '请在 Android 版 DeepChat 中管理 DeepSeek 账号。')
-              }
-            }}
-          >
-            <span className={styles.avatar}>
-              {avatar ? <img className={styles.avatarImage} src={avatar} alt="" /> : <AvatarGlyph />}
-            </span>
-            <span className={styles.userName}>{userName}</span>
-          </button>
-          <IconButton
-            className={styles.footerSettings}
-            icon={<><IconSettingsOutline16 />{hasUpdate && <span className={styles.updateDot} />}</>}
-            aria-label={t('settings')}
-            onClick={() => openSettings('general')}
-          />
-        </div>
-      ) : (
-        <div className={styles.bottom}>
-          <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
-            <span className={styles.settingsIcon}>
-              <IconSettingsOutline16 />
-              {hasUpdate ? <span className={styles.updateDot} aria-hidden="true" /> : null}
-            </span>
-            <span className={styles.settingsLabel}>{t('settings')}</span>
-          </button>
-        </div>
-      )}
+      <div className={styles.footer}>
+        <SidebarIdentity english={english} />
+        <IconButton
+          className={styles.footerSettings}
+          icon={<><IconSettingsOutline16 />{hasUpdate && <span className={styles.updateDot} />}</>}
+          aria-label={t('settings')}
+          onClick={() => openSettings('general')}
+        />
+      </div>
       <ModalPresence>
         {foldersOpen && (
           <FolderPicker

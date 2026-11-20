@@ -5,11 +5,13 @@ import { backupFeatureEn } from './backupFeature.js'
 import { contextFeatureEn } from './contextFeature.js'
 import { deleteFeatureEn } from './deleteFeature.js'
 import { usageFeatureEn } from './usageFeature.js'
+import { accountFeatureEn } from './accountFeature.js'
 
 import { libraryEn } from '../services/library/strings.js'
 
 export const en = {
   ...libraryEn,
+  ...accountFeatureEn,
   memoryGlobal: 'General memory',
   memorySaveGeneral: 'Saved on this device. Each chat can opt in.',
   memorySaveToChat: 'Saved to its original chat and shared according to its folder settings.',
@@ -255,8 +257,7 @@ export const en = {
   replyContextFull:
     'This conversation has reached the model context limit. Tap “Compact context” below to condense older turns, or start a new chat.',
   compactedEntry: 'Compacted chats',
-  compactedEmpty:
-    'No compacted chats yet. When a chat nears the context limit, “Compact context” appears above the input.',
+  compactedEmpty: 'When a long chat is compacted, you can read its summary or restore its full context here.',
   compactedMeta: '{time} · {count} messages covered',
   compactedOpen: 'Open chat',
   compactedRestore: 'Restore full context',
@@ -265,8 +266,8 @@ export const en = {
   settingsFontSize: 'Font size',
   settingsProfile: 'Account profile',
   settingsPersonalize: 'Personalization',
-  fontSizePreviewBubble: 'Preview text size',
-  fontSizePreviewLine1: 'Drag the slider to adjust the font size.',
+  fontSizePreviewBubble: 'How does this size look?',
+  fontSizePreviewLine1: 'This is how replies will look. Move the slider to find a comfortable reading size.',
   fontSizePreviewLine2:
     'Found a problem or have a suggestion? Open an issue on GitHub and we will follow up.',
   fontSizeFollowSystem: 'Follow system',
@@ -308,22 +309,18 @@ export const en = {
   deepseekImportAction: 'Download and import',
   deepseekImportFailed:
     'Download failed: {message}. Links are valid for 7 days; if cross-origin is blocked, use the local ZIP import above.',
-  deepseekImportHint:
-    'In the official app, “Settings → Export data” gives a link valid for 7 days. Paste it here to import directly, or download it and use “Import chat history” with the local ZIP.',
+  deepseekImportHint: 'Copy the link from Settings → Export data in DeepSeek. It expires after 7 days.',
   apiAttachmentUnsupported:
     'The current API profile does not support attachments; they only work with the official DeepSeek profile.',
   apiGuideEntry: 'Get an official API key',
   apiGuideIntro:
     'No API key yet? Four steps in your phone browser, then come back and paste it here.',
-  apiGuideStep1Title: 'Sign up / sign in',
-  apiGuideStep1Body:
-    'Log in to platform.deepseek.com with your phone number or WeChat, and verify your identity.',
-  apiGuideStep2Title: 'Top up your balance',
-  apiGuideStep2Body:
-    'The API is billed per token, not monthly. A small top-up is enough to try it.',
-  apiGuideStep3Title: 'Create an API key',
-  apiGuideStep3Body:
-    'Open “API Keys”, click “Create API key”, and give it a name such as DeepChat.',
+  apiGuideStep1Title: 'Sign in to DeepSeek',
+  apiGuideStep1Body: 'Sign in or create an account on the DeepSeek platform.',
+  apiGuideStep2Title: 'Top up your API balance',
+  apiGuideStep2Body: 'The API charges by token usage. Add credit as needed.',
+  apiGuideStep3Title: 'Create and copy your key',
+  apiGuideStep3Body: 'The full key is shown only once. Copy it and return here.',
   apiGuideStep4Title: 'Copy it into the app',
   apiGuideStep4Body:
     'The key is shown in full only once. Copy it, then tap “I have a key” on this page to paste and save.',
@@ -332,7 +329,7 @@ export const en = {
   apiGuideOpenTopUp: 'Open top-up page',
   apiGuideNote:
     'The key stays on this device only and is never sent to any third party; requests go straight to api.deepseek.com.',
-  apiGuideHaveKey: 'I have a key — fill it in',
+  apiGuideHaveKey: 'Enter API key',
   apiProfileContextWindow: 'Context window (tokens)',
   apiProfileModel: 'Model',
   apiProfileModelBuiltin: 'Official DeepSeek model (no need to pick)',

@@ -7,32 +7,40 @@
   color: var(--dc-ink);
 }
 [data-settings-route] :is(.security-settings, .dav-settings) {
-  padding-inline: max(var(--dc-gutter), env(safe-area-inset-left)) max(var(--dc-gutter), env(safe-area-inset-right));
+  padding-inline: max(var(--dc-gutter), env(safe-area-inset-left))
+    max(var(--dc-gutter), env(safe-area-inset-right));
 }
-.security-settings section + section,
-.dav-section + .dav-section {
-  margin-top: 28px;
-  border-top: 1px solid var(--dc-line);
-  padding-top: 20px;
+.security-settings {
+  display: grid;
+  gap: 16px;
+}
+.security-settings section {
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 0 14px 14px;
+  border-radius: var(--dc-radius);
+  background: var(--settings-surface);
+}
+[data-settings-panel] .security-settings section {
+  border: 1px solid var(--dc-line);
 }
 .security-setting-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  width: 100%;
+  gap: 10px;
   min-height: 52px;
   color: var(--dc-ink);
-  font: inherit;
-  text-align: start;
+}
+.security-setting-row [data-settings-icon] {
+  color: var(--dc-secondary);
 }
 .security-setting-row h3,
-.security-toggle > span:first-child,
+.security-toggle > span[id],
 .dav-section h2 {
   margin: 0;
   font-size: 16px;
+  font-weight: 550;
   line-height: 24px;
-  font-weight: 600;
 }
 .security-setting-value,
 .security-settings p,
@@ -42,37 +50,54 @@
   font-size: 14px;
   line-height: 21px;
 }
-.security-settings p { margin: 8px 0 0; }
-.security-settings .security-setting-row {
-  box-sizing: border-box;
-  border-radius: 16px;
-  background: var(--settings-surface);
-  padding: 6px 14px;
+.security-setting-value,
+.security-toggle input {
+  margin-inline-start: auto;
+}
+.security-settings p {
+  margin: 0;
 }
 .security-toggle {
-  border: 0;
   cursor: pointer;
 }
-.security-toggle:has(input:disabled) { cursor: default; }
+.security-toggle:has(input:disabled) {
+  cursor: default;
+}
 .security-retry:focus-visible,
 .dav-field input:focus-visible {
   outline: 2px solid var(--dc-accent);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 .security-retry {
-  min-height: 48px;
-  padding: 0 8px;
+  min-height: var(--dc-touch);
+  padding: 0;
   border: 0;
   background: transparent;
   color: var(--dc-accent);
   font: inherit;
   cursor: pointer;
 }
-.dav-section { display: grid; gap: 16px; }
-.dav-section h2 { margin-bottom: 2px; }
-.dav-section p { margin: 0; max-width: 65ch; }
-.dav-field { display: grid; min-width: 0; gap: 6px; }
-.dav-field > span { font-size: 14px; font-weight: 500; line-height: 20px; }
+.dav-section {
+  display: grid;
+  gap: 16px;
+}
+.dav-section h2 {
+  margin-bottom: 2px;
+}
+.dav-section p {
+  margin: 0;
+  max-width: 65ch;
+}
+.dav-field {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+.dav-field > span {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+}
 .dav-field input {
   box-sizing: border-box;
   width: 100%;
@@ -87,10 +112,35 @@
   font-size: 16px;
   caret-color: var(--dc-accent);
 }
-.dav-field input::placeholder { color: var(--dc-secondary); opacity: 1; }
-.dav-settings button { min-height: 48px; max-width: 100%; height: auto; white-space: normal; }
-.dav-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.dav-actions > button { flex: 1 1 auto; }
-.dav-confirm { display: grid; gap: 12px; padding: 16px; border-radius: 14px; background: var(--dc-subtle); }
-.dav-status:empty { display: none; }
-.dav-error, .security-settings [role='alert'] { color: var(--dsw-alias-state-error-primary); }
+.dav-field input::placeholder {
+  color: var(--dc-secondary);
+  opacity: 1;
+}
+.dav-settings button {
+  min-height: 48px;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+.dav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.dav-actions > button {
+  flex: 1 1 auto;
+}
+.dav-confirm {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 14px;
+  background: var(--dc-subtle);
+}
+.dav-status:empty {
+  display: none;
+}
+.dav-error,
+.security-settings [role='alert'] {
+  color: var(--dsw-alias-state-error-primary);
+}

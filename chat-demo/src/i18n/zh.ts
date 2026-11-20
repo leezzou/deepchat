@@ -4,11 +4,13 @@ import { backupFeatureZh } from './backupFeature.js'
 import { contextFeatureZh } from './contextFeature.js'
 import { deleteFeatureZh } from './deleteFeature.js'
 import { usageFeatureZh } from './usageFeature.js'
+import { accountFeatureZh } from './accountFeature.js'
 
 import { libraryZh } from '../services/library/strings.js'
 
 export const zh = {
   ...libraryZh,
+  ...accountFeatureZh,
   memoryGlobal: '通用记忆',
   memorySaveGeneral: '保存在此设备，可在各对话中启用。',
   memorySaveToChat: '保存在来源对话，按该对话的文件夹设置共享。',
@@ -243,7 +245,7 @@ export const zh = {
   replyContextFull:
     '这个对话已经超出模型的上下文长度了。点下方「压缩上下文」把更早的内容压成摘要后可以接着聊；也可以开启新对话。',
   compactedEntry: '已压缩的对话',
-  compactedEmpty: '还没有压缩过对话。当对话接近上下文上限时，输入框上方会出现「压缩上下文」。',
+  compactedEmpty: '长对话压缩后，可以在这里查看摘要或恢复完整上下文。',
   compactedMeta: '{time} · 覆盖 {count} 条消息',
   compactedOpen: '打开对话',
   compactedRestore: '恢复完整上下文',
@@ -252,8 +254,8 @@ export const zh = {
   settingsFontSize: '字体大小',
   settingsProfile: '账号资料',
   settingsPersonalize: '个性化',
-  fontSizePreviewBubble: '预览文字大小',
-  fontSizePreviewLine1: '你可以拖动滑块来调整字体大小。',
+  fontSizePreviewBubble: '这个字号读起来怎么样？',
+  fontSizePreviewLine1: '这就是聊天正文的大小。拖动下方滑块，找到读起来舒服的字号。',
   fontSizePreviewLine2:
     '如果在使用过程中遇到问题或有建议，欢迎到 GitHub 提 Issue，我们会跟进处理。',
   fontSizeFollowSystem: '跟随系统',
@@ -295,24 +297,23 @@ export const zh = {
   deepseekImportAction: '下载并导入',
   deepseekImportFailed:
     '下载失败：{message}。链接 7 天有效；若是跨域被拦，可改用上方的本地 ZIP 导入。',
-  deepseekImportHint:
-    '在官方 App 里点「设置 → 导出数据」会生成一个 7 天有效的下载链接，粘贴到这里就能直接导入对话；也可以下载后用上面的「导入历史对话」选本地 ZIP。',
+  deepseekImportHint: '在 DeepSeek 的「设置 → 导出数据」复制链接，7 天内有效。',
   apiAttachmentUnsupported: '当前 API 配置不支持上传附件，附件只在 DeepSeek 官方配置下可用',
   apiGuideEntry: '申请官方 API Key',
   apiGuideIntro: '还没有 API Key？跟着下面四步，在手机浏览器里几分钟就能开通，然后回来填进 App。',
-  apiGuideStep1Title: '注册 / 登录开放平台',
-  apiGuideStep1Body: '用手机号或微信登录 platform.deepseek.com，完成实名认证。',
-  apiGuideStep2Title: '充值余额',
-  apiGuideStep2Body: 'API 按 token 用量计费，不是包月。首次使用建议先充少量试用。',
-  apiGuideStep3Title: '创建 API Key',
-  apiGuideStep3Body: '进入「API Keys」页面，点「创建 API Key」，起个名字（比如 DeepChat）。',
+  apiGuideStep1Title: '登录开放平台',
+  apiGuideStep1Body: '在 DeepSeek 开放平台登录或注册账号。',
+  apiGuideStep2Title: '充值 API 余额',
+  apiGuideStep2Body: 'API 按 token 用量计费，可按需充值。',
+  apiGuideStep3Title: '创建并复制密钥',
+  apiGuideStep3Body: '密钥只完整显示一次。复制后回到这里填写。',
   apiGuideStep4Title: '复制并粘贴到 App',
   apiGuideStep4Body: 'Key 只在创建时完整显示一次，复制后可回到本页点「我已拿到 Key」粘贴保存。',
   apiGuideOpenPlatform: '打开 DeepSeek 开放平台',
   apiGuideOpenKeys: '打开 API Keys 页面',
   apiGuideOpenTopUp: '打开充值页面',
   apiGuideNote: 'Key 只保存在这台手机本地，不会上传到任何第三方服务器；请求直连 api.deepseek.com。',
-  apiGuideHaveKey: '我已拿到 Key，去填写',
+  apiGuideHaveKey: '填写 API Key',
   apiProfileContextWindow: '上下文窗口（token）',
   apiProfileModel: '模型',
   apiProfileModelBuiltin: 'DeepSeek 官方模型（无需选择）',

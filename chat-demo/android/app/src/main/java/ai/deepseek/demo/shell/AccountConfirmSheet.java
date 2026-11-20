@@ -117,7 +117,7 @@ final class AccountConfirmSheet extends Dialog {
         title.setMinHeight(dp(bottom ? 48 : 24));
         ViewCompat.setAccessibilityHeading(title, true);
         content.addView(title, FILL, WRAP);
-        TextView details = text("此手机将退出该账号并关闭本机 API。API Key 配置和对话记录会保留。", 14,
+        TextView details = text("本机 API 将关闭。对话记录和 API Key 配置会保留。", 15,
                 dark ? 0xffb1b3b6 : 0xff616366);
         details.setLineSpacing(dp(3), 1f);
         LinearLayout.LayoutParams body = new LinearLayout.LayoutParams(FILL, WRAP);
@@ -132,9 +132,14 @@ final class AccountConfirmSheet extends Dialog {
         cancel.setOnClickListener(v -> cancel());
         Button confirm = button("退出登录", dark ? 0xff180909 : Color.WHITE, danger, danger, android.R.id.button1);
         confirm.setOnClickListener(v -> finish(true));
-        actions.addView(cancel, new LinearLayout.LayoutParams(bottom ? 0 : WRAP, WRAP, bottom ? 1f : 0f));
-        LinearLayout.LayoutParams confirmLayout = new LinearLayout.LayoutParams(bottom ? 0 : WRAP, WRAP, bottom ? 1f : 0f);
-        confirmLayout.leftMargin = dp(8);
+        boolean stack = widthDp < 330 || getContext().getResources().getConfiguration().fontScale > 1.3f;
+        actions.setOrientation(stack ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+        int buttonWidth = stack ? FILL : bottom ? 0 : WRAP;
+        float weight = !stack && bottom ? 1f : 0f;
+        actions.addView(cancel, new LinearLayout.LayoutParams(buttonWidth, WRAP, weight));
+        LinearLayout.LayoutParams confirmLayout = new LinearLayout.LayoutParams(buttonWidth, WRAP, weight);
+        if (stack) confirmLayout.topMargin = dp(8);
+        else confirmLayout.setMarginStart(dp(8));
         actions.addView(confirm, confirmLayout);
         cancel.requestFocus();
         Window window = getWindow();

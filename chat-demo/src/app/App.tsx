@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { resolveLocale, useTranslate } from '../i18n/index.js'
 import { hasAccountBridge, initializeAccount } from '../shell/account.js'
-import { useSettings } from '../services/settings.js'
+import { applyAccountProfile, useSettings } from '../services/settings.js'
 import { hasWorkBuddyBridge, watchWorkBuddyCatalog } from '../services/workbuddy/provider.js'
 import { useIsMobile, useMobileViewport } from './viewport.js'
 import {
@@ -133,20 +133,14 @@ export const App = () => {
       openSettings('general')
     }
     const stopCatalogWatch = hasWorkBuddyBridge ? watchWorkBuddyCatalog() : undefined
+    let stopAccountWatch: (() => void) | undefined
     if (hasAccountBridge) {
-      initializeAccount((account) =>
-        useSettings.setState({
-          accountSignedIn: account.signedIn,
-          accountRevision: account.revision ?? null,
-          accountName: account.name,
-          accountAvatar: account.avatar,
-        })
-      )
+      stopAccountWatch = initializeAccount(applyAccountProfile, true)
     } else if (useSettings.getState().chatSource !== 'workbuddy') {
       // WorkBuddy restores its authorized model list asynchronously and uses its own sign-in.
       ensureApiKey()
     }
-    return stopCatalogWatch
+    return () => { stopCatalogWatch?.(); stopAccountWatch?.() }
   }, [])
 
   return (

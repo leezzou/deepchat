@@ -562,6 +562,7 @@ function ReportResults({
                     {usageRouteLabel(row.provider, t, 'provider')} · {t(purposeNames[row.purpose])}{' '}
                     · {t(statusNames[row.status])}
                   </small>
+                  {row.responseModel && <small>{t('usageResponseModel')} · {row.responseModel}</small>}
                   <time dateTime={new Date(row.at).toISOString()}>{time.format(row.at)}</time>
                 </span>
                 <IconChevronRightOutline14 />

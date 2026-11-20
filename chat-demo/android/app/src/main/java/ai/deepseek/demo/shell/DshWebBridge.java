@@ -31,7 +31,7 @@ final class DshWebBridge {
                         JSONObject request = new JSONObject(text);
                         page = reply;
                         switch (request.getString("op")) {
-                            case "status": changed(); return;
+                            case "status": changed(); host.refreshProfile(); return;
                             case "account": openAccount.show(Boolean.TRUE.equals(request.opt("fromUsage")), false); return;
                             case "confirmAccountLogout": openAccount.show(false, true); return;
                         }

@@ -1,3 +1,5 @@
+import { profileAvatar, profileName, validRevision } from '../services/profileFields.js'
+
 type Frame = {
   type: string
   id?: string
@@ -12,7 +14,12 @@ type Frame = {
   offset?: number
   length?: number
 }
-export type AccountProfile = { signedIn: boolean; name: string; avatar: string | null; revision?: string }
+export type AccountProfile = {
+  signedIn: boolean
+  name: string
+  avatar: string | null
+  revision?: string
+}
 type Port = {
   postMessage: (value: string) => void
   onmessage: ((value: MessageEvent<string>) => void) | null
@@ -37,26 +44,46 @@ export function requestAccountLogout() {
 export function returnToAccount() {
   post({ op: 'account', fromUsage: true })
 }
-export function initializeAccount(onStatus: (profile: AccountProfile) => void) {
+export function initializeAccount(onStatus: (profile: AccountProfile) => void, watch = false) {
   if (!port) {
     return
   }
-  port.onmessage = ({ data }) => {
+  const receive: NonNullable<Port['onmessage']> = ({ data }) => {
     const frame = JSON.parse(data) as Frame
     if (frame.type === 'account') {
       if (typeof frame.signedIn === 'boolean') {
         onStatus({
           signedIn: frame.signedIn,
-          ...(typeof frame.revision === 'string' && /^[0-9a-f-]{36}$/.test(frame.revision) && {revision: frame.revision}),
-          name: typeof frame.name === 'string' ? frame.name : '',
-          avatar: typeof frame.avatar === 'string' && frame.avatar ? frame.avatar : null,
+          ...(frame.signedIn && validRevision(frame.revision) && { revision: frame.revision }),
+          name: frame.signedIn ? profileName(frame.name) : '',
+          avatar: frame.signedIn ? profileAvatar(frame.avatar) : null,
         })
       }
     } else if (frame.id) {
       requests.get(frame.id)?.(frame)
     }
   }
+  port.onmessage = receive
   post({ op: 'status' })
+  if (!watch) {
+    return
+  }
+  const refresh = () => {
+    if (document.visibilityState !== 'hidden') {
+      post({ op: 'status' })
+    }
+  }
+  document.addEventListener('visibilitychange', refresh)
+  window.addEventListener('online', refresh)
+  const timer = setInterval(refresh, 60_000)
+  return () => {
+    clearInterval(timer)
+    document.removeEventListener('visibilitychange', refresh)
+    window.removeEventListener('online', refresh)
+    if (port.onmessage === receive) {
+      port.onmessage = null
+    }
+  }
 }
 // Keep the file as a Blob part (including Android picker-backed files). Only framing text
 // is copied here. Request.blob() would first consume the entire FormData byte stream.

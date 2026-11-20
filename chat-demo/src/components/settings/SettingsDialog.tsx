@@ -1,11 +1,5 @@
-import { isAnthropicOrigin } from '../../services/api/anthropicOfficial.js'
-import { WindowTierChoices } from './WindowTierChoices.js'
 import { ContextModelSettings } from './ContextModelSettings.js'
-import { allowsKeylessLocal, endpointProvider, nativeModels, parseWindow } from '../../services/api/modelWindows.js'
-import { ProviderModelPicker } from './ProviderModelPicker.js'
-import { modelEndpoint } from '../../services/api/modelDiscovery.js'
-import { profileWindowKey, resolveWindow, withProfileWindow } from '../../services/api/contextOverrides.js'
-import { providerPresets, providerLabelsEn } from '../../services/api/providerPresets.js'
+import { HelpDialog } from './HelpDialog.js'
 import clsx from 'clsx'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -13,7 +7,6 @@ import {
   IconCheckOutline16,
   IconChevronRightOutline14,
   IconRightUpOutline14,
-  IconEllipsisOutline16,
   IconUploadOutline14,
 } from '../base/icons.js'
 import {
@@ -28,14 +21,7 @@ import { regionCodes, getRegionName, provinces } from '../../services/location.j
 import {
   createApiProfile,
   isChineseBrowser,
-  removeApiProfile,
-  saveApiProfile,
-  selectApiProfile,
   setAutoCollapseThinking,
-  setChatSource,
-  setAvatar,
-  setDisplayName,
-  setFontScale,
   setLocale,
   setLocation,
   setThemePreference,
@@ -44,11 +30,11 @@ import {
   type ApiProfile,
   type ThemePreference,
 } from '../../services/settings.js'
-import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
 import { SettingsUpdate } from './SettingsUpdate.js'
-import { hasAccountBridge, openAccount, requestAccountLogout } from '../../shell/account.js'
-import { openExternal } from '../../shell/native.js'
+import { ApiProfileList, ApiKeyGuide, ApiProfileForm, DesktopApiProfiles } from './ApiProfileSettings.js'
+import { MobileCompactedContent, MobileFontSizeContent, fontSizeLabelKeys, nearestFontLevel } from './SecondaryPreferences.js'
+import { AccountSettings } from './AccountSettings.js'
 import {
   resolveLocale,
   useTranslate,
@@ -56,26 +42,22 @@ import {
   type TranslationMessage,
 } from '../../i18n/index.js'
 import { Button } from '../base/Button.js'
-import { IconButton } from '../base/IconButton.js'
 import { ConfirmationModal, Modal, ModalPresence } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
-import { androidShell, syncLockAppearance } from '../../services/security/bridge.js'
+import { syncLockAppearance } from '../../services/security/bridge.js'
 import { SecuritySettings } from './SecuritySettings.js'
 import { SettingsIcon, type SettingsIconName } from './SettingsIcon.js'
 import { WebDavSettings } from './WebDavSettings.js'
 import { MemorySettings } from '../library/MemorySettings.js'
-import { ApiKeyField, useApiKeyEditor } from './ApiKeyField.js'
 import { openApiUsage } from './ApiUsage.js'
 import { MobileSettingsHeader as MobileHeader } from './MobileSettingsHeader.js'
 import { useRouteBack, useRouteMotion } from './routeMotion.js'
-import { forgetCompaction, listCompactions, type CompactionRecord } from '../../services/chat/compactionIndex.js'
-import { clearCompaction, selectSession } from '../../services/chat/store.js'
+import { selectSession } from '../../services/chat/store.js'
 import { DataSettings, type MobileDataProps } from './DataSettings.js'
 import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback.js'
 import { closeSettings, coverSettings, finishSettingsExit, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
 import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
-import { hasWorkBuddyBridge, useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { useUpdateSafety } from '../../services/updateSafety.js'
 import { WorkBuddyAccountPage } from './WorkBuddyAccountPage.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
@@ -109,7 +91,7 @@ const SettingsVisitView = ({ visit, mobile, historyImport }: ImportProps & { vis
   )
 }
 
-type DesktopSection = SettingsSection | 'account' | 'about'
+type DesktopSection = SettingsSection | 'about'
 const sections: { value: DesktopSection; label: TranslationKey; icon: SettingsIconName; startGroup?: boolean }[] = [
   { value: 'general', label: 'settingsAppGroup', icon: 'appearance' },
   { value: 'account', label: 'settingsAccountGroup', icon: 'account' },
@@ -131,11 +113,8 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
   )
   const tabId = useId()
   const [helpOpen, setHelpOpen] = useState(false)
-  const signedIn = useSettings((state) => state.accountSignedIn)
   const [workBuddyOpen, setWorkBuddyOpen] = useState(false)
   const version = useUpdateNotice((state) => state.version)
-  // 切换分组不丢失正在输入的 API Key 与导入状态
-  const apiKeyEditor = useApiKeyEditor()
   const historyDelete = useHistoryDelete()
   const replacingHistory = useChatStore((state) => state.importingHistory)
   const backupBusy = useBackupState((state) => state.operation !== null)
@@ -189,23 +168,17 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
             </button>
           ))}
         </div>
-        <div role="tabpanel" id={`${tabId}-panel`} aria-labelledby={`${tabId}-${section}`} className={styles.content} key={section}>
+        <div role="tabpanel" data-settings-panel={section} id={`${tabId}-panel`} aria-labelledby={`${tabId}-${section}`} className={styles.content} key={section}>
           {section === 'contextModels' ? <ContextModelSettings /> : section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
               <ThemeSetting />
               <LocaleSetting />
+              <LocationSetting />
               <ThinkingCollapseSetting />
               <TtsVoiceSetting />
             </>
           ) : section === 'account' ? (
-            <>
-              <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
-              <ProfileNameSetting />
-              <LocationSetting />
-              {hasAccountBridge && signedIn && <SettingCell label={t('dshAccount')} status={null} action={
-                <Button data-dsh-logout variant="outlined" onClick={requestAccountLogout}>{t('settingsSignOut')}</Button>
-              } />}
-            </>
+            <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
           ) : section === 'about' ? (
             <>
               {version && <SettingsUpdate />}
@@ -214,14 +187,7 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
               } />
             </>
           ) : section === 'apiKey' ? (
-            <>
-              <ApiKeyField editor={apiKeyEditor} />
-              <SettingCell label={t('usageTitle')} status={null} action={
-                <Button data-api-usage-entry variant="outlined" size="m" onClick={openApiUsage}>
-                  {t('usageView')}
-                </Button>
-              } />
-            </>
+            <DesktopApiProfiles />
           ) : (
             <>
               <ImportHistory historyImport={historyImport} disabled={historyBusy} />
@@ -241,7 +207,7 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
       </Modal>
       <HelpDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
       <ModalPresence>{workBuddyOpen && (
-        <Modal title={t('workBuddyAccount')} closable onClose={() => setWorkBuddyOpen(false)}>
+        <Modal title={t('workBuddyAccount')} closable className={styles.walletDialog} onClose={() => setWorkBuddyOpen(false)}>
           <WorkBuddyAccountPage />
         </Modal>
       )}</ModalPresence>
@@ -262,7 +228,6 @@ type MobilePage =
   | 'security'
   | 'webdav'
   | 'fontSize'
-  | 'profile'
   | 'location'
   | 'workbuddyAccount'
   | 'contextModels'
@@ -272,33 +237,7 @@ const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   contextModels: 'modelContextTitle', root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   fontSize: 'settingsFontSize',
-  profile: 'settingsProfile', location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
-}
-
-/** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
-const fontSizeLevels = [0.85, 0.925, 1, 1.075, 1.15, 1.225, 1.3]
-const fontSizeLabelKeys: TranslationKey[] = [
-  'fontSizeSmall',
-  'fontSizeSmallMedium',
-  'fontSizeStandard',
-  'fontSizeMediumLarge',
-  'fontSizeLarge',
-  'fontSizeLarge2',
-  'fontSizeXLarge',
-]
-
-/** 把连续倍率吸附到最近的档位 */
-const nearestFontLevel = (scale: number) => {
-  let best = 0
-  let bestDiff = Infinity
-  fontSizeLevels.forEach((value, index) => {
-    const diff = Math.abs(value - scale)
-    if (diff < bestDiff) {
-      bestDiff = diff
-      best = index
-    }
-  })
-  return best
+  location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
 }
 
 const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
@@ -316,7 +255,9 @@ type Route = {
 
 // A direct link has exactly one entry. Only a real tap inside Settings pushes a parent.
 const entryPage = (section: SettingsSection): MobilePage => {
-  if (section === 'general') return 'root'
+  if (section === 'general' || section === 'account') {
+    return 'root'
+  }
   return section
 }
 
@@ -405,11 +346,11 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
             <RoutePage key={page} route={route} position={position} active={top && open && !popping}
               title={title} onBack={goBack} onExited={finishPop}>
               {page === 'root' && <MobileRootContent onOpenPage={push} />}
-              {page === 'apiKey' && <MobileApiKeyContent onOpenGuide={() => push('guide')} onEdit={edit} />}
-              {page === 'apiEdit' && editor && <MobileApiProfileForm {...editor} onDone={() => {
+              {page === 'apiKey' && <ApiProfileList onOpenGuide={() => push('guide')} onEdit={edit} />}
+              {page === 'apiEdit' && editor && <ApiProfileForm {...editor} onDone={() => {
                 if (currentRoute.current === route) goBack()
               }} />}
-              {page === 'guide' && <MobileApiKeyGuide onFillKey={() => edit('new')} />}
+              {page === 'guide' && <ApiKeyGuide onFillKey={() => edit('new')} />}
               {page === 'data' && <MobileDataContent historyImport={historyImport} disabled={historyBusy}
                 onOpenWebDav={() => push('webdav')} onOpenCompacted={() => push('compacted')} onDeleteAll={historyDelete.open} />}
               {page === 'security' && <SecuritySettings />}
@@ -426,7 +367,6 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
               {page === 'contextModels' && <ContextModelSettings />}
               {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
               {page === 'fontSize' && <MobileFontSizeContent />}
-              {page === 'profile' && <MobileProfileContent onOpenLocation={() => push('location')} />}
               {page === 'location' && <MobileLocationContent />}
             </RoutePage>
           )
@@ -508,85 +448,21 @@ const MobileSelectRow = ({
   </div>
 )
 
-const AccountSettings = ({ mobile = false, onWorkBuddy }: { mobile?: boolean; onWorkBuddy: () => void }) => {
-  const t = useTranslate()
-  const signedIn = useSettings((state) => state.accountSignedIn)
-  const hasKey = useSettings((state) => Boolean(state.apiKey))
-  const source = useSettings((state) => state.chatSource)
-  const workBuddy = useWorkBuddyState(s => s.metadata)
-  const options = [
-    ...(hasAccountBridge ? [{ value: 'account' as const, label: t('dshAccountBalance') }] : []),
-    { value: 'api', label: 'API Key' },
-    ...(workBuddy || source === 'workbuddy' ? [{ value: 'workbuddy' as const, label: 'WorkBuddy' }] : []),
-  ] as const
-  const showChoice = (hasAccountBridge || hasWorkBuddyBridge) && Boolean(workBuddy || source === 'workbuddy' || (source === 'account' ? hasKey : signedIn))
-  const picker = (
-    <Select
-      ariaLabel={t('dshChatUses')}
-      value={source}
-      className={mobile ? styles.selectHit : undefined}
-      options={[...options]}
-      onChange={(choice) => {
-        setChatSource(choice)
-        if (choice === 'account' && !signedIn) {
-          openAccount()
-        }
-      }}
-    />
-  )
-  const label = t(signedIn ? 'dshAccount' : 'dshAccountLogin')
-  if (!mobile) {
-    return (
-      <>
-        {hasAccountBridge && <SettingCell label={t('dshAccount')} status={null} action={
-          <Button data-dsh-account variant="outlined" size="m" onClick={openAccount}>
-            {signedIn ? t('dshAccountManage') : t('dshAccountLogin')}
-          </Button>
-        } />}
-        {hasWorkBuddyBridge && <SettingCell label={t('workBuddyAccount')} status={null} action={
-          <Button data-wb-account-entry variant="outlined" size="m" onClick={onWorkBuddy}>
-            {t(workBuddy ? 'workBuddyManage' : 'workBuddyLogin')}
-          </Button>
-        } />}
-        {showChoice ? <SettingCell label={t('dshChatUses')} status={null} action={picker} /> : null}
-      </>
-    )
-  }
-  return (
-    <>
-      {hasAccountBridge && <button data-dsh-account type="button" className={styles.row} onClick={openAccount}>
-        <span className={styles.rowIcon}><SettingsIcon name="account" /></span>
-        <span className={styles.rowLabel}>{label}</span>
-        {signedIn ? <span className={styles.rowValue}>{t('dshAccountManage')}</span> : null}
-        <span className={styles.rowChevron}><IconChevronRightOutline14 /></span>
-      </button>}
-      {hasWorkBuddyBridge && (
-        <MobileRow data-wb-account-entry icon={<SettingsIcon name="work" />}
-          label={t(workBuddy ? 'workBuddyAccount' : 'workBuddyLogin')}
-          value={workBuddy ? t('workBuddyManage') : undefined} onClick={onWorkBuddy} />
-      )}
-      {showChoice ? (
-        <MobileSelectRow icon={<SettingsIcon name="source" />} label={t('dshChatUses')} value={source === 'workbuddy' ? 'WorkBuddy' : source === 'api' ? 'API Key' : t('dshAccountBalance')}>
-          {picker}
-        </MobileSelectRow>
-      ) : null}
-    </>
-  )
-}
-
 const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
   const apiKey = useSettings((state) => state.apiKey)
-  const displayName = useSettings((state) => state.displayName)
+  const location = useSettings((state) => state.location)
   const locale = useSettings((state) => state.locale)
   const ttsVoice = useSettings((state) => state.ttsVoice)
   const fontScale = useSettings((state) => state.fontScale)
   const [helpOpen, setHelpOpen] = useState(false)
-  const signedIn = useSettings((state) => state.accountSignedIn)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const version = useUpdateNotice((state) => state.version)
   return (
     <>
+      <MobileGroup group="account" title={t('settingsAccountGroup')}>
+        <AccountSettings onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
+      </MobileGroup>
       <MobileGroup group="preferences" title={t('settingsAppGroup')}>
         <ThemeSetting />
         <MobileSelectRow
@@ -618,6 +494,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           value={t(fontSizeLabelKeys[nearestFontLevel(fontScale)])}
           onClick={() => onOpenPage('fontSize')}
         />
+        <MobileRow icon={<SettingsIcon name="location" />} label={t('settingsLocation')}
+          value={location ? getRegionName(location.region, resolveLocale(locale)) : t('settingsNotSet')}
+          onClick={() => onOpenPage('location')} />
         <ThinkingCollapseSetting mobile />
         <MobileRow
           icon={<SettingsIcon name="voice" />}
@@ -625,21 +504,6 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           value={t(ttsVoice === 'stella' ? 'settingsTtsVoiceStella' : 'settingsTtsVoiceTide')}
           onClick={() => setVoiceOpen(true)}
         />
-      </MobileGroup>
-      <MobileGroup group="account" title={t('settingsAccountGroup')}>
-        <MobileRow
-          icon={<SettingsIcon name="profile" />}
-          label={t('settingsProfile')}
-          value={displayName === 'DeepSeek 用户' ? t('settingsDefaultUser') : displayName}
-          onClick={() => onOpenPage('profile')}
-        />
-        <AccountSettings mobile onWorkBuddy={() => onOpenPage('workbuddyAccount')} />
-        {hasAccountBridge && signedIn && (
-          <button data-dsh-logout type="button" className={styles.row} onClick={requestAccountLogout}>
-            <span className={styles.rowIcon}><SettingsIcon name="signOut" /></span>
-            <span className={styles.rowLabel}>{t('settingsSignOut')}</span>
-          </button>
-        )}
       </MobileGroup>
       <MobileGroup group="models" title={t('settingsModelsGroup')}>
         <MobileRow data-usage-home-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
@@ -724,524 +588,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   )
 }
 
-const HelpDialog = ({ open, onClose, mobile = false }: { open: boolean; onClose: () => void; mobile?: boolean }) => {
-  const t = useTranslate()
-  return (
-    <ModalPresence>{open && (
-      <Modal title={t('settingsHelp')} closable placement={mobile ? 'bottom' : 'center'} onClose={onClose}>
-        <div className={styles.helpText}>{t('settingsHelpDetails')}{'\n'}{t('backupHelpClear')}</div>
-      </Modal>
-    )}</ModalPresence>
-  )
-}
-
-/** 按当前配置反查预设；认不出就是自定义 */
-const matchPreset = (profile: ApiProfile) =>
-  (profile.providerId && providerPresets.some(item => item.value === profile.providerId) ? profile.providerId : undefined)
-  ?? endpointProvider(normalizeOrigin(profile.origin)) ?? 'custom'
-
-const endpointIdentity = (value: string) => {
-  try { return modelEndpoint(value).origin } catch { return '' }
-}
-
-/** Key 掩码：只露头尾，够区分是哪一条就行 */
-const maskApiKey = (apiKey: string) =>
-  apiKey.length <= 14 ? '••••••' : `${apiKey.slice(0, 6)}••••${apiKey.slice(-4)}`
-
-/** 申请官方 DeepSeek API Key 的四步指引：在 App 内完成大部分操作，最后回到这里填 Key */
-const MobileApiKeyGuide = ({ onFillKey }: { onFillKey: () => void }) => {
-  const t = useTranslate()
-  const steps = [
-    { title: t('apiGuideStep1Title'), body: t('apiGuideStep1Body') },
-    { title: t('apiGuideStep2Title'), body: t('apiGuideStep2Body') },
-    { title: t('apiGuideStep3Title'), body: t('apiGuideStep3Body') },
-    { title: t('apiGuideStep4Title'), body: t('apiGuideStep4Body') },
-  ]
-  return (
-    <>
-      <div className={styles.guideIntro}>{t('apiGuideIntro')}</div>
-      <div className={styles.guideSteps}>
-        {steps.map((step, index) => (
-          <div key={step.title} className={styles.guideStep}>
-            <span className={styles.guideIndex}>{index + 1}</span>
-            <div className={styles.guideBody}>
-              <div className={styles.guideTitle}>{step.title}</div>
-              <div className={styles.guideText}>{step.body}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <MobileGroup>
-        <MobileRow external icon={<SettingsIcon name="platform" />} label={t('apiGuideOpenPlatform')}
-          onClick={() => void openExternal('https://platform.deepseek.com/sign_in')} />
-        <MobileRow external icon={<SettingsIcon name="key" />} label={t('apiGuideOpenKeys')}
-          onClick={() => void openExternal('https://platform.deepseek.com/api_keys')} />
-        <MobileRow external icon={<SettingsIcon name="wallet" />} label={t('apiGuideOpenTopUp')}
-          onClick={() => void openExternal('https://platform.deepseek.com/top_up')} />
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('apiGuideNote')}</div>
-      <div className={styles.group}>
-        <button type="button" className={styles.mobileConfirm} onClick={onFillKey}>
-          {t('apiGuideHaveKey')}
-        </button>
-      </div>
-    </>
-  )
-}
-
-/**
- * API 配置列表：每条一个名称 + 接口地址 + Key，点一行切换当前使用的配置。
- * 支持多条是为了「官方 Key / 中转地址 / 别的兼容网关」来回切，和 harness 的用法一致。
- */
-const MobileApiKeyContent = ({ onOpenGuide, onEdit }: {
-  onOpenGuide: () => void
-  onEdit: (profile: ApiProfile | 'new') => void
-}) => {
-  const t = useTranslate()
-  const apiProfiles = useSettings((state) => state.apiProfiles)
-  const activeProfileId = useSettings((state) => state.chatSource === 'api' ? state.activeProfileId : null)
-
-  return (
-    <>
-      <MobileGroup>
-        <MobileRow icon={<SettingsIcon name="guide" />} label={t('apiGuideEntry')} onClick={onOpenGuide} />
-        <MobileRow data-api-usage-entry icon={<SettingsIcon name="usage" />} label={t('usageTitle')} onClick={openApiUsage} />
-      </MobileGroup>
-      <MobileGroup>
-        {apiProfiles.map((profile) => (
-          <div key={profile.id} className={styles.profileRow}>
-            <button
-              type="button"
-              className={styles.profileMain}
-              onClick={async () => {
-                try { await selectApiProfile(profile.id) } catch { showToast({ key: 'credentialWriteFailed' }) }
-              }}
-            >
-              <span
-                className={clsx(styles.rowIcon, profile.id === activeProfileId && styles.active)}
-              >
-                {profile.id === activeProfileId ? <IconCheckOutline16 /> : <SettingsIcon name="key" />}
-              </span>
-              <span className={styles.rowLabel}>{profile.name}</span>
-              <span className={styles.apiKeyMask}>{maskApiKey(profile.apiKey)}</span>
-            </button>
-            <IconButton
-              tone="primary"
-              icon={<IconEllipsisOutline16 />}
-              aria-label={t('apiProfileEdit')}
-              onClick={() => onEdit(profile)}
-            />
-          </div>
-        ))}
-        <button type="button" className={styles.row} onClick={() => onEdit('new')}>
-          <span className={styles.rowIcon}>
-            <SettingsIcon name="add" />
-          </span>
-          <span className={styles.rowLabel}>{t('apiProfileAdd')}</span>
-        </button>
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('apiProfileHint')}</div>
-    </>
-  )
-}
-
-/** Model discovery is optional: an offline or restricted endpoint can still be configured. */
-const MobileApiProfileForm = ({
-  profile,
-  isNew,
-  onDone,
-}: {
-  profile: ApiProfile
-  isNew: boolean
-  onDone: () => void
-}) => {
-  const t = useTranslate()
-  const english = useSettings((state) => resolveLocale(state.locale) === 'en-US')
-  const [preset, setPreset] = useState(() => matchPreset(profile))
-  const [name, setName] = useState(profile.name)
-  const [protocol, setProtocol] = useState(profile.protocol)
-  // 默认地址就不必让人看见，留空即代表官方地址
-  const [origin, setOrigin] = useState(profile.origin === defaultApiOrigin ? '' : profile.origin)
-  const [model, setModel] = useState(profile.model)
-  const [discoveredReasoning, setDiscoveredReasoning] = useState(profile.discoveredReasoning ?? {})
-  const [discoveredWindows, setDiscoveredWindows] = useState(profile.discoveredWindows ?? {})
-  const [discoveredWindowDetails, setDiscoveredWindowDetails] = useState(profile.discoveredWindowDetails ?? {})
-  const [discoveredWindowKinds, setDiscoveredWindowKinds] = useState(profile.discoveredWindowKinds ?? {})
-  const targetModel = model.trim() || 'deepseek-flash'
-  const targetOrigin = normalizeOrigin(origin)
-  const targetKey = profileWindowKey(targetOrigin, targetModel, protocol)
-  const effective = resolveWindow({ profile: { ...profile, providerId: preset, discoveredWindows, discoveredWindowKinds, discoveredWindowDetails }, origin: targetOrigin, protocol, model: targetModel })
-  const [windowDraft, setWindowDraft] = useState<{ key: string; text: string } | null>(null)
-  const contextWindow = windowDraft?.key === targetKey ? windowDraft.text : String(effective.manual ?? '')
-  const invalidWindow = Boolean(contextWindow && !parseWindow(contextWindow))
-  const [apiKey, setApiKey] = useState(profile.apiKey)
-  const [, catalogReady] = useState(0)
-  const [keyCleared, setKeyCleared] = useState(false)
-  const endpoint = preset === 'custom' && !origin.trim() ? '' : normalizeOrigin(origin)
-  const validEndpoint = Boolean(endpointIdentity(endpoint))
-  const canSave = validEndpoint && (!isAnthropicOrigin(endpoint) || !!model.trim()) && (Boolean(apiKey.trim()) || allowsKeylessLocal(endpoint, protocol)) && !invalidWindow
-  const directoryProvider = endpointProvider(endpoint, preset) ?? 'custom'
-  const publicList = ['ollama', 'lmstudio', 'opencode', 'opencode-go', 'openrouter', 'deepinfra'].includes(directoryProvider)
-  const editableProtocol = (id: string) => isAnthropicOrigin(endpoint) ? 'anthropic' : preset === 'deepseek' && (!id || nativeModels.some(modelId => id === modelId)) ? 'deepseek' : 'openai'
-  const changeOrigin = (next: string) => {
-    if (apiKey && endpointIdentity(endpoint) !== endpointIdentity(next || (preset === 'custom' ? '' : defaultApiOrigin))) {
-      setApiKey(''); setKeyCleared(true); setDiscoveredReasoning({})
-    }
-    setOrigin(next)
-    if (isAnthropicOrigin(next)) setProtocol('anthropic')
-    else if (protocol === 'anthropic') setProtocol('openai')
-  }
-  const pickPreset = (value: string) => {
-    const next = providerPresets.find((item) => item.value === value)
-    if (!next || value === preset) { return }
-    // Reusing a key across providers, plans or endpoint origins requires re-entry.
-    if (apiKey) { setKeyCleared(true) }
-    setApiKey(''); setDiscoveredReasoning({}); setPreset(value)
-    setName(english && /[\u4e00-\u9fff]/u.test(next.name) ? providerLabelsEn[next.value] ?? next.name : next.name)
-    setProtocol(next.protocol)
-    setOrigin(next.origin === defaultApiOrigin ? '' : next.origin)
-    setModel(next.protocol === 'deepseek' ? 'deepseek-flash' : next.model)
-  }
-  const [verifying, setVerifying] = useState(false)
-  const [failure, setFailure] = useState<{ cause: unknown } | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const error = failure ? t('credentialWriteFailed') : null
-
-  const submit = async () => {
-    const key = apiKey.trim()
-    if (!canSave || verifying) {
-      return
-    }
-    setVerifying(true)
-    setFailure(null)
-    try {
-      const assembledProfile = { ...profile, providerId: preset, name: name.trim(), protocol, origin: targetOrigin, model: model.trim(), discoveredReasoning, discoveredWindows, discoveredWindowKinds, discoveredWindowDetails, apiKey: key }
-      await saveApiProfile(windowDraft?.key === targetKey ? withProfileWindow(assembledProfile, targetKey, parseWindow(contextWindow)) : assembledProfile)
-      onDone()
-    } catch (e) {
-      setFailure({ cause: e })
-    } finally {
-      setVerifying(false)
-    }
-  }
-
-  return (
-    <>
-      <MobileGroup>
-        <div className={styles.field}>
-          <div className={styles.fieldLabel}>{t('apiProfileProvider')}</div>
-          <Select
-            value={preset}
-            options={providerPresets.map((item) => ({ value: item.value, label: english ? providerLabelsEn[item.value] ?? item.label : item.label }))}
-            onChange={pickPreset}
-            ariaLabel={t('apiProfileProvider')}
-          />
-        </div>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="api-profile-name">
-            {t('apiProfileName')}
-          </label>
-          <input
-            id="api-profile-name"
-            className={styles.fieldInput}
-            value={name}
-            placeholder={t('apiProfileNamePlaceholder')}
-            autoComplete="off"
-            onChange={(event) => setName(event.target.value)}
-          />
-        </div>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="api-profile-origin">
-            {t('apiProfileOrigin')}
-          </label>
-          <input
-            id="api-profile-origin"
-            className={styles.fieldInput}
-            value={origin}
-            placeholder={preset === 'custom' ? 'https://…/v1' : defaultApiOrigin}
-            autoComplete="off"
-            spellCheck={false}
-            inputMode="url"
-            onChange={(event) => changeOrigin(event.target.value)}
-          />
-          {androidShell && /^http:\/\//i.test(endpoint) && !/^http:\/\/(?:localhost|127\.0\.0\.1|10\.0\.2\.2)(?:[:/]|$)/i.test(endpoint) ? <div className={styles.profileHint}>{english
-            ? 'Use HTTPS for this server. Android blocks cleartext LAN requests for both model discovery and chat.'
-            : '请将此服务配置为 HTTPS。Android 会拦截通过普通 HTTP 连接局域网的模型列表和聊天请求。'}</div>
-          : ['ollama','lmstudio'].includes(preset) && <div className={styles.profileHint}>{english
-            ? 'On Android, localhost means this phone. For a desktop server use its HTTPS address, or 10.0.2.2 in the Android emulator.'
-            : 'Android 上的 localhost 指手机本机。连接电脑上的服务可填其 HTTPS 地址；模拟器可用 10.0.2.2。'}</div>}
-        </div>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="api-profile-model">{t('apiProfileModel')}</label>
-          <ProviderModelPicker id="api-profile-model" ariaLabel={t('apiProfileModel')} providerId={directoryProvider} value={model}
-            endpoint={endpoint} apiKey={apiKey.trim()} discover={validEndpoint && (Boolean(apiKey.trim()) || publicList || allowsKeylessLocal(endpoint, protocol))}
-            onCatalogReady={() => catalogReady(n => n + 1)}
-            onChange={id => { setModel(id); setProtocol(editableProtocol(id)) }}
-            onDiscovered={(id, tokens, source, reasoning, details) => {
-              const key = profileWindowKey(targetOrigin, id, editableProtocol(id))
-              setDiscoveredWindowDetails(prev => {
-                 if (JSON.stringify(prev[key]) === JSON.stringify(details)) { return prev }
-                 return details ? { ...prev, [key]: details } : Object.fromEntries(Object.entries(prev).filter(([id]) => id !== key))
-               })
-               setDiscoveredReasoning(prev => {
-                if (prev[key] === reasoning) return prev
-                if (reasoning) return { ...prev, [key]: reasoning }
-                return Object.fromEntries(Object.entries(prev).filter(([entry]) => entry !== key))
-              })
-              if (tokens === undefined) {
-                const withoutCurrentModel = <T,>(values: Record<string, T>) => {
-                  if (!Object.hasOwn(values, key)) { return values }
-                  return Object.fromEntries(Object.entries(values).filter(([id]) => id !== key))
-                }
-                setDiscoveredWindowKinds(withoutCurrentModel)
-                setDiscoveredWindows(withoutCurrentModel)
-                return
-              }
-              setDiscoveredWindowKinds(prev => prev[key] === source ? prev : { ...prev, [key]: source })
-              setDiscoveredWindows(prev => prev[key] === tokens ? prev : { ...prev, [key]: tokens })
-            }} />
-        </div>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="api-profile-window">
-            {t('apiProfileContextWindow')}
-          </label>
-          <WindowTierChoices tiers={effective.spec.tiers} en={english}
-            selected={contextWindow ? parseWindow(contextWindow) : effective.window}
-            onSelect={n => setWindowDraft({ key: targetKey, text: String(n) })} />
-          <input
-            id="api-profile-window"
-            className={styles.fieldInput}
-            value={contextWindow}
-            placeholder={effective.spec.basis === 'fallback' && !effective.inheritedWindow ? (english ? 'Enter the deployment’s token limit' : '按实际部署填写 token 数') : String(effective.inheritedWindow ?? effective.spec.window)}
-            aria-invalid={invalidWindow}
-            inputMode="numeric"
-            autoComplete="off"
-            onChange={(event) => setWindowDraft({ key: targetKey, text: event.target.value })}
-          />
-        </div>
-        {invalidWindow && <div role="alert" className={styles.statusText}>{t('modelContextInvalid')}</div>}
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="api-profile-key">
-            {t('apiProfileKey')}
-          </label>
-          <input
-            id="api-profile-key"
-            className={styles.fieldInput}
-            type="password"
-            value={apiKey}
-            placeholder={t('apiKeyPlaceholder')}
-            autoComplete="off"
-            spellCheck={false}
-            onChange={(event) => { setKeyCleared(false); setApiKey(event.target.value); setDiscoveredReasoning({}); setDiscoveredWindows({}); setDiscoveredWindowKinds({}); setDiscoveredWindowDetails({}) }}
-          />
-          {keyCleared && <div className={styles.profileHint}>{english ? 'Enter the key for this endpoint.' : '接口已切换，请填写当前接口的密钥。'}</div>}
-        </div>
-      </MobileGroup>
-      {error ? <div className={styles.statusText}>{error}</div> : null}
-      <div className={styles.group}>
-        <button
-          type="button"
-          className={styles.mobileConfirm}
-          disabled={verifying || !canSave}
-          onClick={() => void submit()}
-        >
-          {verifying ? (english ? 'Saving…' : '正在保存…') : t('apiProfileSave')}
-        </button>
-        {isNew ? null : (
-          <button
-            type="button"
-            className={clsx(styles.mobileConfirm, styles.dangerConfirm)}
-            onClick={() => setConfirmDelete(true)}
-          >
-            {t('apiProfileDelete')}
-          </button>
-        )}
-      </div>
-      <ModalPresence>{confirmDelete ? (
-      <ConfirmationModal
-        title={t('apiProfileDeleteTitle')}
-        onClose={() => setConfirmDelete(false)}
-        footer={
-          <>
-            <Button variant="outlined" size="m" autoFocus onClick={() => setConfirmDelete(false)}>
-              {t('cancel')}
-            </Button>
-            <Button
-              variant="danger"
-              size="m"
-              onClick={async () => {
-                try { await removeApiProfile(profile.id) } catch {
-                  showToast({ key: 'credentialWriteFailed' })
-                  return
-                }
-                setConfirmDelete(false)
-                onDone()
-              }}
-            >
-              {t('delete')}
-            </Button>
-          </>
-        }
-      >
-        {t('apiProfileDeleteDescription')}
-      </ConfirmationModal>
-      ) : null}</ModalPresence>
-    </>
-  )
-}
-
-/** 已压缩的对话：查看摘要、回看原文、恢复完整上下文 */
-const MobileCompactedContent = ({ onOpenChat }: { onOpenChat: (sessionId: string) => void }) => {
-  const t = useTranslate()
-  const [records, setRecords] = useState<CompactionRecord[]>(() => listCompactions())
-  const [expanded, setExpanded] = useState<string | null>(null)
-  const [summaries, setSummaries] = useState<Record<string, string>>({})
-
-  const loadSummary = (sessionId: string) => {
-    if (summaries[sessionId]) {
-      return
-    }
-    const session = useChatStore.getState().sessionCache[sessionId]
-    const text = session?.checkpoint?.text ?? ''
-    const body = text
-      .replace(/^[\s\S]*?<compacted-summary>/, '')
-      .replace(/<\/compacted-summary>[\s\S]*$/, '')
-      .trim()
-    setSummaries((prev) => ({ ...prev, [sessionId]: body || t('contextSummaryMissing') }))
-  }
-
-  if (records.length === 0) {
-    return <div className={styles.profileHint}>{t('compactedEmpty')}</div>
-  }
-
-  return (
-    <MobileGroup>
-      {records.map((record) => (
-        <div key={record.sessionId} className={styles.compactedItem}>
-          <button
-            type="button"
-            className={styles.row}
-            onClick={() => {
-              setExpanded(expanded === record.sessionId ? null : record.sessionId)
-              loadSummary(record.sessionId)
-            }}
-          >
-            <span className={styles.rowLabel}>{record.title}</span>
-            <span className={styles.rowValue}>
-              {t('compactedMeta', {
-                time: new Date(record.createdAt).toLocaleDateString(),
-                count: record.coveredMessages,
-              })}
-            </span>
-          </button>
-          {expanded === record.sessionId ? (
-            <div className={styles.compactedBody}>
-              <div className={styles.summaryText}>{summaries[record.sessionId] ?? ''}</div>
-              <div className={styles.compactedActions}>
-                <button
-                  type="button"
-                  className={styles.fetchButton}
-                  onClick={() => onOpenChat(record.sessionId)}
-                >
-                  {t('compactedOpen')}
-                </button>
-                <button
-                  type="button"
-                  className={styles.fetchButton}
-                  onClick={() => {
-                    clearCompaction(record.sessionId)
-                    forgetCompaction(record.sessionId)
-                    setRecords(listCompactions())
-                    showToast({ key: 'compactedRestored' })
-                  }}
-                >
-                  {t('compactedRestore')}
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-      ))}
-    </MobileGroup>
-  )
-}
-
 const MobileDataContent = ({ disabled, ...mobile }: MobileDataProps & { disabled: boolean }) => (
   <DataSettings disabled={disabled} mobile={mobile} />
 )
-
-/** 字体大小：照官方——顶部预览、底部「跟随系统」开关 + A—A 七档滑块 */
-const MobileFontSizeContent = () => {
-  const t = useTranslate()
-  const fontScale = useSettings((state) => state.fontScale)
-  const [followSystem, setFollowSystem] = useState(
-    () => localStorage.getItem('chat-demo:font-follow-system') === 'true'
-  )
-  const level = nearestFontLevel(fontScale)
-
-  const applyLevel = (index: number) => {
-    setFontScale(fontSizeLevels[index])
-    setFollowSystem(false)
-    localStorage.setItem('chat-demo:font-follow-system', 'false')
-  }
-
-  return (
-    <div className={styles.fontPage}>
-      <div className={styles.fontPreviewArea} style={{ fontSize: `${16 * fontScale}px` }}>
-        <div className={styles.fontBubble}>{t('fontSizePreviewBubble')}</div>
-        <p className={styles.fontParagraph}>{t('fontSizePreviewLine1')}</p>
-        <p className={styles.fontParagraph}>{t('fontSizePreviewLine2')}</p>
-        <button
-          type="button"
-          className={styles.fetchButton}
-          onClick={() => void openExternal('https://github.com/leezzou/deepchat/issues')}
-        >
-          github.com/leezzou/deepchat/issues
-        </button>
-      </div>
-      <div className={styles.fontSheet}>
-        <div className={styles.fontFollowRow}>
-          <span>{t('fontSizeFollowSystem')}</span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={followSystem}
-            aria-label={t('fontSizeFollowSystem')}
-            className={clsx(styles.fontSwitch, followSystem && styles.fontSwitchOn)}
-            onClick={() => {
-              const next = !followSystem
-              setFollowSystem(next)
-              localStorage.setItem('chat-demo:font-follow-system', String(next))
-              if (next) {
-                setFontScale(1)
-              }
-            }}
-          >
-            <span className={styles.fontSwitchKnob} />
-          </button>
-        </div>
-        <div className={styles.fontSliderRow}>
-          <span className={styles.fontA}>A</span>
-          <div className={styles.fontSliderWrap}>
-            <div className={styles.fontLevelLabel}>{t(fontSizeLabelKeys[level])}</div>
-            <input
-              type="range"
-              min={0}
-              max={fontSizeLevels.length - 1}
-              step={1}
-              value={level}
-              disabled={followSystem}
-              className={styles.fontSlider}
-              aria-label={t('settingsFontSize')}
-              onChange={(event) => applyLevel(Number(event.target.value))}
-            />
-          </div>
-          <span className={clsx(styles.fontA, styles.fontALarge)}>A</span>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 const ThinkingCollapseSetting = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
@@ -1258,98 +607,6 @@ const ThinkingCollapseSetting = ({ mobile = false }: { mobile?: boolean }) => {
         aria-labelledby={`${id}-label`} aria-describedby={`${id}-hint`} checked={checked}
         onChange={event => setAutoCollapseThinking(event.target.checked)} />
     </label>
-  )
-}
-
-/** 账号资料：头像、昵称、位置（本 App 无登录体系，资料只存本机） */
-const MobileProfileContent = ({ onOpenLocation }: { onOpenLocation: () => void }) => {
-  const t = useTranslate()
-  const displayName = useSettings((state) => state.displayName)
-  const avatar = useSettings((state) => state.avatar)
-  const location = useSettings((state) => state.location)
-  const locale = useSettings((state) => resolveLocale(state.locale))
-  const [name, setName] = useState(displayName)
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const pickAvatar = async (file: File) => {
-    const bitmap = await createImageBitmap(file)
-    const canvas = document.createElement('canvas')
-    const size = 96
-    canvas.width = size
-    canvas.height = size
-    const context = canvas.getContext('2d')
-    if (!context) {
-      return
-    }
-    const scale = Math.max(size / bitmap.width, size / bitmap.height)
-    const w = bitmap.width * scale
-    const h = bitmap.height * scale
-    context.drawImage(bitmap, (size - w) / 2, (size - h) / 2, w, h)
-    setAvatar(canvas.toDataURL('image/jpeg', 0.85))
-  }
-
-  return (
-    <>
-      <MobileGroup>
-        <div className={styles.field}>
-          <div className={styles.fieldLabel}>{t('personalizeAvatar')}</div>
-          <div className={styles.avatarRow}>
-            <span className={styles.avatarPreview}>
-              {avatar ? <img src={avatar} alt="" /> : <SettingsIcon name="account" />}
-            </span>
-            <button type="button" className={styles.fetchButton} onClick={() => inputRef.current?.click()}>
-              {t('personalizePickAvatar')}
-            </button>
-            {avatar ? (
-              <button type="button" className={styles.fetchButton} onClick={() => setAvatar(null)}>
-                {t('personalizeResetAvatar')}
-              </button>
-            ) : null}
-          </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={(event) => {
-              const file = event.target.files?.[0]
-              event.target.value = ''
-              if (file) {
-                void pickAvatar(file)
-              }
-            }}
-          />
-        </div>
-        <div className={styles.field}>
-          <label className={styles.fieldLabel} htmlFor="profile-name">
-            {t('personalizeName')}
-          </label>
-          <input
-            id="profile-name"
-            className={styles.fieldInput}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => setDisplayName(name)}
-            placeholder={t('personalizeNamePlaceholder')}
-          />
-        </div>
-      </MobileGroup>
-      <MobileGroup>
-        <button type="button" className={styles.row} onClick={onOpenLocation}>
-          <span className={styles.rowIcon}>
-            <SettingsIcon name="location" />
-          </span>
-          <span className={styles.rowLabel}>{t('settingsLocation')}</span>
-          <span className={styles.rowValue}>
-            {location ? (location.region === 'CN' ? location.province ?? t('settingsConfigured') : getRegionName(location.region, locale)) : t('settingsNotSet')}
-          </span>
-          <span className={styles.rowChevron}>
-            <IconChevronRightOutline14 />
-          </span>
-        </button>
-      </MobileGroup>
-      <div className={styles.profileHint}>{t('personalizeHint')}</div>
-    </>
   )
 }
 
@@ -1500,17 +757,6 @@ const useHistoryDelete = () => {
     },
     confirm,
   }
-}
-
-const ProfileNameSetting = () => {
-  const t = useTranslate()
-  const displayName = useSettings((state) => state.displayName)
-  const [name, setName] = useState(displayName)
-  return <SettingCell label={t('personalizeName')} status={null} action={
-    <input className={styles.profileName} aria-label={t('personalizeName')}
-      value={name} onChange={event => setName(event.target.value)}
-      onBlur={() => { setDisplayName(name); setName(useSettings.getState().displayName) }} />
-  } />
 }
 
 const LocationSetting = () => {

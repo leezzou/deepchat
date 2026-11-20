@@ -9,6 +9,7 @@ import {
   securityState,
   subscribeSecurity,
 } from '../../services/security/bridge.js'
+import { SettingsIcon } from './SettingsIcon.js'
 import '../library/localSwitch.css'
 import './securitySettings.css'
 
@@ -60,6 +61,7 @@ export function SecuritySettings() {
     <div className="security-settings">
       <section aria-labelledby="security-lock-title">
         <label className="security-setting-row security-toggle">
+          <SettingsIcon name="lock" />
           <span id="security-lock-title">{t('应用锁', 'App lock')}</span>
           <input type="checkbox" role="switch" className="dc-local-switch"
             aria-labelledby="security-lock-title" aria-describedby="security-lock-hint"
@@ -83,6 +85,7 @@ export function SecuritySettings() {
       </section>
       <section aria-labelledby="security-keys-title">
         <div className="security-setting-row">
+          <SettingsIcon name="key" />
           <h3 id="security-keys-title">{t('API 密钥存储', 'API key storage')}</h3>
           <span className="security-setting-value">
             {status === 'ready'

@@ -1,0 +1,82 @@
+.accounts { color: var(--dc-ink); }
+.accountRow, .sourceRow {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 60px;
+  padding: 11px 14px;
+}
+.accountRow {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--settings-feedback) var(--nav-ease);
+}
+.accountRow + .accountRow, .sourceRow { box-shadow: inset 0 1px var(--dc-line); }
+.accountRow > svg { flex: none; width: 16px; height: 16px; color: var(--dc-secondary); }
+.accountRow:active { background: var(--dsw-alias-interactive-bg-hover); }
+.accountRow:focus-visible, .option:focus-within { outline: 2px solid var(--dc-accent); outline-offset: -3px; }
+.avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 50%;
+  color: var(--dc-secondary);
+  background: var(--dc-subtle);
+  box-shadow: inset 0 0 0 1px var(--dc-line);
+}
+.avatar[data-large] { width: 48px; height: 48px; }
+.avatar img { width: 100%; height: 100%; object-fit: cover; }
+.accountText { flex: 1; min-width: 0; }
+.accountName, .detail { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.accountName { color: var(--dc-ink); font-size: 1rem; font-weight: 500; line-height: 1.45; }
+.detail, .empty { color: var(--dc-secondary); font-size: .8125rem; line-height: 1.5; }
+.empty { margin: 0; padding: 16px; }
+.sourceRow { justify-content: space-between; flex-wrap: wrap; min-height: 54px; padding-block: 5px; }
+.sourceRow > button { min-height: 44px; max-width: 100%; }
+.choice {
+  min-width: 0;
+  padding: 0 14px 12px;
+  margin: 0;
+  border: 0;
+}
+.choice legend { box-sizing: border-box; width: 100%; margin: 0; padding: 12px 0 6px; color: var(--dc-secondary); font-size: .8125rem; font-weight: 500; }
+.options { display: flex; gap: 4px; padding: 3px; border-radius: 12px; background: var(--dc-subtle); }
+.option {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  min-height: 44px;
+  padding-inline: 4px;
+  border-radius: 9px;
+  color: var(--dc-secondary);
+  font-size: .875rem;
+  line-height: 1.3;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--settings-feedback) var(--nav-ease);
+}
+.option input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.optionText { min-width: 0; overflow-wrap: anywhere; }
+.option[data-checked] { color: var(--dc-ink); background: var(--dc-surface); box-shadow: 0 1px 3px rgb(0 0 0 / 10%); font-weight: 600; }
+.option svg { flex: none; width: 14px; height: 14px; color: var(--dc-accent); }
+[data-settings-panel='account'] .accounts { flex: none; margin-top: 8px; overflow: hidden; border-radius: 16px; border: 1px solid var(--dc-line); }
+[data-settings-panel='account'] .accountRow { min-height: 68px; }
+@media (hover: hover) {
+  .accountRow:hover, .option:not([data-checked]):hover { background: var(--dsw-alias-interactive-bg-hover); }
+}
+@media (prefers-reduced-motion: reduce) { .accountRow, .option { transition: none; } }

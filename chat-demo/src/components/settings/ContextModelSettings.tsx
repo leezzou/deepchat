@@ -19,6 +19,7 @@ import { saveProfileDiscovery, saveProfileWindow, useSettings } from '../../serv
 import { useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { openExternal } from '../../shell/native.js'
 import { Button } from '../base/Button.js'
+import { SettingsSection } from './SecondarySettingsView.js'
 import { Select } from '../base/Select.js'
 import { WindowTierChoices } from './WindowTierChoices.js'
 import { ProviderModelPicker } from './ProviderModelPicker.js'
@@ -109,62 +110,64 @@ export function ContextModelSettings() {
   const modelLabel = en ? 'Model' : '模型'
   const valid = isModelId(model) && (channel !== 'workbuddy' || wbModels.includes(model))
   return (
-    <section data-context-settings className={styles.settings}>
-      <div className={styles.field}>
-        <span>{providerLabel}</span>
-        <Select
-          value={selected}
-          ariaLabel={providerLabel}
-          options={options}
-          onChange={(value) => {
-            setSelected(value)
-            setChosenModel(null)
-          }}
-        />
-      </div>
-      <div className={styles.field}>
-        <span>{modelLabel}</span>
-        {native || channel === 'workbuddy' ? (
+    <section data-context-settings className="secondary-page">
+      <SettingsSection title={en ? 'Applies to' : '适用模型'}>
+        <div className="secondary-field">
+          <span className="secondary-label">{providerLabel}</span>
           <Select
-            value={model}
-            ariaLabel={modelLabel}
-            onChange={setChosenModel}
-            placeholder={
-              channel === 'workbuddy' && model
-                ? `${model} · ${en ? 'Unavailable' : '当前不可选'}`
-                : undefined
-            }
-            options={
-              native
-                ? nativeModels.map((id) => ({ value: id, label: id }))
-                : wbRows.map((row) => workBuddyModelOption(row, en, wbCached))
-            }
-          />
-        ) : (
-          <ProviderModelPicker
-            key={selected}
-            endpoint={profile?.origin}
-            apiKey={profile?.apiKey}
-            discover={Boolean(profile)}
-            onDiscovered={(id, contextWindow, source, reasoning, windowDetails) => {
-              if (profile) {
-                void saveProfileDiscovery(profile, {
-                  id,
-                  name: id,
-                  contextWindow,
-                  source,
-                  reasoning,
-                  windowDetails,
-                }).catch(() => {})
-              }
+            value={selected}
+            ariaLabel={providerLabel}
+            options={options}
+            onChange={(value) => {
+              setSelected(value)
+              setChosenModel(null)
             }}
-            providerId={provider ?? 'custom'}
-            value={model}
-            onChange={setChosenModel}
-            ariaLabel={modelLabel}
           />
-        )}
-      </div>
+        </div>
+        <div className="secondary-field">
+          <span className="secondary-label">{modelLabel}</span>
+          {native || channel === 'workbuddy' ? (
+            <Select
+              value={model}
+              ariaLabel={modelLabel}
+              onChange={setChosenModel}
+              placeholder={
+                channel === 'workbuddy' && model
+                  ? `${model} · ${en ? 'Unavailable' : '当前不可选'}`
+                  : undefined
+              }
+              options={
+                native
+                  ? nativeModels.map((id) => ({ value: id, label: id }))
+                  : wbRows.map((row) => workBuddyModelOption(row, en, wbCached))
+              }
+            />
+          ) : (
+            <ProviderModelPicker
+              key={selected}
+              endpoint={profile?.origin}
+              apiKey={profile?.apiKey}
+              discover={Boolean(profile)}
+              onDiscovered={(id, contextWindow, source, reasoning, windowDetails) => {
+                if (profile) {
+                  void saveProfileDiscovery(profile, {
+                    id,
+                    name: id,
+                    contextWindow,
+                    source,
+                    reasoning,
+                    windowDetails,
+                  }).catch(() => {})
+                }
+              }}
+              providerId={provider ?? 'custom'}
+              value={model}
+              onChange={setChosenModel}
+              ariaLabel={modelLabel}
+            />
+          )}
+        </div>
+      </SettingsSection>
       <WindowEditor
         key={JSON.stringify([selected, model, target.grant])}
         target={target}
@@ -226,103 +229,117 @@ function WindowEditor({
   }
   return (
     <>
-      <div className={styles.field}>
-        <label htmlFor={id}>{t('apiProfileContextWindow')}</label>
-        <WindowTierChoices
-          tiers={spec.tiers}
-          en={en}
-          selected={text === null ? window : parsed}
-          disabled={!valid || busy}
-          onSelect={(next) => void setWindow(next)}
-        />
-        <input
-          id={id}
-          data-context-window
-          value={value}
-          inputMode="numeric"
-          autoComplete="off"
-          aria-invalid={!parsed}
-          aria-describedby={`${id}-hint`}
-          onChange={(e) => {
-            setText(e.target.value)
-            setStatus('')
-          }}
-        />
-      </div>
-      <div id={`${id}-hint`} className={styles.details}>
-        {!parsed && <p role="alert">{t('modelContextInvalid')}</p>}
-        <p>
-          {en ? 'Effective window' : '当前生效窗口'} <strong>{n(window)}</strong> tokens
-          {manual != null
-            ? en
-              ? ' · Custom'
-              : ' · 自定义'
-            : inheritedWindow
-              ? en
-                ? ' · Provider preference'
-                : ' · 服务方案设置'
-              : ''}
-        </p>
-        <details className={styles.evidence}>
-          <summary>{en ? 'Limits & sources' : '上限与来源'}</summary>
+      <SettingsSection title={en ? 'Window size' : '窗口大小'}>
+        <div className="secondary-field">
+          <label className="secondary-label" htmlFor={id}>
+            {t('apiProfileContextWindow')}
+          </label>
+          <WindowTierChoices
+            tiers={spec.tiers}
+            en={en}
+            selected={text === null ? window : parsed}
+            disabled={!valid || busy}
+            onSelect={(next) => void setWindow(next)}
+          />
+          <input
+            id={id}
+            className="secondary-input"
+            disabled={!valid || busy}
+            data-context-window
+            value={value}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-invalid={!parsed}
+            aria-describedby={`${id}-hint`}
+            onChange={(e) => {
+              setText(e.target.value)
+              setStatus('')
+            }}
+          />
+        </div>
+        <div id={`${id}-hint`} className={styles.details}>
+          {!parsed && <p role="alert">{t('modelContextInvalid')}</p>}
           <p>
-            {spec.name && `${spec.name} · `}
-            {basisText[spec.basis][en ? 1 : 0]} · {n(spec.window)} tokens
+            {en ? 'In use' : '当前生效'} <strong>{n(window)}</strong> tokens
+            {manual != null
+              ? en
+                ? ' · Custom'
+                : ' · 自定义'
+              : inheritedWindow
+                ? en
+                  ? ' · Provider preference'
+                  : ' · 服务方案设置'
+                : ''}
           </p>
-          {spec.modelWindow && (
+          <details className={styles.evidence}>
+            <summary>{en ? 'Limits & sources' : '上限与来源'}</summary>
             <p>
-              {en ? 'Model architecture limit' : '模型架构上限'} {n(spec.modelWindow)} tokens
+              {spec.name && `${spec.name} · `}
+              {basisText[spec.basis][en ? 1 : 0]} · {n(spec.window)} tokens
             </p>
-          )}
-          {spec.input && (
-            <p>
-              {en ? 'Maximum input' : '最大输入'} {n(spec.input)} tokens
-            </p>
-          )}
-          {spec.output && (
-            <p>
-              {en ? 'Maximum output' : '单次最大输出'} {n(spec.output)} tokens
-            </p>
-          )}
-          {target.channel === 'workbuddy' && (
-            <p>
-              {en
-                ? 'Android also limits the encoded request body to 5 MiB.'
-                : 'Android 另有限制，编码后的请求体最多为 5 MiB。'}
-            </p>
-          )}
-          {target.channel && !target.grant && (
-            <p>
-              {en
-                ? 'Offline configuration. Each connected account has its own settings.'
-                : '当前为离线配置，登录后可单独设置该账号。'}
-            </p>
-          )}
-          {spec.urls.length > 0 && (
-            <div className={styles.sources}>
-              {spec.urls.map((url) => (
-                <a
-                  href={url}
-                  key={url}
-                  onClick={(e) => {
-                    if (!e.defaultPrevented) {
-                      e.preventDefault()
-                      void openExternal(url)
-                    }
-                  }}
-                >
-                  {new URL(url).hostname}
-                </a>
-              ))}
-            </div>
-          )}
-        </details>
-      </div>
+            {spec.modelWindow && (
+              <p>
+                {en ? 'Model architecture limit' : '模型架构上限'} {n(spec.modelWindow)} tokens
+              </p>
+            )}
+            {spec.input && (
+              <p>
+                {en ? 'Maximum input' : '最大输入'} {n(spec.input)} tokens
+              </p>
+            )}
+            {spec.output && (
+              <p>
+                {en ? 'Maximum output' : '单次最大输出'} {n(spec.output)} tokens
+              </p>
+            )}
+            {target.channel === 'workbuddy' && (
+              <p>
+                {en
+                  ? 'Android also limits the encoded request body to 5 MiB.'
+                  : 'Android 另有限制，编码后的请求体最多为 5 MiB。'}
+              </p>
+            )}
+            {target.channel && !target.grant && (
+              <p>
+                {en
+                  ? 'Offline configuration. Each connected account has its own settings.'
+                  : '当前为离线配置，登录后可单独设置该账号。'}
+              </p>
+            )}
+            {spec.urls.length > 0 && (
+              <div className={styles.sources}>
+                {spec.urls.map((url) => (
+                  <a
+                    href={url}
+                    key={url}
+                    onClick={(e) => {
+                      if (!e.defaultPrevented) {
+                        e.preventDefault()
+                        void openExternal(url)
+                      }
+                    }}
+                  >
+                    {/\/pricing\//.test(url)
+                      ? en
+                        ? 'Pricing & limits'
+                        : '定价与上限'
+                      : /\/(?:list-models|models)\/?$/.test(url)
+                        ? en
+                          ? 'Model list'
+                          : '模型列表'
+                        : new URL(url).hostname}
+                  </a>
+                ))}
+              </div>
+            )}
+          </details>
+        </div>
+      </SettingsSection>
       <div className={styles.actions}>
         <Button
           size="m"
           data-context-save
-          disabled={!valid || !parsed || busy}
+          disabled={!valid || !parsed || busy || parsed === window}
           onClick={() => void setWindow(parsed)}
         >
           {en ? 'Save' : '保存'}
@@ -331,7 +348,7 @@ function WindowEditor({
           size="m"
           variant="outlined"
           data-context-reset
-          disabled={!valid || busy}
+          disabled={!valid || busy || (manual == null && text == null)}
           onClick={() => void setWindow()}
         >
           {en ? 'Restore default' : '恢复默认'}

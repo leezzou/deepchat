@@ -44,7 +44,6 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
           {t(chatNotes ? 'libNotesList' : scope.kind === 'global' ? 'libGlobalMemories' : 'libMemories')}
           {memories.length > 0 && <span className={styles.total}>{memories.length}</span>}
         </h3>
-        {scope.kind === 'global' && <p className={styles.scope}>{t('libGlobalScope')}</p>}
         <div className={styles.group}>
           {!memories.length && (
             <div className={styles.empty}>
@@ -96,6 +95,7 @@ export function MemoryList({ scope }: { scope: MemoryScope }) {
             {t(chatNotes ? 'libNoteAdd' : 'libMemoryAdd')}
           </button>
         </div>
+        {scope.kind === 'global' && <p className={styles.scope}>{t('libGlobalScope')}</p>}
       </section>
       <ModalPresence>
         {action &&

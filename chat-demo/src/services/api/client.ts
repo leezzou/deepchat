@@ -495,6 +495,9 @@ export async function* streamMessage(
     for await (const event of dispatchMessage(access, body, signal, dispatched)) {
       if (event.type === 'message_start') receipt?.sample(event.message.usage)
       else if ('usage' in event) receipt?.sample(event.usage)
+      if (access.source === 'workbuddy' && event.type === 'message_delta' && event.workBuddyResponseModel) {
+        receipt?.attributeResponse(event.workBuddyResponseModel)
+      }
       if (event.type === 'message_stop') status = 'done'
       yield event
     }

@@ -24,7 +24,8 @@ spec.loader.exec_module(scratch)
 qa = scratch.qa
 MODEL = 'local-model'  # The bundled LM Studio preset is keyless and uses localhost:1234/v1.
 SIDEBAR = r'(?:打开边栏|Open sidebar).*'
-MANAGE_KEYS = r'.*(?:API Key 管理|Manage API keys|API Key management|API Keys).*'
+# A WebView container concatenates the accessible names of all Settings rows.
+MANAGE_KEYS = r'(?:API Key 管理|Manage API keys|API Key management|API keys)(?:\s+[^\n]*)?'
 USAGE = r'模型用量|Model usage'
 TREND = r'Token 用量趋势|Token usage over time'
 ANSWER = 'QA usage sample received.'
@@ -35,7 +36,7 @@ def sha256(path):
 
 
 @contextmanager
-def loopback_fixture(question):
+def loopback_fixture(question, models=(MODEL,), *, answer=ANSWER):
     calls = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -58,7 +59,9 @@ def loopback_fixture(question):
 
         def do_GET(self):
             if self.path == '/v1/models':
-                self.reply(json.dumps({'object': 'list', 'data': [{'id': MODEL, 'object': 'model'}]}).encode())
+                self.reply(json.dumps({'object': 'list', 'data': [{'id': m, 'object': 'model'} for m in models]}).encode())
+            elif self.path == '/api/v1/models':
+                self.reply(json.dumps({'models': [{'key': m, 'display_name': m} for m in models]}).encode())
             else:
                 self.reply(status=404)
 
@@ -66,7 +69,8 @@ def loopback_fixture(question):
             if self.path != '/v1/chat/completions':
                 return self.reply(status=404)
             payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-            if payload.get('model') != MODEL:
+            model = payload.get('model')
+            if model not in models:
                 return self.reply(status=400)
             last = payload.get('messages', [{}])[-1]
             content = last.get('content')
@@ -75,17 +79,17 @@ def loopback_fixture(question):
             chat = last.get('role') == 'user' and str(content).strip() == question
             stream = payload.get('stream') is True
             include_usage = (payload.get('stream_options') or {}).get('include_usage') is True
-            calls.append({'chat': chat, 'stream': stream, 'includeUsage': include_usage, 'model': MODEL})
-            text = ANSWER if chat else 'QA sample title'
+            calls.append({'chat': chat, 'stream': stream, 'includeUsage': include_usage, 'model': model})
+            text = answer if chat else 'QA sample title'
             if not stream:
-                return self.reply(json.dumps({'model': MODEL, 'choices': [{'message': {'role': 'assistant', 'content': text}, 'finish_reason': 'stop'}]}).encode())
+                return self.reply(json.dumps({'model': model, 'choices': [{'message': {'role': 'assistant', 'content': text}, 'finish_reason': 'stop'}]}).encode())
             frames = [{'choices': [{'index': 0, 'delta': {'role': 'assistant', 'content': text}, 'finish_reason': None}]},
                       {'choices': [{'index': 0, 'delta': {}, 'finish_reason': 'stop'}]}]
             if chat and include_usage:
                 frames.append({'choices': [], 'usage': {'prompt_tokens': 80, 'completion_tokens': 20,
                               'prompt_tokens_details': {'cached_tokens': 20},
                               'completion_tokens_details': {'cached_tokens': 0}}})
-            body = ''.join('data: ' + json.dumps({'model': MODEL, **frame}) + '\n\n' for frame in frames)
+            body = ''.join('data: ' + json.dumps({'model': model, **frame}) + '\n\n' for frame in frames)
             self.reply((body + 'data: [DONE]\n\n').encode(), 'text/event-stream')
 
     with ThreadingHTTPServer(('127.0.0.1', 0), Handler) as server:
@@ -122,7 +126,7 @@ def scroll():
     qa.adb('shell', 'input', 'swipe', str(width // 2), str(height * 7 // 10), str(width // 2), str(height * 4 // 10), '390')
 
 
-def seed_usage(question, out):
+def seed_usage(question, out, evidence_label='v54'):
     with loopback_fixture(question) as calls:
         scratch.settings()
         scratch.tap(MANAGE_KEYS, True)
@@ -140,7 +144,7 @@ def seed_usage(question, out):
         qa.wait_for(re.escape(ANSWER))
         expected = {'chat': True, 'stream': True, 'includeUsage': True, 'model': MODEL}
         assert [call for call in calls if call['chat']] == [expected], f'Unexpected v54 wire requests: {calls}'
-        scratch.shot(out, 'v54-loopback-reply')
+        scratch.shot(out, f'{evidence_label}-loopback-reply')
         return list(calls)
 
 
@@ -190,9 +194,33 @@ def chart_evidence(out, empty):
     return result
 
 
+def require_release(apk, version, code):
+    # Keep historical upgrade pairs runnable after the repository advances a version.
+    assert qa.validate(apk, previous=int(code) < int(qa.RELEASE_CODE)) == (version, code)
+
+
+def first_launch():
+    # A freshly created API 34 image occasionally shows a System UI startup ANR.
+    # Allow only that system dialog to continue. Surface any application failure.
+    qa.start_app()
+    deadline = time.monotonic() + 80
+    dismissed = False
+    while time.monotonic() < deadline:
+        nodes = qa.tree(packages=(qa.PACKAGE, 'android'))
+        if qa.match(nodes, SIDEBAR) is not None:
+            return
+        if not dismissed and qa.match(nodes, r"System UI isn't responding|系统界面无响应") is not None:
+            wait_button = qa.match(nodes, 'Wait|等待')
+            if wait_button is not None:
+                qa.tap(wait_button)
+                qa.start_app()
+                dismissed = True
+    raise AssertionError('App home did not become accessible after first launch')
+
+
 def inspect(apk, previous, out, empty=False):
-    assert qa.validate(apk) == ('1.0.55', '261163')
-    assert qa.validate(previous, previous=True) == ('1.0.54', '261162')
+    require_release(apk, '1.0.55', '261163')
+    require_release(previous, '1.0.54', '261162')
     out.mkdir(parents=True, exist_ok=False)
     report = {'status': 'running', 'mode': 'empty' if empty else 'loopback', 'upgrade': 'adb install -r'}
     try:
@@ -203,6 +231,7 @@ def inspect(apk, previous, out, empty=False):
                 before = qa.package_state()
                 assert before[:2] == ('1.0.54', '261162')
                 report.update(before=before, previousSha256=installed_digest(previous))
+                first_launch()
                 token = str(uuid.uuid4().int)[:12]
                 if not empty:
                     report['fixtureRequests'] = seed_usage('54' + token, out)

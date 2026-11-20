@@ -20,7 +20,7 @@
 }
 .history-group > div {
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--dc-radius);
   background-color: var(--settings-surface, var(--dc-subtle));
 }
 .history-settings .history-row,
@@ -40,9 +40,9 @@
   line-height: 22px;
   text-align: start;
 }
-.history-row {
-  cursor: pointer;
-}
+.history-row, .history-toggle { cursor: pointer; }
+.history-settings .history-toggle { gap: 14px; justify-content: space-between; }
+[data-settings-panel] :is(.history-group > div,.history-dav-card) { border: 1px solid var(--dc-line); }
 .history-row + .history-row,
 .history-details:not([hidden]) + .history-row,
 .history-toggle + .history-row,
@@ -168,12 +168,13 @@
   min-width: 0;
   gap: 12px;
   padding: 14px;
-  border-radius: 14px;
+  border-radius: var(--dc-radius);
   background: var(--settings-surface, var(--dc-subtle));
 }
 .history-dav .dav-field input {
   background: var(--settings-control, var(--dc-surface));
 }
+.history-dav-info { border-block-start: 1px solid var(--dc-line); }
 .history-dav-info summary {
   display: list-item;
   align-content: center;

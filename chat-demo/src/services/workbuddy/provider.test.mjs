@@ -875,6 +875,70 @@ test('two denied page reads use an available backup query once and label all rem
   assert.match(sent.at(-1).messages[0].content, /4 source\(s\), 0 retrieved page excerpt/)
 })
 
+// Synthetic response frames. Product names and route IDs come from Tencent's shipped catalog.
+test('Hunyuan receipts keep the exact chat/title request while validating specific backend identities', async (t) => {
+  const { setWorkBuddyCatalog } = await import('./models.ts')
+  const catalog = ['hy3', 'hy3-x', 'hy3-preview', 'hy4-preview', 'hy4-preview-x', 'hy4-flash', 'hy4', 'hunyuan-chat', 'glm-5.3']
+  setWorkBuddyCatalog(catalog.map(id => ({ id, name: id })))
+  t.after(() => setWorkBuddyCatalog(null))
+  const sse = (...frames) => frames.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n'
+  const completion = model => ({ model, choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] })
+  for (const [requested, returned, purpose, originModel] of [
+    ['hy3', 'Hy3', 'chat'], ['hy3', 'hy3-202608', 'chat'], ['hy4', 'Hy4', 'chat'],
+    ['hy4-flash', 'Hy4 flash', 'chat'], ['hy4-preview', 'Hy4 preview', 'title'],
+    ['hunyuan-chat', 'Hunyuan-Turbos', 'chat'], ['hy3-x', 'hy3-x', 'chat'],
+    ['hy3-x', 'hy-deploy-42', 'chat', 'hy-deploy-42'],
+  ]) {
+    const start = calls.length
+    reply = ({ id, op }) => {
+      if (op !== 'chat') {return}
+      frame(id, { type: 'headers', status: 200, contentType: 'text/event-stream', originModel })
+      const text = sse({ model: '', choices: [{ delta: { role: 'assistant' } }] }, completion(returned),
+        { model: '', choices: [], usage: { prompt_tokens: 12, completion_tokens: 3 } })
+      frame(id, { type: 'data', data: Buffer.from(text).toString('base64') })
+      frame(id, { type: 'end' })
+    }
+    const limit = purpose === 'title' ? { max_tokens: 48 } : {}
+    const events = await Array.fromAsync(streamMessage({ ...access, model: requested }, { ...body, ...limit }, new AbortController().signal, undefined, purpose))
+    assert.deepEqual(calls.slice(start).filter(x => x.op !== 'cancel').map(x => [x.op, x.model, x.revision, x.max_tokens]),
+      [['chat', requested, revision, limit.max_tokens]])
+    assert.equal(events[0].message.model, requested)
+    assert.equal(events.at(-2).workBuddyResponseModel, requested === returned ? undefined : returned)
+    assert.equal(events.at(-2).usage.output_tokens, 3)
+    assert.equal(events.at(-1).type, 'message_stop')
+  }
+  for (const [requested, returned] of [
+    ['hy3', 'hy3-x'], ['hy3-x', 'hy3'], ['hy3-x', 'Hy3'], ['hy3', 'hy3-preview'],
+    ['hy4-preview-x', 'hy4-preview'], ['hy4', 'hy4-flash'], ['hy4-preview', 'glm-5.3'],
+    ['hy3', 'hy3-unknown'], ['hy3', 'hy3-202701'], ['hy3', { model: 'hy3' }], ['hy3', 'Bearer private-canary'],
+  ]) {
+    const start = calls.length
+    respond(200, sse(completion(requested), { model: returned, choices: [], usage: { completion_tokens: 999 } }))
+    const received = []
+    await assert.rejects(async () => {
+      for await (const event of streamMessage({ ...access, model: requested }, body, new AbortController().signal)) {received.push(event)}
+    }, error => error.message.includes(`Model mismatch (${requested} → `) && !error.message.includes('private-canary'))
+    assert.equal(received.some(x => x.type === 'message_stop' || x.usage?.output_tokens === 999), false)
+    assert.equal(calls.slice(start).filter(x => x.op === 'chat').length, 1)
+  }
+})
+
+test('a planner mismatch or quota refusal stops before any subsequent search or model dispatch', async () => {
+  for (const [status, media, text, expected] of [
+    [200, 'text/event-stream', 'data: {"model":"hy4-preview","choices":[],"usage":{"completion_tokens":999}}\n\n', /Model mismatch \(deepseek-v4\.1-flash → hy4-preview\)/],
+    [200, 'text/event-stream', 'event: error\ndata: {"model":"gateway","error":{"code":6004,"message":"quota"}}\n\n', /6004.*quota/],
+    [429, 'application/json', '{"code":6004,"msg":"quota"}', /HTTP 429.*6004.*quota/],
+    [200, 'application/json', '{"code":6004,"msg":"quota"}', /HTTP 200.*6004.*quota/],
+  ]) {
+    const start = calls.length
+    reply = ({ id, purpose }) => {
+      if (purpose === 'search_plan') {delivery(id, status, media, text)}
+    }
+    await assert.rejects(drain(access, comparison), expected)
+    assert.deepEqual(calls.slice(start).filter(call => call.op !== 'cancel').map(call => [call.op, call.purpose]), [['chat', 'search_plan']])
+  }
+})
+
 test('model quota refusals still reach the chat for both HTTP and SSE', async () => {
   const rejection = { code: 6004, msg: '本模型已达到限额' }
   respond(429, JSON.stringify(rejection), 'application/json')

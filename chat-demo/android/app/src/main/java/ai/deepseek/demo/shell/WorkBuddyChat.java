@@ -52,6 +52,14 @@ final class WorkBuddyChat {
                 if (!SecurityPlugin.isUnlocked()) { error(reply, id, "locked"); return; }
                 if (op.equals("chat") || op.equals("search") || op.equals("read")) {
                     start(id, req, reply);
+                } else if (op.equals("profile")) {
+                    // Slow optional profile I/O must not block logout or the initial status.
+                    network.execute(() -> WebDavCookies.isolate(() -> {
+                        try {
+                            if (closed || !SecurityPlugin.isUnlocked()) throw new IOException("locked");
+                            emit(reply, id, session.refreshProfile(req.getString("revision")));
+                        } catch (Exception unavailable) { error(reply, id, publicError(unavailable)); }
+                    }));
                 } else {
                     boolean scopeChange = op.equals("forget") || op.equals("model") || op.equals("poll");
                     // Revoke immediately. A slow catalog request may still be ahead in the storage queue.
@@ -201,7 +209,9 @@ final class WorkBuddyChat {
                 emit(reply, id, new JSONObject().put("type", "end"));
                 return;
             }
-            emit(reply, id, new JSONObject().put("type", "headers").put("status", status).put("contentType", media == null ? "" : media));
+            JSONObject headers = new JSONObject().put("type", "headers").put("status", status).put("contentType", media == null ? "" : media);
+            if (!isRead && !isSearch) headers.put("originModel", WorkBuddyCatalog.originModel(saved.optJSONArray("catalog"), model));
+            emit(reply, id, headers);
             // Return only the bounded service error message and code. An upstream error can echo request headers.
             if (status < 200 || status >= 300 || media == null || !media.toLowerCase(java.util.Locale.ROOT).contains("text/event-stream")) {
                 try (InputStream in = status >= 400 ? conn.getErrorStream() : conn.getInputStream()) {

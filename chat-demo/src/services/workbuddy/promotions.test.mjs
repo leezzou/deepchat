@@ -42,6 +42,8 @@ test('recomputes night discounts from China local time, date validity and active
   )
   assert.equal(promotionRate(0.79, [schedule, { priority: 4 }], night).rate.multiplier, 0.79)
   assert.equal(promotionRate(undefined, [{ factor: 0.5 }], night).rate, undefined)
+  assert.equal(promotionRate(undefined, [{ factor: 0 }], night).rate, undefined)
+  assert.deepEqual(promotionRate(0.29, [{ factor: 0 }], night).rate, { multiplier: 0.29 })
   assert.deepEqual(promotionRate(undefined, [{ price: 0 }], night).rate, {
     multiplier: 0,
     free: true,

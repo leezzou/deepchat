@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { profileAvatar, profileName, validRevision } from '../profileFields.js'
 import { setChatSource, useSettings } from '../settings.js'
 import { hasWorkBuddyBridge, manageWorkBuddy } from './bridge.js'
 import {
@@ -21,8 +22,7 @@ function decode(value: unknown): Metadata | null {
     !('model' in value) ||
     !validWorkBuddyId(value.model) ||
     !('revision' in value) ||
-    typeof value.revision !== 'string' ||
-    !/^[0-9a-f-]{36}$/.test(value.revision)
+    !validRevision(value.revision)
   ) {
     return null
   }
@@ -39,7 +39,11 @@ function initial() {
 export const useWorkBuddyState = create(() => ({
   metadata: initial(),
   models: setWorkBuddyCatalog(null),
+  // Cached routes do not establish which identity is currently signed in.
+  identityRevision: null as string | null,
+  profileVersion: 0,
   name: '',
+  avatar: null as string | null,
   pending: false,
   catalogLoading: false,
   catalogError: false,
@@ -50,6 +54,77 @@ const catalogTTL = 5 * 60_000
 let retryAfter = 0
 let activeRevision = useWorkBuddyState.getState().metadata?.revision
 let catalogRequest: { revision: string; promise: Promise<void> } | undefined
+let profileRetryAfter = 0
+let profileInFlight: string | undefined
+let statusSequence = 0
+let publishedSequence = 0
+
+// Management, catalog and enrichment replies can complete in different orders.
+// Every modern native snapshot has the whole display projection and a per-login version.
+function projectProfile(
+  frame: Awaited<ReturnType<typeof manageWorkBuddy>>,
+  revision: string | undefined
+) {
+  if (!revision) {
+    return { name: '', avatar: null, profileVersion: 0 }
+  }
+  const previous = useWorkBuddyState.getState()
+  const same = revision === previous.identityRevision
+  const version =
+    typeof frame.profileVersion === 'number' && Number.isSafeInteger(frame.profileVersion)
+      ? frame.profileVersion
+      : 0
+  if (same && version < previous.profileVersion) {
+    return {}
+  }
+  return {
+    profileVersion: version,
+    name: frame.name === undefined && same ? previous.name : profileName(frame.name),
+    avatar: frame.avatar === undefined && same ? previous.avatar : profileAvatar(frame.avatar),
+  }
+}
+
+function enrichProfile(revision: string) {
+  if (profileInFlight === revision || Date.now() < profileRetryAfter) {
+    return
+  }
+  profileInFlight = revision
+  profileRetryAfter = Date.now() + 60_000
+  void manageWorkBuddy('profile', { revision })
+    .then((frame) => {
+      if (frame.type !== 'profile' || frame.revision !== revision) {
+        return
+      }
+      if (useWorkBuddyState.getState().identityRevision === revision) {
+        useWorkBuddyState.setState(projectProfile(frame, revision))
+      }
+    })
+    .catch(() => {
+      // A rejected native token refresh can clear the vault during this request.
+      if (useWorkBuddyState.getState().identityRevision === revision) {
+        void refreshWorkBuddy().catch(() => {})
+      }
+    })
+    .finally(() => {
+      if (profileInFlight === revision) {
+        profileInFlight = undefined
+      }
+    })
+}
+
+async function updateStatus(
+  op: 'status' | 'begin' | 'poll' | 'cancelLogin' | 'forget' | 'model',
+  fields?: object
+) {
+  const sequence = ++statusSequence
+  const frame = await manageWorkBuddy(op, fields)
+  if (sequence < publishedSequence || frame.type !== 'status') {
+    return
+  }
+  publishedSequence = sequence
+  publish(frame)
+}
+
 function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
   const metadata = decode(value)
   try {
@@ -61,10 +136,12 @@ function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
   } catch {
     /* storage disabled */
   }
-  const revision = metadata?.revision
+  // The native account can be signed in before a chat model is usable.
+  const revision = validRevision(value.revision) ? value.revision : undefined
   if (revision !== activeRevision) {
     activeRevision = revision
-    retryAfter = 0
+    retryAfter = profileRetryAfter = 0
+    profileInFlight = undefined
     catalogRequest = undefined
   }
   const now = Date.now()
@@ -83,7 +160,8 @@ function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
   useWorkBuddyState.setState({
     metadata,
     models,
-    name: value.name || '',
+    identityRevision: revision ?? null,
+    ...projectProfile(value, revision),
     pending: value.pending === true,
     catalogUpdatedAt: updatedAt,
     catalogStale:
@@ -94,6 +172,9 @@ function publish(value: Awaited<ReturnType<typeof manageWorkBuddy>>) {
     catalogLoading: Boolean(revision && catalogRequest?.revision === revision),
     catalogError,
   })
+  if (revision && value.profileRefresh === true) {
+    enrichProfile(revision)
+  }
   if (metadata && value.catalogRefresh) {
     void refreshWorkBuddyCatalog()
   }
@@ -173,7 +254,9 @@ export function watchWorkBuddyCatalog() {
   }
   const timer = setInterval(() => {
     if (document.visibilityState !== 'hidden') {
-      void refreshWorkBuddyCatalog().catch(() => {})
+      void refreshWorkBuddy()
+        .then(() => refreshWorkBuddyCatalog())
+        .catch(() => {})
     }
   }, 30_000)
   document.addEventListener('visibilitychange', resume)
@@ -188,24 +271,24 @@ export function watchWorkBuddyCatalog() {
   }
 }
 export async function refreshWorkBuddy() {
-  publish(await manageWorkBuddy('status'))
+  await updateStatus('status')
 }
 export async function signInWorkBuddy() {
-  publish(await manageWorkBuddy('begin'))
+  await updateStatus('begin')
 }
 export async function completeWorkBuddy() {
   try {
-    publish(await manageWorkBuddy('poll'))
+    await updateStatus('poll')
   } catch (error) {
     await refreshWorkBuddy().catch(() => {})
     throw error
   }
 }
 export async function cancelWorkBuddySignIn() {
-  publish(await manageWorkBuddy('cancelLogin'))
+  await updateStatus('cancelLogin')
 }
 export async function disconnectWorkBuddy() {
-  publish(await manageWorkBuddy('forget'))
+  await updateStatus('forget')
 }
 export async function selectWorkBuddyModel(model: WorkBuddyModel) {
   if (!isWorkBuddyModel(model)) {
@@ -215,7 +298,7 @@ export async function selectWorkBuddyModel(model: WorkBuddyModel) {
   if (!revision) {
     throw new Error('WorkBuddy · Sign in first')
   }
-  publish(await manageWorkBuddy('model', { model, revision }))
+  await updateStatus('model', { model, revision })
 }
 export function activateWorkBuddy(active: boolean) {
   if (active && !useWorkBuddyState.getState().metadata) {

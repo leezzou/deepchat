@@ -1,6 +1,16 @@
 import type { ChatAccess } from '../api/access.js'
-import type { CreateMessageRequest, MessageStreamEvent, MessageUsage, StopReason } from '../api/types.js'
-import { completionStop, completionUsage, mergeCompletionUsage, reasoningText } from '../api/compatibleChunk.js'
+import type {
+  CreateMessageRequest,
+  MessageStreamEvent,
+  MessageUsage,
+  StopReason,
+} from '../api/types.js'
+import {
+  completionStop,
+  completionUsage,
+  mergeCompletionUsage,
+  reasoningText,
+} from '../api/compatibleChunk.js'
 import { readServerSentEvents } from '../api/sse.js'
 import { workBuddyFetch } from './bridge.js'
 import { retrieve } from './retrieve.js'
@@ -8,6 +18,7 @@ import { AnswerBlocks } from './answer.js'
 import type { SearchHit } from './search.js'
 import { createId } from '../../utils/id.js'
 import { isWorkBuddyModel } from './models.js'
+import { serviceError, workBuddyChunk, workBuddyResponseModel } from './responseModel.js'
 
 export function workBuddyMessages(body: CreateMessageRequest) {
   const rows: { role: string; content: string }[] = []
@@ -37,27 +48,6 @@ export function workBuddyMessages(body: CreateMessageRequest) {
   return rows
 }
 
-function serviceError(data: unknown, status?: number) {
-  const body = data && typeof data === 'object' ? (data as Record<string, unknown>) : {}
-  const details =
-    body.error && typeof body.error === 'object' ? (body.error as Record<string, unknown>) : body
-  const code = details.code ?? details.type
-  const message =
-    details.message ??
-    details.msg ??
-    details.error_msg ??
-    (typeof body.error === 'string' ? body.error : '')
-  const safe = (v: unknown) =>
-    typeof v === 'string' || typeof v === 'number'
-      ? String(v)
-          .replace(/Bearer\s+\S+|\beyJ[\w-]+\.[\w-]+\.[\w-]+/gi, '[redacted]')
-          .slice(0, 300)
-      : ''
-  return new Error(
-    ['WorkBuddy', status && `HTTP ${status}`, safe(code), safe(message)].filter(Boolean).join(' · ')
-  )
-}
-
 export async function* streamWorkBuddy(
   access: Extract<ChatAccess, { source: 'workbuddy' }>,
   body: CreateMessageRequest,
@@ -81,11 +71,17 @@ export async function* streamWorkBuddy(
     ;({ messages, nextIndex, hits, ids } = result)
   }
   signal.throwIfAborted()
+  const checkModel = workBuddyResponseModel(access.model)
   onDispatch?.()
   const response = await workBuddyFetch(
     access.model,
     access.revision,
-    { op: 'chat', messages, thinking, ...(body.max_tokens !== undefined && { max_tokens: body.max_tokens }) },
+    {
+      op: 'chat',
+      messages,
+      thinking,
+      ...(body.max_tokens !== undefined && { max_tokens: body.max_tokens }),
+    },
     signal
   )
   if (
@@ -96,6 +92,8 @@ export async function* streamWorkBuddy(
     const error = await response.json().catch(() => null)
     throw serviceError(error, response.status)
   }
+  const origin = response.headers.get('X-DeepChat-WorkBuddy-Origin')
+  let responseModel: string | undefined
   const blocks = new AnswerBlocks(nextIndex - 1, hits, ids, search)
   let finished = false
   let reason: StopReason = 'end_turn'
@@ -105,16 +103,8 @@ export async function* streamWorkBuddy(
       finished = true
       break
     }
-    const chunk = JSON.parse(frame.data)
-    if (!chunk || typeof chunk !== 'object') {
-      throw new Error('WorkBuddy · Invalid response')
-    }
-    if (chunk.model != null && chunk.model !== access.model) {
-      throw new Error('WorkBuddy · 腾讯返回了不同的模型 / Model mismatch')
-    }
-    if (frame.event === 'error' || chunk.error || (chunk.code != null && chunk.code !== 0)) {
-      throw serviceError(chunk)
-    }
+    const chunk = workBuddyChunk(frame)
+    responseModel = checkModel(chunk.model, origin) ?? responseModel
     const counters = completionUsage(chunk.usage)
     if (counters) {
       usage = mergeCompletionUsage(usage, counters)
@@ -130,12 +120,17 @@ export async function* streamWorkBuddy(
     }
     if (end) {
       finished = true
-      if (reason !== 'refusal') reason = end
+      if (reason !== 'refusal') {
+        reason = end
+      }
     }
     const refusal = choice.delta?.refusal
-    if (typeof refusal === 'string' && refusal.trim()) reason = 'refusal'
+    if (typeof refusal === 'string' && refusal.trim()) {
+      reason = 'refusal'
+    }
     for (const kind of ['thinking', 'text'] as const) {
-      const text = kind === 'thinking' ? reasoningText(choice.delta) : choice.delta?.content || refusal
+      const text =
+        kind === 'thinking' ? reasoningText(choice.delta) : choice.delta?.content || refusal
       if (typeof text !== 'string' || !text) {
         continue
       }
@@ -154,6 +149,7 @@ export async function* streamWorkBuddy(
   }
   yield {
     type: 'message_delta',
+    ...(responseModel && { workBuddyResponseModel: responseModel }),
     delta: { stop_reason: reason, stop_sequence: null },
     ...(usage && { usage }),
   }

@@ -7,6 +7,7 @@ import {
   IconThinkOutline14,
 } from '../base/icons.js'
 import { SearchToggle } from './SearchToggle.js'
+import { ComposerModelMenu } from './ComposerModelMenu.js'
 import { setThinking, useSettings } from '../../services/settings.js'
 import {
   useConversationModes,
@@ -356,6 +357,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
       </div>
       <div className={styles.functionRow}>
         {/* 深度思考 / 智能搜索开关，tooltip 在按钮上方 */}
+        <ComposerModelMenu sessionId={sessionId} route={route} en={english} disabled={Boolean(streaming || importingHistory || recording)} />
         <div ref={togglesRef} className={styles.toggles}>
           <Tooltip content={route.reasoningDisplayOnly
             ? english ? 'Show reasoning when the provider returns it. The provider controls computation.' : '展示服务商返回的思考内容。推理计算由服务商控制。'

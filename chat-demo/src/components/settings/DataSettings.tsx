@@ -30,6 +30,7 @@ import { IconChevronRightOutline14 } from '../base/icons.js'
 import { HistoryImportFeedback, type useHistoryImport } from './HistoryImportFeedback.js'
 import { SettingsIcon, type SettingsIconName } from './SettingsIcon.js'
 import styles from './Settings.module.css'
+import '../library/localSwitch.css'
 import './dataBackup.css'
 
 const useLanguage = () => resolveLocale(useSettings((s) => s.locale))
@@ -125,8 +126,8 @@ function ImportRows({
         title={t('historyImport')}
         hint={
           zh
-            ? '选择历史 ZIP，确认后替换本机对话。'
-            : 'Choose a history ZIP to replace local chats after confirmation.'
+            ? '从 ZIP 恢复，确认后替换本机对话。'
+            : 'Replaces local chats after you confirm.'
         }
         disabled={disabled}
         onClick={() => input.current?.click()}
@@ -279,8 +280,8 @@ export function DataSettings({
           hint={
             latest
               ? t(saved[latest.saveStatus])
-              : zh
-                ? '生成 ZIP 文件，可保存到设备或分享。'
+              : empty ? (zh ? '有对话后即可导出。' : 'Available once you have a chat.') : zh
+                ? '保存或分享 ZIP。'
                 : 'Create a ZIP to save or share.'
           }
           onClick={() => setExportOpen(!exportOpen)}
@@ -322,7 +323,7 @@ export function DataSettings({
         </div>
       </Group>
       <Group title={zh ? '备份与恢复' : 'Backup and restore'}>
-        <label className={clsx(styles.backupToggle, 'history-toggle')}>
+        <label className="history-toggle">
           <span>
             {t('backupAutoLabel')}
             <small id={`${id}-auto`}>{t('backupAutoHint')}</small>
@@ -330,6 +331,7 @@ export function DataSettings({
           <input
             type="checkbox"
             ref={switchRef}
+            className="dc-local-switch"
             role="switch"
             aria-label={t('backupAutoLabel')}
             aria-describedby={`${id}-auto`}
@@ -461,8 +463,8 @@ export function DataSettings({
             title={t('previewWebDav')}
             hint={
               zh
-                ? '将加密备份保存到自己的服务器，或从中恢复。'
-                : 'Save an encrypted copy on your server, or restore from it.'
+                ? '使用自己的服务器备份与恢复。'
+                : 'Back up to your own server or restore from it.'
             }
             disabled={busy}
             onClick={mobile.onOpenWebDav}
@@ -503,8 +505,8 @@ export function DataSettings({
               title={t('compactedEntry')}
               hint={
                 zh
-                  ? `查看摘要或恢复完整上下文 · ${listCompactions().length} 个对话`
-                  : `View summaries or restore full context · ${listCompactions().length} chats`
+                  ? `${listCompactions().length} 个对话`
+                  : `Chats: ${listCompactions().length}`
               }
               onClick={mobile.onOpenCompacted}
             />

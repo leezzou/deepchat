@@ -1,0 +1,88 @@
+.settings-help {
+  color: var(--dc-ink);
+}
+.settings-help details {
+  border-bottom: 1px solid var(--dc-line);
+}
+.settings-help summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 8px 4px;
+  font-size: 1rem;
+  list-style: none;
+  cursor: pointer;
+}
+.settings-help summary::-webkit-details-marker {
+  display: none;
+}
+.settings-help summary > [data-settings-icon] {
+  color: var(--dc-secondary);
+}
+.settings-help-chevron {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-inline: auto 6px;
+  border-right: 1.5px solid var(--dc-secondary);
+  border-bottom: 1.5px solid var(--dc-secondary);
+  transform: rotate(45deg);
+  transition: transform var(--settings-feedback) var(--nav-ease);
+}
+.settings-help details[open] .settings-help-chevron {
+  transform: rotate(225deg);
+}
+.settings-help p {
+  margin: 0 4px 14px 32px;
+  color: var(--dc-secondary);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.settings-help summary:focus-visible,
+.settings-help-contact button:focus-visible {
+  outline: 2px solid var(--dc-accent);
+  outline-offset: -2px;
+  border-radius: 8px;
+}
+.settings-help-contact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 18px 4px 2px;
+}
+.settings-help-contact > div {
+  min-width: 0;
+}
+.settings-help-contact span {
+  color: var(--dc-secondary);
+  font-size: 0.8125rem;
+}
+.settings-help-contact address {
+  overflow-wrap: anywhere;
+  font-style: normal;
+  user-select: text;
+}
+.settings-help-contact button {
+  flex: none;
+  min-width: var(--dc-touch);
+  min-height: var(--dc-touch);
+  border: 0;
+  border-radius: 50%;
+  color: var(--dc-ink);
+  background: var(--dc-canvas);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.settings-help-contact button:active {
+  background: var(--dc-line);
+}
+@media (hover: hover) {
+  .settings-help summary:hover,
+  .settings-help-contact button:hover {
+    background: var(--dc-canvas);
+  }
+}

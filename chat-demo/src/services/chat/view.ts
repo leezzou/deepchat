@@ -105,6 +105,15 @@ const getStatus = (
 const mergeStatus = (statuses: ToolStatus[]): ToolStatus =>
   statuses.includes('wip') ? 'wip' : statuses.every((s) => s === 'failed') ? 'failed' : 'done'
 
+// Some providers send a literal placeholder in place of optional source metadata.
+function sourceField(value: string | null | undefined) {
+  const text = value?.trim()
+  return text &&
+    !/^(?:unknown(?: source| site| date| title)?|n\/a|未知(?:来源|站点|日期|标题)?)$/iu.test(text)
+    ? text
+    : null
+}
+
 /** 来源登记：同一 URL 只编号一次，编号按首次出现的顺序 */
 class SourceRegistry {
   readonly list: Source[] = []
@@ -116,7 +125,10 @@ class SourceRegistry {
     publishedAt: string | null,
     metadata?: Pick<WebSearchResult, 'snippet' | 'site_icon' | 'site_name'>
   ): Source {
-    const siteName = metadata?.site_name?.trim() || getSiteName(url)
+    const domain = getSiteName(url)
+    const siteName = sourceField(metadata?.site_name) || domain
+    title = sourceField(title)
+    publishedAt = sourceField(publishedAt)
     const snippet = metadata?.snippet?.trim() || null
     const siteIcon = metadata?.site_icon?.trim() || null
     const existing = this.byUrl.get(url)
@@ -162,7 +174,9 @@ const joinTextBlocks = (
     text += block.text
     const indexes = new Set<number>()
     for (const citation of block.citations ?? []) {
-      if (publicSourceUrl(citation.url)) indexes.add(registry.add(citation.url, citation.title, null).index)
+      if (publicSourceUrl(citation.url)) {
+        indexes.add(registry.add(citation.url, citation.title, null).index)
+      }
     }
     const body = indexes.size > 0 ? block.text.trimEnd() : block.text
     markdown += body
@@ -200,7 +214,9 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
     if (result?.type === 'web_search_tool_result') {
       for (const item of result.content) {
         if (item.type === 'web_search_result') {
-          if (publicSourceUrl(item.url)) registry.add(item.url, item.title, item.page_age, item)
+          if (publicSourceUrl(item.url)) {
+            registry.add(item.url, item.title, item.page_age, item)
+          }
         }
       }
     } else if (
@@ -270,7 +286,9 @@ export const buildReplyView = (reply: AssistantMessage, streaming: boolean): Rep
       return
     }
     // A provider may append a final signed tool snapshot after its answer.
-    if (streaming || index < lastAnswerIndex) flushPreamble()
+    if (streaming || index < lastAnswerIndex) {
+      flushPreamble()
+    }
     const { kind, input } = block
     const status = getStatus(result, streaming)
     const last = steps.at(-1)

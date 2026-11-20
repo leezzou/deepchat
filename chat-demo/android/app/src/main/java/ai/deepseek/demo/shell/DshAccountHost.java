@@ -40,7 +40,8 @@ final class DshAccountHost {
     private Attempt active;
     private boolean closed;
     private Runnable sessionListener;
-    private boolean refreshingProfile;
+    private String refreshingRevision;
+    private long nextProfileCheck;
 
     synchronized void setSessionListener(Runnable listener) { sessionListener = listener; }
     // Called under the host lock. The listener only posts a status refresh onto the UI thread.
@@ -107,12 +108,14 @@ final class DshAccountHost {
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, decode(prefs.getString("iv", ""))));
             JSONObject saved = new JSONObject(new String(cipher.doFinal(decode(prefs.getString("ciphertext", ""))), StandardCharsets.UTF_8));
-            grant = saved.getString("token"); name = saved.optString("name"); avatar = validPicture(saved.optString("avatar"));
+            grant = saved.getString("token");
+            name = AccountProfileFields.name(saved.opt("name"));
+            avatar = AccountProfileFields.avatar(saved.opt("avatar"));
             if (saved.has("revision")) revision = saved.getString("revision");
             else saveCredential(grant, name, avatar); // upgrade an existing grant without exporting its token
         } catch (Exception invalid) { error = "此设备上的登录凭据无法读取，请重新授权。"; }
         if (grant == null) restorePending();
-        else if (avatar.isEmpty()) refreshProfile();
+        else if (name.isEmpty() || avatar.isEmpty()) refreshProfile();
     }
     private static SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
@@ -297,21 +300,11 @@ final class DshAccountHost {
     }
 
     private static String profileName(JSONObject profile) {
-        if (profile == null || profile.isNull("name")) return "";
-        String value = profile.optString("name", "").trim();
-        return value.length() > 80 ? value.substring(0, 80) : value;
+        return profile == null ? "" : AccountProfileFields.name(profile.opt("name"));
     }
 
     private static String profilePicture(JSONObject profile) {
-        if (profile == null || profile.isNull("picture")) return "";
-        String value = profile.optString("picture", "").trim();
-        if (value.startsWith("//")) value = "https:" + value;
-        return value.startsWith("https://") && value.length() <= 2048 ? value : "";
-    }
-
-    private static String validPicture(String value) {
-        String picture = value == null ? "" : value.trim();
-        return picture.startsWith("https://") && picture.length() <= 2048 ? picture : "";
+        return profile == null ? "" : AccountProfileFields.avatar(profile.opt("picture"));
     }
 
     private boolean saveCredential(String token, String display, String picture) {
@@ -330,34 +323,35 @@ final class DshAccountHost {
         }
     }
 
-    /** 旧版本只存了昵称；启动时补一次 current 资料，让头像自动出现。 */
-    private void refreshProfile() {
-        final String token;
-        synchronized (this) {
-            if (grant == null || !avatar.isEmpty() || refreshingProfile) return;
-            token = grant;
-            refreshingProfile = true;
-        }
-        workers.execute(() -> {
+    /** Existing sessions render immediately; refresh a missing or changed provider profile independently. */
+    synchronized void refreshProfile() {
+        if (closed || grant == null || revision.equals(refreshingRevision) || SystemClock.elapsedRealtime() < nextProfileCheck) return;
+        final String token = grant, owner = revision;
+        refreshingRevision = owner;
+        nextProfileCheck = SystemClock.elapsedRealtime() + 60_000;
+        workers.execute(() -> WebDavCookies.isolate(() -> {
             try {
-                JSONObject profile = profileOf(request("/auth-api/v0/users/current", null, token));
-                String display = profileName(profile);
-                String picture = profilePicture(profile);
+                JSONObject profile = profileOf(request("/auth-api/v0/users/current", null, token, owner));
+                if (profile == null) return;
                 synchronized (this) {
-                    if (!token.equals(grant)) return;
-                    if (name.equals(display) && avatar.equals(picture)) return;
-                    if (saveCredential(token, display, picture)) {
+                    if (closed || !owner.equals(revision) || !token.equals(grant)) return;
+                    // Some responses have just one field while the identity provider catches up.
+                    String display = profileName(profile), picture = profilePicture(profile);
+                    if (!profile.has("name")) display = name;
+                    if (!profile.has("picture")) picture = avatar;
+                    if ((!name.equals(display) || !avatar.equals(picture)) && saveCredential(token, display, picture)) {
                         name = display;
                         avatar = picture;
                         sessionChanged();
                     }
+                    if (!name.isEmpty() && !avatar.isEmpty()) nextProfileCheck = SystemClock.elapsedRealtime() + 6 * 3_600_000L;
                 }
-            } catch (Exception ignored) {
-                // 资料接口失败不影响登录和余额；下次启动再试。
+            } catch (Exception unavailable) {
+                // Retry on a later foreground status check; do not lose the known fields.
             } finally {
-                synchronized (this) { refreshingProfile = false; }
+                synchronized (this) { if (owner.equals(refreshingRevision)) refreshingRevision = null; }
             }
-        });
+        }));
     }
 
     private void exchange(Attempt a) throws Exception {
@@ -385,10 +379,11 @@ final class DshAccountHost {
                 avatar = picture;
                 active = null;
                 error = "";
+                nextProfileCheck = name.isEmpty() || avatar.isEmpty() ? 0 : SystemClock.elapsedRealtime() + 6 * 3_600_000L;
                 committed = true;
                 sessionChanged();
             }
-            if (avatar.isEmpty()) refreshProfile();
+            refreshProfile();
         } finally { if (!committed) revoke(received); }
     }
     private synchronized void finish(Attempt a, String message) { if (active == a) { prefs.edit().remove(PENDING).commit(); active = null; error = message; a.close(); } }
@@ -441,8 +436,11 @@ final class DshAccountHost {
             output.flush();
         } catch (IOException closedByBrowser) { /* A valid delivery still completes if the tab closes. */ }
     }
-    synchronized void rejectToken(String rejected) {
-        if (grant != null && grant.equals(rejected)) { clear(); error = "授权已过期，请重新登录。"; }
+    synchronized void rejectToken(String rejected) { rejectToken(rejected, null); }
+    private synchronized void rejectToken(String rejected, String owner) {
+        if (!closed && grant != null && grant.equals(rejected) && (owner == null || owner.equals(revision))) {
+            clear(); error = "授权已过期，请重新登录。";
+        }
     }
     private void clear() {
         if (!prefs.edit().remove("iv").remove("ciphertext").commit()) throw new IllegalStateException("删除设备登录凭据失败，请重试。");
@@ -470,6 +468,9 @@ final class DshAccountHost {
     private static String safeError(Exception e) { return e instanceof PlatformFailure ? e.getMessage() : "无法完成授权，请检查网络或重试。"; }
     private static final class PlatformFailure extends IOException { PlatformFailure(String s) { super(s); } }
     private JSONObject request(String path, JSONObject data, String t) throws Exception {
+        return request(path, data, t, null);
+    }
+    private JSONObject request(String path, JSONObject data, String t, String owner) throws Exception {
         HttpsURLConnection connection = (HttpsURLConnection)new URL(PLATFORM + path).openConnection(Proxy.NO_PROXY);
         try {
             connection.setInstanceFollowRedirects(false); connection.setConnectTimeout(12000); connection.setReadTimeout(25000); connection.setUseCaches(false);
@@ -483,12 +484,12 @@ final class DshAccountHost {
             if (path.equals("/auth-api/v0/users/logout")) { connection.setRequestMethod("POST"); }
              else if (data != null) { connection.setRequestMethod("POST"); connection.setRequestProperty("Content-Type", "application/json"); connection.setDoOutput(true);
                 try (OutputStream out = connection.getOutputStream()) { out.write(data.toString().getBytes(StandardCharsets.UTF_8)); } }
-            int status = connection.getResponseCode(); if (t != null && status == 401) rejectToken(t);
+            int status = connection.getResponseCode(); if (t != null && status == 401) rejectToken(t, owner);
             if (status < 200 || status >= 300) throw new PlatformFailure("平台返回 HTTP " + status + "，请稍后重试。");
             ByteArrayOutputStream buffer = new ByteArrayOutputStream(); byte[] chunk = new byte[8192]; int count;
             try (InputStream in = connection.getInputStream()) { while ((count = in.read(chunk)) != -1) { if (buffer.size()+count>1048576) throw new IOException(); buffer.write(chunk,0,count); } }
             JSONObject payload = new JSONObject(new String(buffer.toByteArray(), StandardCharsets.UTF_8));
-            int code = payload.getInt("code"); if (t != null && code == 40003) rejectToken(t);
+            int code = payload.getInt("code"); if (t != null && code == 40003) rejectToken(t, owner);
             if (code != 0) throw new PlatformFailure("平台未接受请求（" + code + "）。");
             JSONObject business = payload.getJSONObject("data"); int biz = business.getInt("biz_code");
             if (biz != 0) throw new PlatformFailure("平台未接受请求（" + biz + "）。");

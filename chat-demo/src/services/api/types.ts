@@ -235,6 +235,8 @@ export type MessageStreamEvent =
         stop_details?: StopDetails
         title?: string
       }
+      /** A validated WorkBuddy response attribution, independent of the billed request route. */
+      workBuddyResponseModel?: string
       /** 流式服务可只回传累计输出，其余计数沿用同一次请求的 message_start。 */
       usage?: MessageUsage
     }

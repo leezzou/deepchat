@@ -147,56 +147,22 @@
   user-select: none;
 }
 
-.bottom {
-  display: flex;
-  flex-shrink: 0;
-  height: 64px;
-}
-
-.settings {
+.footer {
   display: flex;
   align-items: center;
-  box-sizing: border-box;
-  width: 100%;
-  margin-block: auto;
-  padding: 6px 2px 6px 6px;
-  border: none;
-  border-radius: 12px;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  user-select: none;
-  outline: none;
-
-  &:hover {
-    background-color: var(--dsw-specific-sidebar-nav-item-hover);
-  }
-
-  &:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--dsw-alias-button-primary-fill);
-  }
-}
-
-.settingsIcon {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  gap: 4px;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  min-height: 64px;
   color: var(--dsw-alias-label-primary);
 }
 
-.settingsLabel {
-  min-width: 0;
-  margin-left: 4px;
-  overflow: hidden;
-  font-size: 14px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--dsw-alias-label-primary);
+.accountButton:hover {
+  background-color: var(--dsw-specific-sidebar-nav-item-hover);
+}
+
+.accountButton:focus-visible {
+  outline: 2px solid var(--dc-accent);
+  outline-offset: -2px;
 }
 
 .collapsed {
@@ -391,7 +357,7 @@
   text-align: start;
   color: var(--dc-ink);
 }
-.mobile .avatar {
+.avatar {
   display: grid;
   place-items: center;
   flex: 0 0 36px;
@@ -401,12 +367,12 @@
   background: var(--dc-subtle);
   color: var(--dc-secondary);
 }
-.mobile .avatarImage {
+.avatarImage {
   width: 100%;
   height: 100%;
   object-fit: cover;
 }
-.mobile .userName {
+.userName {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -431,14 +397,14 @@
   text-align: start;
   cursor: pointer;
 }
-.mobile .footerSettings {
+.footerSettings {
   position: relative;
   flex: 0 0 48px;
   height: 48px;
   color: var(--dc-secondary);
 }
 .footerSettings svg { width: 20px; height: 20px; }
-.mobile .footerSettings .updateDot { top: 7px; right: 7px; }
+.footerSettings .updateDot { top: 7px; right: 7px; }
 .mobile button:focus-visible {
   outline: 2px solid var(--dc-accent);
   outline-offset: -2px;

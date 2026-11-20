@@ -85,7 +85,7 @@ export async function workBuddyRates({ page, check, shot }, { openWorkBuddySetti
   for (const [id, label] of [
     [base, '免费'],
     [active, '0.29× 腾讯积分'],
-    [unknown, '费率未知'],
+    [unknown, /^(?:未提供费率|费率未知)$/u],
   ]) {
     await option(menu, id).getByText(label, { exact: true }).waitFor()
   }

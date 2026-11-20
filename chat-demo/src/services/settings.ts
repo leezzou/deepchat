@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { selectedClaudeFacts, type ClaudeModelFacts } from './api/anthropicOfficial.js'
 import { allowsKeylessLocal, validWindow } from './api/modelWindows.js'
 import { profileWindowKey, withProfileWindow } from './api/contextOverrides.js'
-import { hasAccountBridge } from '../shell/account.js'
+import { hasAccountBridge, type AccountProfile } from '../shell/account.js'
 import { androidShell, nativeProfileVault, securityState } from './security/bridge.js'
 import {
   decodeLegacy,
@@ -62,6 +62,7 @@ type Settings = {
   /** Native host reports sign-in status; profile fields are memory-only. */
   accountSignedIn: boolean
   accountRevision: string | null
+  accountDisplayRevision: string | null
   accountName: string
   accountAvatar: string | null
   chatSource: ChatSource
@@ -79,13 +80,13 @@ type Settings = {
   /** 回复生成后自动朗读（官方 header 的「自动朗读」开关） */
   autoRead: boolean
   siderCollapsed: boolean
-  displayName: string
-  avatar: string | null
+  identityPreference: IdentitySource
   fontScale: number
   /** 思考内容结束后自动折叠（官方「个性化」里的开关） */
   autoCollapseThinking: boolean
 }
 
+export type IdentitySource = 'dsh' | 'workbuddy'
 export type ChatSource = 'account' | 'api' | 'workbuddy'
 
 const KEYS = {
@@ -99,8 +100,7 @@ const KEYS = {
   search: 'chat-demo:search',
   autoRead: 'chat-demo:auto-read',
   siderCollapsed: 'chat-demo:sider-collapsed',
-  displayName: 'chat-demo:display-name',
-  avatar: 'chat-demo:avatar',
+  identityPreference: 'chat-demo:identity-source',
   fontScale: 'chat-demo:font-scale',
   autoCollapseThinking: 'chat-demo:auto-collapse-thinking',
 } as const
@@ -195,6 +195,10 @@ setApiConfig({
   model: initialActive?.model,
 })
 
+// Retire the old device-only editor, including its potentially large inline image.
+write('chat-demo:display-name', null)
+write('chat-demo:avatar', null)
+
 const savedSource = read(KEYS.chatSource)
 const initialSource: ChatSource =
   savedSource === 'workbuddy' ? 'workbuddy' : hasAccountBridge && (savedSource === 'account' || (!initialActive && savedSource !== 'api'))
@@ -204,6 +208,7 @@ const initialSource: ChatSource =
 export const useSettings = create<Settings>(() => ({
   accountSignedIn: false,
   accountRevision: null,
+  accountDisplayRevision: null,
   accountName: '',
   accountAvatar: null,
   chatSource: initialSource,
@@ -221,11 +226,27 @@ export const useSettings = create<Settings>(() => ({
   search: read(KEYS.search) !== 'false',
   autoRead: read(KEYS.autoRead) === 'true',
   siderCollapsed: read(KEYS.siderCollapsed) === 'true',
-  displayName: read(KEYS.displayName) ?? 'DeepSeek 用户',
-  avatar: read(KEYS.avatar),
+  identityPreference: read(KEYS.identityPreference) === 'workbuddy' ? 'workbuddy' : 'dsh',
   fontScale: Number(read(KEYS.fontScale)) || 1,
   autoCollapseThinking: read(KEYS.autoCollapseThinking) !== 'false',
 }))
+
+let legacyAccountSession = 0
+export function applyAccountProfile(profile: AccountProfile) {
+  const current = useSettings.getState()
+  // Older desktop hosts send a complete ordered snapshot without a grant ID. Give each
+  // observed login a memory-only display lifetime, leaving the route's real revision intact.
+  const displayRevision = profile.signedIn
+    ? profile.revision ?? current.accountDisplayRevision ?? `display-${++legacyAccountSession}`
+    : null
+  useSettings.setState({
+    accountSignedIn: profile.signedIn,
+    accountRevision: profile.signedIn ? profile.revision ?? null : null,
+    accountDisplayRevision: displayRevision,
+    accountName: profile.signedIn ? profile.name : '',
+    accountAvatar: profile.signedIn ? profile.avatar : null,
+  })
+}
 
 export const setChatSource = (chatSource: ChatSource) => {
   write(KEYS.chatSource, chatSource)
@@ -444,14 +465,9 @@ export const setAutoRead = (autoRead: boolean) => {
   useSettings.setState({ autoRead })
 }
 
-export const setDisplayName = (displayName: string) => {
-  write(KEYS.displayName, displayName.trim() || 'DeepSeek 用户')
-  useSettings.setState({ displayName: displayName.trim() || 'DeepSeek 用户' })
-}
-
-export const setAvatar = (avatar: string | null) => {
-  write(KEYS.avatar, avatar)
-  useSettings.setState({ avatar })
+export function saveIdentityPreference(identityPreference: IdentitySource) {
+  write(KEYS.identityPreference, identityPreference)
+  useSettings.setState({ identityPreference })
 }
 
 export const setFontScale = (fontScale: number) => {

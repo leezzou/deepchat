@@ -7,6 +7,7 @@ type Frame = {
   data?: string
   status?: number
   contentType?: string
+  originModel?: string
   model?: unknown
   revision?: unknown
   catalog?: unknown
@@ -15,6 +16,9 @@ type Frame = {
   catalogError?: boolean
   catalogStale?: boolean
   code?: string
+  avatar?: string
+  profileVersion?: number
+  profileRefresh?: boolean
   name?: string
   pending?: boolean
 }
@@ -38,7 +42,7 @@ function post(message: object) {
   port.postMessage(JSON.stringify(message))
 }
 export async function manageWorkBuddy(
-  op: 'status' | 'begin' | 'poll' | 'cancelLogin' | 'model' | 'catalog' | 'forget',
+  op: 'status' | 'begin' | 'poll' | 'cancelLogin' | 'model' | 'catalog' | 'profile' | 'forget',
   fields: object = {}
 ): Promise<Frame> {
   const id = createId()
@@ -144,7 +148,12 @@ export function workBuddyFetch(
         resolve(
           new Response(body, {
             status: frame.status,
-            headers: { 'Content-Type': frame.contentType || '' },
+            headers: {
+              'Content-Type': frame.contentType || '',
+              // Local native grant metadata. Upstream response headers never enter this field.
+              ...(typeof frame.originModel === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(frame.originModel)
+                ? { 'X-DeepChat-WorkBuddy-Origin': frame.originModel } : {}),
+            },
           })
         )
       } else if (frame.type === 'data' && stream && frame.data) {

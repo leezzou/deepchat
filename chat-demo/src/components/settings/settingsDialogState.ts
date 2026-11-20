@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getChatAccess, getConversationRoute } from '../../services/api/access.js'
 import { hasAccountBridge } from '../../shell/account.js'
 
-export type SettingsSection = 'general' | 'apiKey' | 'data' | 'memory' | 'security' | 'webdav' | 'contextModels'
+export type SettingsSection = 'general' | 'account' | 'apiKey' | 'data' | 'memory' | 'security' | 'webdav' | 'contextModels'
 export type SettingsVisit = {
   id: number
   section: SettingsSection

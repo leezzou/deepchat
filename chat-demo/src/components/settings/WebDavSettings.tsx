@@ -12,7 +12,12 @@ import {
   putEncryptedBackup,
   testDavConnection,
 } from '../../services/backup/webDav.js'
-import { BackupError, SnapshotError, exportPortableHistory, restorePortableHistory } from '../../services/chat/backup.js'
+import {
+  BackupError,
+  SnapshotError,
+  exportPortableHistory,
+  restorePortableHistory,
+} from '../../services/chat/backup.js'
 import { importFailure } from './importFeedback.js'
 import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
 import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
@@ -80,6 +85,8 @@ export function WebDavSettings() {
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState('')
   const [error, setError] = useState(false)
+  const [operation, setOperation] = useState<Action | null>(null)
+  const validPhrase = phrase.length >= 10 && phrase.length <= 1024
   const mounted = useRef(true)
   const running = useRef(false)
   useEffect(() => {
@@ -94,6 +101,7 @@ export function WebDavSettings() {
     }
     running.current = true
     setBusy(true)
+    setOperation(action)
     setConfirm(false)
     setError(false)
     const account = { folder, username, password }
@@ -148,7 +156,11 @@ export function WebDavSettings() {
           setStatus(translate('importRecoveryPending'))
         } else if (action === 'restore' && !(reason instanceof PortableError)) {
           const stage = reason instanceof SnapshotError ? 'snapshot' : 'commit'
-          const { failure } = importFailure(stage, reason, reason instanceof BackupError ? reason.key : undefined)
+          const { failure } = importFailure(
+            stage,
+            reason,
+            reason instanceof BackupError ? reason.key : undefined
+          )
           setStatus(`${translate(failure.reason, failure.params)} ${translate(failure.action)}`)
         } else {
           setStatus(problems[reason instanceof PortableError ? reason.problem : 'local'][lang])
@@ -166,7 +178,8 @@ export function WebDavSettings() {
     value: string,
     set: (text: string) => void,
     type = 'text',
-    placeholder = ''
+    placeholder = '',
+    describedBy?: string
   ) => (
     <label className="dav-field">
       <span>{label}</span>
@@ -174,6 +187,7 @@ export function WebDavSettings() {
         type={type}
         value={value}
         placeholder={placeholder}
+        aria-describedby={describedBy}
         autoComplete="off"
         autoCapitalize="none"
         spellCheck={false}
@@ -185,6 +199,14 @@ export function WebDavSettings() {
         }}
       />
     </label>
+  )
+  const feedback = (
+    <div
+      role={error ? 'alert' : 'status'}
+      className={error ? 'dav-status dav-error' : 'dav-status'}
+    >
+      {status}
+    </div>
   )
   return (
     <div className="dav-settings history-dav">
@@ -209,16 +231,24 @@ export function WebDavSettings() {
               {t('测试连接', 'Test connection')}
             </Button>
           </div>
+          {operation === 'test' && feedback}
         </div>
       </section>
       <section className="dav-section" aria-labelledby="dav-backup">
         <h2 id="dav-backup">{t('备份与恢复', 'Backup and restore')}</h2>
         <div className="history-dav-card">
-          {field(t('备份密码', 'Backup password'), phrase, setPhrase, 'password')}
-          <p>
+          {field(
+            t('备份密码', 'Backup password'),
+            phrase,
+            setPhrase,
+            'password',
+            '',
+            'dav-phrase-hint'
+          )}
+          <p id="dav-phrase-hint">
             {t(
-              '至少 10 个字符，换机时需要这个密码。请自行妥善保存。',
-              'Use at least 10 characters. Keep this password safe for recovery on another device.'
+              '使用 10–1024 个字符的独立密码，恢复时需要。',
+              'Use a separate password of 10–1024 characters. Keep it for recovery.'
             )}
           </p>
           <details className="history-dav-info">
@@ -237,12 +267,15 @@ export function WebDavSettings() {
             )}
           </p>
           <div className="dav-actions">
-            <Button disabled={busy || !folder.trim() || !phrase} onClick={() => void run('backup')}>
+            <Button
+              disabled={busy || !folder.trim() || !validPhrase}
+              onClick={() => void run('backup')}
+            >
               {t('加密并备份', 'Encrypt and back up')}
             </Button>
             <Button
               variant="outlined"
-              disabled={busy || !folder.trim() || !phrase}
+              disabled={busy || !folder.trim() || !phrase || phrase.length > 1024}
               onClick={() => setConfirm(true)}
             >
               {t('从备份恢复', 'Restore from backup')}
@@ -258,11 +291,7 @@ export function WebDavSettings() {
                     <Button variant="outlined" autoFocus onClick={() => setConfirm(false)}>
                       {t('取消', 'Cancel')}
                     </Button>
-                    <Button
-                      variant="danger"
-                      disabled={busy}
-                      onClick={() => void run('restore')}
-                    >
+                    <Button variant="danger" disabled={busy} onClick={() => void run('restore')}>
                       {t('确认恢复', 'Confirm restore')}
                     </Button>
                   </>
@@ -277,13 +306,7 @@ export function WebDavSettings() {
               </ConfirmationModal>
             )}
           </ModalPresence>
-          <div
-            role="status"
-            aria-live="polite"
-            className={error ? 'dav-status dav-error' : 'dav-status'}
-          >
-            {status}
-          </div>
+          {operation !== 'test' && feedback}
         </div>
       </section>
     </div>

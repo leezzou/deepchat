@@ -3,7 +3,9 @@ package ai.deepseek.demo.shell;
 import android.app.Activity;
 import android.content.res.ColorStateList;
 import android.content.res.Configuration;
+import android.graphics.Bitmap;
 import android.graphics.Typeface;
+import android.text.TextUtils;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.InsetDrawable;
@@ -85,12 +87,12 @@ final class AccountPage extends LinearLayout {
         paper = dark ? 0xff1e1e1e : 0xfff8f8f8;
         panel = dark ? 0xff292929 : 0xffffffff;
         ink = dark ? 0xfff8f8f8 : 0xff0f0f0f;
-        muted = dark ? 0xffb6b6ba : 0xff626368;
-        blue = dark ? 0xff99b4ff : 0xff395ee2;
-        onBlue = dark ? 0xff10234d : 0xffffffff;
+        muted = dark ? 0xffb1b3b6 : 0xff616366;
+        blue = dark ? 0xff98b6ff : 0xff345cdb;
+        onBlue = dark ? 0xff151e35 : 0xffffffff;
         tint = dark ? 0xff363636 : 0xfff1f1f1;
-        rule = dark ? 0xff3d3d3d : 0xffe8e8e8;
-        error = dark ? 0xffffb4aa : 0xffaa3029;
+        rule = dark ? 0xff414141 : 0xffe5e5e5;
+        error = dark ? 0xffffa6a6 : 0xffb32a37;
         setBackgroundColor(paper);
         barTitle.setTextColor(ink);
         back.setColorFilter(ink);
@@ -111,20 +113,46 @@ final class AccountPage extends LinearLayout {
         post(redraw);
     }
 
-    void reset(boolean welcome) {
+    void reset() {
         body.removeAllViews();
-        boolean tall = getResources().getConfiguration().screenHeightDp >= 560;
-        int side = dp(welcome ? 24 : 16);
-        body.setPadding(side, dp(welcome && tall ? 68 : 16), side, dp(32));
+        int side = dp(getResources().getConfiguration().screenWidthDp < 360 ? 16 : 20);
+        body.setPadding(side, dp(14), side, dp(28));
     }
 
     void scrollToStart() { scroll.scrollTo(0, 0); }
 
-    void logo() {
-        ImageView logo = new ImageView(getContext());
-        logo.setImageResource(R.mipmap.ic_launcher_round);
-        logo.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        body.addView(logo, dp(64), dp(64));
+    private ImageView picture;
+
+    void identity(LinearLayout parent, String title, String detail, String initial, Bitmap photo) {
+        LinearLayout row = new LinearLayout(getContext());
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        parent.addView(row, MATCH, WRAP);
+        FrameLayout avatar = new FrameLayout(getContext());
+        avatar.setBackground(shape(dark ? 0xff283142 : 0xffedf3fe, 24));
+        avatar.setClipToOutline(true);
+        avatar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        row.addView(avatar, dp(48), dp(48));
+        TextView letter = text(initial.isEmpty() ? "D" : initial, 21, blue, true);
+        letter.setGravity(Gravity.CENTER);
+        avatar.addView(letter, MATCH, MATCH);
+        picture = new ImageView(getContext());
+        picture.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        avatar.addView(picture, MATCH, MATCH);
+        setPhoto(photo);
+        LinearLayout copy = new LinearLayout(getContext());
+        copy.setOrientation(VERTICAL);
+        LayoutParams copyLayout = new LayoutParams(0, WRAP, 1);
+        copyLayout.setMarginStart(dp(14));
+        row.addView(copy, copyLayout);
+        TextView name = label(copy, title, 20, ink, true, 0);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        if (Build.VERSION.SDK_INT >= 28) name.setAccessibilityHeading(true);
+        label(copy, detail, 14, muted, false, 3);
+    }
+
+    void setPhoto(Bitmap photo) {
+        if (picture != null) picture.setImageBitmap(photo);
     }
 
     TextView label(LinearLayout parent, String value, int size, int color, boolean medium, int top) {
@@ -133,17 +161,18 @@ final class AccountPage extends LinearLayout {
         return label;
     }
 
-    void heading(String value, int top) {
-        TextView heading = label(body, value, 28, ink, true, top);
+    void section(String title, int top) {
+        TextView heading = label(body, title, 14, muted, true, top);
         if (Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
     }
 
-    LinearLayout walletPanel() {
+    LinearLayout panel(int top, boolean inset) {
         LinearLayout box = new LinearLayout(getContext());
         box.setOrientation(VERTICAL);
-        box.setPadding(dp(18), dp(16), dp(18), dp(16));
+        if (inset) box.setPadding(dp(16), dp(16), dp(16), dp(16));
         box.setBackground(shape(panel, 16));
-        body.addView(box, paddedTop(MATCH, WRAP, 20));
+        box.setClipToOutline(true);
+        body.addView(box, paddedTop(MATCH, WRAP, top));
         return box;
     }
 
@@ -153,20 +182,24 @@ final class AccountPage extends LinearLayout {
         parent.addView(line, paddedTop(MATCH, dp(1), top));
     }
 
-    void walletRow(LinearLayout parent, String currency, String rawBalance) {
-        String balance = new BigDecimal(rawBalance).setScale(2, RoundingMode.HALF_UP).toPlainString();
+    void balanceLine(LinearLayout parent, String title, String value, boolean money) {
         LinearLayout row = new LinearLayout(getContext());
         row.setGravity(Gravity.CENTER_VERTICAL);
-        // Larger font scales and long decimal amounts get independent, full-width lines.
-        boolean stacked = getResources().getConfiguration().fontScale > 1.3f
-                || balance.length() > 14 || currency.length() > 6;
+        row.setMinimumHeight(dp(44));
+        row.setPadding(0, dp(4), 0, dp(4));
+        boolean stacked = getResources().getConfiguration().fontScale > 1.3f || value.length() > 16;
         row.setOrientation(stacked ? VERTICAL : HORIZONTAL);
-        parent.addView(row, paddedTop(MATCH, WRAP, 8));
-        TextView unit = text(currency, 15, muted, false);
-        row.addView(unit, stacked ? new LayoutParams(MATCH, WRAP) : new LayoutParams(0, WRAP, 1));
-        TextView amount = text(balance, 22, ink, true);
+        parent.addView(row, MATCH, WRAP);
+        TextView label = text(title, 15, ink, false);
+        row.addView(label, stacked ? new LayoutParams(MATCH, WRAP) : new LayoutParams(0, WRAP, 1));
+        TextView amount = text(value, money ? 19 : 14, money ? ink : muted, money);
         amount.setFontFeatureSettings("tnum");
         row.addView(amount, stacked ? MATCH : WRAP, WRAP);
+    }
+
+    void walletRow(LinearLayout parent, String title, String currency, String rawBalance) {
+        String balance = new BigDecimal(rawBalance).setScale(2, RoundingMode.HALF_UP).toPlainString();
+        balanceLine(parent, title, balance + " " + currency, true);
     }
 
     void button(LinearLayout parent, String title, Style style, int top, Runnable action) {
@@ -186,7 +219,7 @@ final class AccountPage extends LinearLayout {
         int background = style == Style.PRIMARY ? blue : style == Style.TONAL ? tint : 0;
         int foreground = style == Style.PRIMARY ? onBlue : style == Style.DANGER ? error : blue;
         button.setTextColor(action == null ? muted : foreground);
-        button.setBackground(ripple(action == null ? panel : background, 24));
+        button.setBackground(ripple(action == null ? tint : background, 12));
         button.setEnabled(action != null);
         if (action != null) button.setOnClickListener(v -> action.run());
         boolean horizontal = parent.getOrientation() == HORIZONTAL;
@@ -195,7 +228,7 @@ final class AccountPage extends LinearLayout {
         parent.addView(button, lp);
     }
 
-    void navigationRow(String label, int top, Runnable action) {
+    void navigationRow(LinearLayout parent, String label, Runnable action) {
         Button row = new Button(getContext());
         row.setText(label);
         row.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
@@ -203,18 +236,18 @@ final class AccountPage extends LinearLayout {
         row.setAllCaps(false);
         row.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL));
         row.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
-        row.setMinHeight(dp(48));
-        row.setMinimumHeight(dp(48));
+        row.setMinHeight(dp(54));
+        row.setMinimumHeight(dp(54));
         row.setStateListAnimator(null);
         row.setPaddingRelative(dp(16), dp(8), dp(16), dp(8));
         row.setBackgroundTintList(null);
-        row.setBackground(ripple(panel, 16));
+        row.setBackground(ripple(0, 0));
         Drawable chevron = getContext().getDrawable(R.drawable.account_chevron).mutate();
         chevron.setTint(muted);
         row.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, chevron, null);
         row.setEnabled(action != null);
         if (action != null) row.setOnClickListener(v -> action.run());
-        body.addView(row, paddedTop(MATCH, WRAP, top));
+        parent.addView(row, MATCH, WRAP);
     }
 
     LinearLayout actionRow(LinearLayout parent, int top) {

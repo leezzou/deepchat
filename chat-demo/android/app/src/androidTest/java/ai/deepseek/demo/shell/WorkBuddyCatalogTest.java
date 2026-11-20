@@ -39,7 +39,8 @@ public class WorkBuddyCatalogTest {
         assertFalse(rows.getJSONObject(2).has("rate"));
         assertEquals(0.29, WorkBuddyCatalog.creditRate("0.29x").getDouble("multiplier"), 0);
         assertEquals(0.29, WorkBuddyCatalog.creditRate("x0.29").getDouble("multiplier"), 0);
-        for (Object unknown : new Object[]{JSONObject.NULL, 0, "", "x-1 credits", "0.0 RMB", "x0.00 credits extra"})
+        assertEquals(0.29, WorkBuddyCatalog.creditRate("0.29").getDouble("multiplier"), 0);
+        for (Object unknown : new Object[]{JSONObject.NULL, 0, "", "x-1 credits", "0.0 RMB", "x0.00 credits extra", "0–0.29x", "Free trial"})
             assertNull(WorkBuddyCatalog.creditRate(unknown));
     }
 
@@ -56,6 +57,26 @@ public class WorkBuddyCatalogTest {
         assertEquals(3, promo.getInt("priority"));
         assertEquals("[[1380,480]]", promo.getJSONArray("daily").toString());
         assertFalse(promo.has("hover"));
+    }
+
+    @Test public void discountedCreditsAcceptVendorDisplayFormatsAndRequireExplicitZero() throws Exception {
+        JSONObject discount = new JSONObject(), promo = new JSONObject().put("id", "offer")
+                .put("kind", "discount").put("modelIds", new JSONArray().put("hy3-x")).put("discount", discount);
+        JSONArray offers = new JSONArray().put(promo);
+        for (String explicit : new String[]{"x0.05", "0.05x", "0.05", "x0.05 credits"}) {
+            discount.put("discountedCredits", explicit);
+            assertEquals(0.05, WorkBuddyPromotion.byModel(offers).get("hy3-x").getJSONObject(0).getDouble("price"), 0);
+        }
+        discount.put("discountedCredits", "×0.00");
+        assertEquals(0, WorkBuddyPromotion.byModel(offers).get("hy3-x").getJSONObject(0).getDouble("price"), 0);
+        discount.put("discountedCredits", "").put("factor", 0);
+        JSONObject unset = WorkBuddyPromotion.byModel(offers).get("hy3-x").getJSONObject(0);
+        assertFalse(unset.has("factor"));
+        assertFalse(unset.has("price"));
+        discount.put("discountedCredits", "0.00 USD").put("factor", 0.5);
+        JSONObject unsupported = WorkBuddyPromotion.byModel(offers).get("hy3-x").getJSONObject(0);
+        assertFalse(unsupported.has("factor"));
+        assertFalse(unsupported.has("price"));
     }
 
     @Test public void failureKeepsLastSuccessfulRatesUntilNextSuccessEvenForAnEmptyRoster() throws Exception {

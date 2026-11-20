@@ -3,12 +3,21 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import test from 'node:test'
+import test, { before } from 'node:test'
 import { chromium } from '../../../../tools/node_modules/playwright/index.mjs'
 import { installFixture } from '../../../../tools/qa-v54/fixture.mjs'
 import { scenarios } from '../../../../tools/qa-v54/scenarios.mjs'
 
 const dist = process.env.API_USAGE_DIST ?? fileURLToPath(new URL('../../../dist', import.meta.url))
+before(async () => {
+  const manifest = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8'))
+  const html = await readFile(path.join(dist, 'index.html'), 'utf8')
+  const versionTag = html.match(/<meta\b[^>]*\bname="application-version"[^>]*>/i)?.[0]
+  const builtVersion = versionTag?.match(/\bcontent="([^"]+)"/i)?.[1]
+  assert.equal(builtVersion, manifest.version,
+    `Expected DeepChat ${manifest.version} assets, found ${builtVersion ?? 'unversioned HTML'} in ${dist}. Build chat-demo or set API_USAGE_DIST to its current production bundle.`)
+})
+
 const origin = 'https://usage.test'
 const contentTypes = {
   '.css': 'text/css',
@@ -532,10 +541,15 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
       await back('compacted', 'data')
       assert.equal(await link.inputValue(), 'draft')
       await back('data', 'root')
-      await enter('root', /账号资料/, 'profile')
-      await enter('profile', /位置信息/, 'location')
-      await back('location', 'profile')
-      await back('profile', 'root')
+      const locationEntry = front('root').getByRole('button', { name: /位置信息/ })
+      await enter('root', /位置信息/, 'location')
+      await back('location', 'root')
+      assert.ok(await locationEntry.evaluate(el => el === document.activeElement))
+      // The shared API manager still has two nested levels reachable from Settings home.
+      await enter('root', /API Key 管理/, 'apiKey')
+      await enter('apiKey', /申请官方 API Key/, 'guide')
+      await back('guide', 'apiKey')
+      await back('apiKey', 'root')
       const rootScroll = route('root').locator(':scope > div').last()
       const start = await rootScroll.evaluate((el) => {
         el.scrollTop = el.scrollHeight

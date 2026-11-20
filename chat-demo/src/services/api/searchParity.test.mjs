@@ -159,7 +159,7 @@ test('official Chat Completions search trace preserves distinct results and read
     status: 'completed',
     sources: [
       { type: 'url', url: sample, title: 'First' },
-      { type: 'url', url: second, title: 'Second' },
+      { type: 'url', url: second, title: '标题里的未知数', site_name: 'Unknown', published_at: '未知' },
     ],
   }
   const ev = (type, call) => ({
@@ -179,6 +179,9 @@ test('official Chat Completions search trace preserves distinct results and read
   const view = await render(getChatAccess(null))
   assert.equal(view.steps.length, 1)
   assert.equal(view.steps[0].status, 'done')
+  assert.equal(view.searchResults[1].siteName, 'other.example')
+  assert.equal(view.searchResults[1].publishedAt, null)
+  assert.equal(view.searchResults[1].title, '标题里的未知数')
   assert.equal(view.answer.text, 'Answer')
   assert.deepEqual(
     view.searchResults.map((s) => s.url),

@@ -34,6 +34,7 @@
 .group {
   overflow: hidden;
 }
+[data-settings-panel] .group { border: 1px solid var(--dc-line); }
 .switchRow {
   display: flex;
   justify-content: space-between;
@@ -64,8 +65,8 @@
   text-overflow: ellipsis;
 }
 .scope {
-  margin: 0 0 12px;
-  max-width: 70ch;
+  margin: 10px 2px 0;
+  max-width: 62ch;
 }
 .empty {
   padding: 24px 16px 20px;

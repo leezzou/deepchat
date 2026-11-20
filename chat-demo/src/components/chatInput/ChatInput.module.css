@@ -362,7 +362,12 @@
     padding: 0 4px 3px 12px;
   }
   .toggles {
-    gap: 6px;
+    gap: 4px;
+    min-width: 100px;
+  }
+  .functionRow :global(.composer-model-trigger) {
+    flex: 0 1 auto;
+    max-width: min(130px, calc(100% - 200px));
   }
   .toggle {
     box-sizing: border-box;

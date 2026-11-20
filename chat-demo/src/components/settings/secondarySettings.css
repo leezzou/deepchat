@@ -1,0 +1,423 @@
+/* Shared by secondary settings only. The route shell supplies the canvas and motion. */
+.secondary-page {
+  box-sizing: border-box;
+  display: grid;
+  align-content: start;
+  gap: 22px;
+  width: 100%;
+  min-width: 0;
+  margin-inline: auto;
+  color: var(--dc-ink);
+}
+[data-settings-route] .secondary-page {
+  max-width: 42rem;
+  padding-inline: max(var(--dc-gutter), env(safe-area-inset-left))
+    max(var(--dc-gutter), env(safe-area-inset-right));
+}
+.secondary-section {
+  min-width: 0;
+}
+.secondary-section > h2 {
+  margin: 0 0 8px;
+  color: var(--dc-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.secondary-surface {
+  overflow: hidden;
+  border-radius: var(--dc-radius);
+  background: var(--settings-surface);
+}
+.secondary-api-dialog[role='dialog'] {
+  width: min(32rem, 100%);
+}
+.secondary-api-dialog .secondary-page {
+  padding: 2px 2px 4px;
+}
+.secondary-api-dialog .secondary-surface,
+[data-settings-panel] .secondary-surface {
+  border: 1px solid var(--dc-line);
+}
+.secondary-field {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px 14px 0;
+}
+.secondary-field:last-child {
+  padding-bottom: 14px;
+}
+.secondary-label,
+.secondary-hint {
+  font-size: 14px;
+  line-height: 20px;
+}
+.secondary-label {
+  font-weight: 500;
+}
+.secondary-hint {
+  margin: 0;
+  color: var(--dc-secondary);
+  overflow-wrap: anywhere;
+}
+.secondary-field .secondary-input,
+.secondary-field > button[aria-haspopup],
+.secondary-field > label + input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--dc-touch);
+  padding-inline: 12px;
+  border: 1px solid var(--dc-line);
+  border-radius: 12px;
+  background: var(--settings-control);
+  color: var(--dc-ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+}
+.secondary-field > button[aria-haspopup] {
+  padding-inline-end: 40px;
+}
+.secondary-input::placeholder {
+  color: var(--dc-secondary);
+  opacity: 1;
+}
+.secondary-field input[aria-invalid='true'] {
+  border-color: var(--dc-danger);
+}
+.secondary-error {
+  margin: 0;
+  padding: 8px 14px;
+  color: var(--dc-danger);
+  font-size: 14px;
+  line-height: 20px;
+}
+.secondary-page :is(button, a, summary, input):focus-visible {
+  outline: 2px solid var(--dc-accent);
+  outline-offset: -2px;
+}
+.secondary-link,
+.secondary-add,
+.secondary-profile-choice,
+.secondary-edit,
+.secondary-record > button,
+.secondary-remove,
+.secondary-primary {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--dc-touch);
+  gap: 12px;
+  padding: 10px 14px;
+  border: 0;
+  background: transparent;
+  color: var(--dc-ink);
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.secondary-link,
+.secondary-add {
+  min-height: 54px;
+}
+.secondary-link > span:first-child,
+.secondary-link > svg:last-child,
+.secondary-profile-mark,
+.secondary-edit,
+.secondary-record > button > svg {
+  flex: none;
+  color: var(--dc-secondary);
+}
+.secondary-link > span:nth-child(2) {
+  flex: 1;
+}
+.secondary-link > svg:last-child,
+.secondary-record > button > svg {
+  width: 16px;
+  height: 16px;
+}
+.secondary-profile,
+.secondary-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.secondary-profile {
+  gap: 0;
+  padding-inline-end: 4px;
+}
+.secondary-profile + .secondary-profile,
+.secondary-add,
+.secondary-record + .secondary-record {
+  border-top: 1px solid var(--dc-line);
+}
+.secondary-profile-choice {
+  flex: 1;
+}
+.secondary-profile-choice[aria-pressed='true'] .secondary-profile-mark {
+  color: var(--dc-accent);
+}
+.secondary-profile-mark {
+  display: grid;
+  width: 22px;
+  place-items: center;
+}
+.secondary-profile-choice > span:last-child,
+.secondary-record > button > span {
+  min-width: 0;
+}
+.secondary-page :is(.secondary-profile-choice, .secondary-record) strong {
+  display: block;
+  font-weight: 550;
+}
+.secondary-page :is(.secondary-profile-choice, .secondary-record) small {
+  display: block;
+  margin-top: 2px;
+  color: var(--dc-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+.secondary-edit {
+  justify-content: center;
+  width: var(--dc-touch);
+  padding: 0;
+  border-radius: 12px;
+}
+.secondary-add {
+  color: var(--dc-accent);
+}
+.secondary-empty {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 26px 20px 24px;
+  text-align: center;
+}
+.secondary-empty > [data-settings-icon] {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  color: var(--dc-secondary);
+}
+.secondary-empty strong {
+  font-size: 16px;
+  font-weight: 550;
+}
+.secondary-empty p {
+  max-width: 36ch;
+  margin: 0;
+  color: var(--dc-secondary);
+  font-size: 14px;
+  line-height: 21px;
+  text-wrap: pretty;
+}
+.secondary-primary,
+.secondary-remove {
+  justify-content: center;
+  border-radius: var(--dc-radius);
+  font-weight: 550;
+}
+.secondary-primary {
+  background: var(--dc-accent);
+  color: var(--dc-on-accent);
+}
+.secondary-primary:disabled {
+  background: var(--settings-control);
+  color: var(--dc-secondary);
+  cursor: default;
+}
+.secondary-remove {
+  color: var(--dc-danger);
+}
+.secondary-actions {
+  flex-wrap: wrap;
+}
+.secondary-actions > button {
+  min-height: var(--dc-touch);
+}
+.secondary-stacked {
+  display: grid;
+}
+.secondary-options {
+  margin-top: 6px;
+  border-top: 1px solid var(--dc-line);
+}
+.secondary-options > summary {
+  box-sizing: border-box;
+  padding: 13px 14px;
+  min-height: var(--dc-touch);
+  font-size: 15px;
+  line-height: 22px;
+  cursor: pointer;
+}
+.secondary-options > summary span {
+  float: inline-end;
+  color: var(--dc-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.secondary-options .secondary-field {
+  padding-block: 0 14px;
+}
+.secondary-guide {
+  margin: 0;
+  padding: 0 14px;
+  list-style: none;
+}
+.secondary-guide li {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 6px 0 14px;
+}
+.secondary-guide li + li {
+  border-top: 1px solid var(--dc-line);
+}
+.secondary-step {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-top: 12px;
+  border-radius: 50%;
+  background: var(--settings-control);
+  color: var(--dc-secondary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.secondary-guide li > div {
+  min-width: 0;
+}
+.secondary-guide a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--dc-touch);
+  max-width: 100%;
+  color: var(--dc-accent);
+  font-weight: 550;
+  text-decoration: none;
+}
+.secondary-guide svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+}
+.secondary-guide p {
+  margin: -2px 0 0;
+  color: var(--dc-secondary);
+  font-size: 14px;
+  line-height: 21px;
+}
+.secondary-record > button {
+  justify-content: space-between;
+}
+.secondary-record > button[aria-expanded='true'] > svg {
+  transform: rotate(90deg);
+}
+.secondary-record-body {
+  padding: 0 14px 14px;
+}
+.secondary-record-body > p {
+  margin: 0 0 8px;
+  color: var(--dc-secondary);
+  font-size: 15px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.secondary-font-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px 16px;
+  line-height: 1.6;
+}
+.secondary-font-preview p {
+  margin: 0;
+  width: fit-content;
+  max-width: 90%;
+}
+.secondary-font-preview p:first-child {
+  align-self: flex-end;
+  padding: 8px 13px;
+  border-radius: 16px;
+  background: var(--dc-accent-soft);
+}
+.secondary-switch-row,
+.secondary-font-scale label,
+.secondary-font-scale > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.secondary-switch-row,
+.secondary-font-scale label {
+  justify-content: space-between;
+}
+.secondary-switch-row {
+  box-sizing: border-box;
+  min-height: 54px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.secondary-font-scale {
+  padding: 13px 14px 2px;
+  border-top: 1px solid var(--dc-line);
+}
+.secondary-font-scale label span {
+  color: var(--dc-secondary);
+  font-size: 14px;
+}
+.secondary-font-scale input {
+  flex: 1;
+  min-width: 0;
+  height: var(--dc-touch);
+  margin: 0;
+  accent-color: var(--dc-accent);
+}
+.secondary-font-scale > div > span {
+  color: var(--dc-secondary);
+  font-size: 14px;
+}
+.secondary-font-scale > div > span:last-child {
+  font-size: 21px;
+}
+@media (hover: hover) {
+  .secondary-link:hover,
+  .secondary-add:hover,
+  .secondary-edit:hover,
+  .secondary-profile-choice:hover,
+  .secondary-options > summary:hover,
+  .secondary-record > button:hover {
+    background: var(--settings-control);
+  }
+  .secondary-guide a:hover {
+    text-decoration: underline;
+  }
+}
+.secondary-page
+  :is(
+    .secondary-link,
+    .secondary-add,
+    .secondary-edit,
+    .secondary-profile-choice,
+    .secondary-record > button
+  ):active {
+  background: var(--dc-accent-soft);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .secondary-page :is(button, a, summary) {
+    transition:
+      background-color var(--settings-feedback) var(--nav-ease),
+      color var(--settings-feedback) var(--nav-ease);
+  }
+}

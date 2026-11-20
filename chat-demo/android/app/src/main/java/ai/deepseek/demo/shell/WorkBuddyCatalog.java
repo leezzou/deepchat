@@ -30,6 +30,15 @@ final class WorkBuddyCatalog {
         return false;
     }
 
+    static String originModel(JSONArray catalog, String id) {
+        if (catalog != null) for (int i = 0; i < catalog.length(); i++) {
+            JSONObject row = catalog.optJSONObject(i);
+            if (row != null && id.equals(row.optString("id")) && row.opt("originModel") instanceof String)
+                return row.optString("originModel");
+        }
+        return null;
+    }
+
     private static int tokens(Object raw) {
         if (!(raw instanceof Number)) return 0;
         double n = ((Number) raw).doubleValue();
@@ -45,13 +54,20 @@ final class WorkBuddyCatalog {
     // Empty strings occur on real model rows. Only an explicit zero multiplier denotes free use.
     private static final String DECIMAL = "([0-9]{1,5}(?:\\.[0-9]{1,8})?)";
     private static final java.util.regex.Pattern CREDITS = java.util.regex.Pattern.compile(
-            "(?:[x×]\\s*" + DECIMAL + "(?:\\s+credits)?|" + DECIMAL + "\\s*[x×])", java.util.regex.Pattern.CASE_INSENSITIVE);
+            "(?:[x×]\\s*" + DECIMAL + "|" + DECIMAL + "(?:\\s*[x×])?)(?:\\s+credits)?",
+            java.util.regex.Pattern.CASE_INSENSITIVE);
 
-    static JSONObject creditRate(Object raw) throws Exception {
+    // Both credits and discount.discountedCredits are display strings in the vendor client.
+    static Double multiplier(Object raw) {
         if (!(raw instanceof String)) return null;
         java.util.regex.Matcher match = CREDITS.matcher(((String) raw).trim());
         if (!match.matches()) return null;
-        double multiplier = Double.parseDouble(match.group(1) != null ? match.group(1) : match.group(2));
+        return Double.parseDouble(match.group(1) != null ? match.group(1) : match.group(2));
+    }
+
+    static JSONObject creditRate(Object raw) throws Exception {
+        Double multiplier = multiplier(raw);
+        if (multiplier == null) return null;
         JSONObject rate = new JSONObject().put("multiplier", multiplier);
         if (multiplier == 0) rate.put("free", true);
         return rate;
@@ -91,11 +107,18 @@ final class WorkBuddyCatalog {
         JSONArray available = data.optJSONArray("availableModels"), clean = new JSONArray();
         HashMap<String, JSONObject> byId = new HashMap<>();
         Set<String> duplicate = new HashSet<>();
+        // Full catalog, including hidden and out-of-roster rows: a serving model
+        // shared by two products cannot identify a separately priced route.
+        Set<String> origins = new HashSet<>(), sharedOrigins = new HashSet<>();
         for (int i = 0; i < rows.length(); i++) {
             JSONObject row = rows.optJSONObject(i);
             if (row == null || !(row.opt("id") instanceof String)) continue;
             String id = row.getString("id");
             if (byId.put(id, row) != null) duplicate.add(id);
+            if (row.opt("modelId") instanceof String) {
+                String origin = row.getString("modelId");
+                if (!origins.add(origin)) sharedOrigins.add(origin);
+            }
         }
         java.util.Map<String, JSONArray> promotions = WorkBuddyPromotion.byModel(data.optJSONArray("modelPromotions"));
         Set<String> seen = new HashSet<>();
@@ -109,7 +132,13 @@ final class WorkBuddyCatalog {
                     || (available != null && !contains(available, id))) continue;
             JSONArray output = row.optJSONArray("outputModalities");
             if (output != null && !contains(output, "text")) continue;
-            clean.put(model(row, id).put("promotions", promotions.get(id)));
+            JSONObject entry = model(row, id).put("promotions", promotions.get(id));
+            // The official SDK calls a catalog row's modelId the originModel in telemetry.
+            // A display name, provider letter, price or relatedModels entry is insufficient.
+            String origin = row.optString("modelId", "");
+            if (row.opt("modelId") instanceof String && !sharedOrigins.contains(origin) && !byId.containsKey(origin)
+                    && origin.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,79}")) entry.put("originModel", origin);
+            clean.put(entry);
         }
         return clean;
     }
@@ -144,6 +173,7 @@ final class WorkBuddyCatalog {
             connection.setRequestProperty("Authorization", "Bearer " + account.getString("access"));
             connection.setRequestProperty("X-User-Id", account.getString("uid"));
             connection.setRequestProperty("X-Product", "SaaS");
+            connection.setRequestProperty("X-Requested-With", "XMLHttpRequest");
             connection.setRequestProperty("Origin", "https://www.workbuddy.cn");
             connection.setRequestProperty("User-Agent", "WorkBuddy/5.11.3 WorkBuddy/5.11.3 CLI/2.176.0 DeepChat/Android");
             if (connection.getResponseCode() != 200) throw new IOException("catalog_unavailable");

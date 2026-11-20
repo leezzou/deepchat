@@ -2,18 +2,14 @@ import { useEffect } from 'react'
 import type { WorkBuddyModelInfo } from '../../services/workbuddy/models.js'
 import { refreshWorkBuddyCatalog, useWorkBuddyState } from '../../services/workbuddy/provider.js'
 import { Select } from '../base/Select.js'
+import { workBuddyRateLabel } from './workBuddyRateLabel.js'
 import { IconRefreshOutline16 } from '../base/icons.js'
 import './workBuddyModelPicker.css'
 
 export function workBuddyModelOption(row: WorkBuddyModelInfo, en: boolean, cached: boolean) {
   const { id, name, rate } = row
   const model = name.toLowerCase() === id.toLowerCase() ? name : `${name} (${id})`
-  let price = en ? 'Rate unknown' : '费率未知'
-  if (rate?.free) {
-    price = en ? 'Free' : '免费'
-  } else if (rate?.multiplier !== undefined) {
-    price = `${rate.multiplier}× ${en ? 'Tencent credits' : '腾讯积分'}`
-  }
+  const price = workBuddyRateLabel(row, en)
   const cachedLabel = cached && row.source === 'account' ? (en ? 'Cached' : '缓存') : ''
   return {
     value: id,

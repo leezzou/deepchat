@@ -13,6 +13,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
+import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
@@ -59,7 +60,11 @@ public final class AccountScreen {
     private final ExecutorService accountWorker = Executors.newSingleThreadExecutor();
     // A slow wallet request must not hold up a confirmed logout or keep the proxy enabled.
     private final ExecutorService walletWorker = Executors.newSingleThreadExecutor();
+    private final ExecutorService photoWorker = Executors.newSingleThreadExecutor();
     private int walletGeneration;
+    private String avatar = "", revision = "", requestedPhoto = "";
+    private Bitmap photo;
+    private int photoGeneration;
     private final Runnable poll = () -> checkStatus(false);
     private AccountWindow dialog, proxyDialog;
     private AccountPage proxyPage;
@@ -92,7 +97,7 @@ public final class AccountScreen {
     void updateTheme() {
         if (page != null && page.dark != theme.isAppDark()) {
             page.updateTheme();
-            if (proxyPage != null) proxyPage.updateTheme();
+            if (proxyPage != null) { proxyPage.updateTheme(); renderProxy(); }
             render();
         }
     }
@@ -104,7 +109,7 @@ public final class AccountScreen {
             return;
         }
         if (isShowing()) return;
-        if (fromUsage && underUsage && dialog != null && host.signedIn()) {
+        if (fromUsage && underUsage && dialog != null && sameVisit()) {
             underUsage = false;
             dialog.reveal(true);
             if (walletNeedsRender) render();
@@ -115,6 +120,7 @@ public final class AccountScreen {
         closeConfirmation();
         closeProxy();
         underUsage = walletNeedsRender = false;
+        clearIdentity();
         session = Session.UNKNOWN;
         exchanging = false;
         action = Action.NONE;
@@ -135,6 +141,7 @@ public final class AccountScreen {
             closeProxy();
             dialog = null;
             page = null;
+            clearIdentity();
             wallets = null;
             underUsage = false;
         });
@@ -143,7 +150,7 @@ public final class AccountScreen {
         try {
             Status initial = new Status(host.status());
             session = initial.session;
-            name = initial.name;
+            updateIdentity(initial);
             statusError = initial.error;
             exchanging = initial.exchanging;
         } catch (Exception failure) {
@@ -157,9 +164,18 @@ public final class AccountScreen {
         }
     }
 
+    private boolean sameVisit() {
+        try {
+            Status current = new Status(host.status());
+            return current.session == session && current.revision.equals(revision);
+        } catch (Exception unavailable) {
+            return false;
+        }
+    }
+
     void accountChanged() {
         if (destroyed) return;
-        if (underUsage && !host.signedIn()) {
+        if (underUsage && !sameVisit()) {
             // Never restore balances after the wallet's grant was invalidated.
             underUsage = false;
             dialog.dismissNow();
@@ -194,6 +210,8 @@ public final class AccountScreen {
         if (dialog != null) dialog.dismissNow();
         accountWorker.shutdownNow();
         walletWorker.shutdownNow();
+        photoWorker.shutdownNow();
+        clearIdentity();
     }
 
     private void closeConfirmation() {
@@ -246,18 +264,22 @@ public final class AccountScreen {
                 return;
             }
             Session previous = session;
+            boolean accountSwitched = session == Session.SIGNED_IN && !revision.equals(result.revision);
             boolean changed = previous != result.session || !statusError.equals(result.error)
-                    || exchanging != result.exchanging || !name.equals(result.name);
+                    || exchanging != result.exchanging || !name.equals(result.name)
+                    || !avatar.equals(result.avatar) || accountSwitched;
             session = result.session;
             exchanging = result.exchanging;
             if (exchanging || session != Session.PENDING) {
                 if (manualPrompt != null) manualPrompt.dismiss();
             }
             statusError = result.error;
-            name = result.name;
-            if (previous != session) {
+            updateIdentity(result);
+            if (previous != session || accountSwitched) {
                 actionError = "";
-                if (session != Session.SIGNED_IN) {
+                if (session != Session.SIGNED_IN || accountSwitched) {
+                    walletGeneration++;
+                    refreshing = refreshAgain = false;
                     wallets = null;
                     updated = null;
                     walletError = "";
@@ -266,21 +288,49 @@ public final class AccountScreen {
                 page.scrollToStart();
             }
             if (changed) render();
-            if (session == Session.SIGNED_IN && (alsoBalance || previous != session)) refreshWallets();
+            if (session == Session.SIGNED_IN && (alsoBalance || previous != session || accountSwitched)) refreshWallets();
             schedulePoll();
+        });
+    }
+
+    private void clearIdentity() {
+        photoGeneration++;
+        name = avatar = revision = requestedPhoto = "";
+        photo = null;
+    }
+
+    private void updateIdentity(Status status) {
+        if (!avatar.equals(status.avatar) || !revision.equals(status.revision)) clearIdentity();
+        name = status.name;
+        avatar = status.avatar;
+        revision = status.revision;
+    }
+
+    private void loadPhoto() {
+        if (avatar.isEmpty() || avatar.equals(requestedPhoto)) return;
+        String url = avatar;
+        requestedPhoto = url;
+        int generation = photoGeneration;
+        submit(photoWorker, () -> AccountAvatar.load(url), (value, ex) -> {
+            if (photoGeneration == generation && session == Session.SIGNED_IN && page != null) {
+                photo = value;
+                page.setPhoto(value);
+            }
         });
     }
 
     private static final class Status {
         final Session session;
         final boolean exchanging;
-        final String name, error;
+        final String name, avatar, revision, error;
         Status(JSONObject json) throws JSONException {
             boolean signed = json.getBoolean("signedIn");
             boolean pending = json.getBoolean("pending");
             session = signed ? Session.SIGNED_IN : pending ? Session.PENDING : Session.SIGNED_OUT;
             exchanging = session == Session.PENDING && json.optBoolean("exchanging", false);
-            name = json.isNull("name") ? "" : json.getString("name");
+            name = signed && !json.isNull("name") ? json.getString("name") : "";
+            avatar = signed ? json.optString("avatar", "") : "";
+            revision = signed ? json.optString("revision", "") : "";
             error = json.isNull("error") ? "" : json.getString("error");
         }
     }
@@ -359,7 +409,8 @@ public final class AccountScreen {
             } else if (next == Action.LOGOUT) {
                 session = Session.SIGNED_OUT;
                 page.scrollToStart();
-                name = proxyAddress = "";
+                clearIdentity();
+                proxyAddress = "";
                 wallets = null;
                 updated = null;
                 closeProxy();
@@ -403,7 +454,7 @@ public final class AccountScreen {
         int pad = Math.round(24 * activity.getResources().getDisplayMetrics().density);
         content.setPadding(pad, pad / 2, pad, 0);
         scroll.addView(content);
-        page.label(content, "仅当浏览器授权后无法返回时，复制地址栏里完整的本机回调网址（以 http://127.0.0.1: 开头），再粘贴到下方。此网址仅供本次登录使用，请勿分享。", 15, page.ink, false, 0);
+        page.label(content, "从浏览器复制以 http://127.0.0.1: 开头的完整回调网址。仅供本次登录，请勿分享。", 15, page.ink, false, 0);
         EditText input = new EditText(context);
         input.setSingleLine(true);
         input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
@@ -411,6 +462,7 @@ public final class AccountScreen {
         input.setTextColor(page.ink);
         input.setHintTextColor(page.muted);
         input.setSaveEnabled(false);
+        input.setMinHeight(Math.round(48 * activity.getResources().getDisplayMetrics().density));
         int imeFlags = EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
         if (Build.VERSION.SDK_INT >= 26) {
             input.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
@@ -542,7 +594,7 @@ public final class AccountScreen {
         boolean enable = !proxyRunning;
         action = Action.PROXY;
         proxyError = "";
-        render();
+        renderProxy();
         submit(accountWorker, () -> {
             if (enable) {
                 if (destroyed || new Status(host.status()).session != Session.SIGNED_IN) throw new IllegalStateException();
@@ -554,7 +606,7 @@ public final class AccountScreen {
             action = Action.NONE;
             if (proxyDialog != null && proxyDialog.isActive()) readProxyState();
             if (ex != null && proxyDialog != null) proxyError = enable ? "未能启用本机 API。请确认仍已登录，然后重试。" : "未能关闭本机 API，请重试。";
-            render();
+            renderProxy();
         });
     }
 
@@ -564,7 +616,7 @@ public final class AccountScreen {
         if (!info.optBoolean("running")) {
             readProxyState();
             proxyError = "本机 API 已关闭，请重新启用。";
-            render();
+            renderProxy();
             return;
         }
         String value = info.optString(key ? "key" : "baseURL");
@@ -581,7 +633,7 @@ public final class AccountScreen {
             if (Build.VERSION.SDK_INT < 33) Toast.makeText(activity, key ? "已复制本机密钥" : "已复制地址", Toast.LENGTH_SHORT).show();
         } catch (RuntimeException ex) {
             proxyError = "未能复制到剪贴板，请重试。";
-            render();
+            renderProxy();
         }
     }
 
@@ -589,65 +641,67 @@ public final class AccountScreen {
         if (underUsage) { walletNeedsRender = true; return; }
         if (!isShowing() || page == null) return;
         walletNeedsRender = false;
-        boolean welcome = session != Session.SIGNED_IN;
-        page.reset(welcome);
-        if (welcome) page.logo();
-        switch (session) {
-            case SIGNED_OUT:
-                page.heading("登录 DeepSeek 账号", 24);
-                body("使用浏览器授权后，你可以用账户余额聊天、查看余额或充值。", 12);
-                errors();
-                page.button(page.body, action == Action.LOGIN ? "正在打开授权页…" : "使用 DeepSeek 账号登录", PRIMARY, 28,
-                        action == Action.NONE ? () -> accountAction(Action.LOGIN) : null);
-                usageEntry();
-                page.button(page.body, "暂不登录，返回聊天", PLAIN, 8, dialog::dismiss);
-                break;
-            case PENDING:
-                page.heading(exchanging ? "正在完成登录" : "等待授权", 24);
-                body(exchanging ? "已收到授权回调，正在确认账户状态。" : "请在浏览器中完成授权。如果本机返回页一直加载，请复制地址栏的网址，返回这里点「手动完成授权」。", 12);
-                errors();
-                if (!exchanging) page.button(page.body, "手动完成授权", TONAL, 24,
-                        action == Action.NONE ? this::openManualPrompt : null);
-                page.button(page.body, action == Action.CANCEL ? "正在取消…" : "取消登录", PLAIN, exchanging ? 24 : 8,
-                        action == Action.NONE ? () -> accountAction(Action.CANCEL) : null);
-                break;
-            case SIGNED_IN:
-                renderSignedIn();
-                renderProxy();
-                break;
-            default:
-                page.heading(checking ? "正在读取账户…" : "账户状态未确认", 24);
-                errors();
-                if (!checking) page.button(page.body, "重新读取", TONAL, 20, () -> checkStatus(true));
-                break;
+        page.reset();
+        if (session == Session.SIGNED_IN) {
+            renderSignedIn();
+            return;
+        }
+        LinearLayout panel = page.panel(0, true);
+        if (session == Session.SIGNED_OUT) {
+            page.identity(panel, "未登录", "登录后可查看余额或充值。", "D", null);
+            errors();
+            page.button(panel, action == Action.LOGIN ? "正在打开浏览器…" : "登录 DeepSeek", PRIMARY, 16,
+                    action == Action.NONE ? () -> accountAction(Action.LOGIN) : null);
+            usageEntry(page.panel(24, false));
+        } else if (session == Session.PENDING) {
+            page.identity(panel, exchanging ? "正在完成登录" : "等待浏览器授权",
+                    exchanging ? "已收到授权，正在确认账号。" : "请在浏览器中完成登录，再返回这里。", "D", null);
+            if (!exchanging) {
+                page.label(panel, "授权后无法返回？可复制回调网址手动完成。", 14, page.muted, false, 16);
+                page.button(panel, "手动完成授权", TONAL, 8, action == Action.NONE ? this::openManualPrompt : null);
+            }
+            errors();
+            page.button(page.body, action == Action.CANCEL ? "正在取消…" : "取消登录", PLAIN, 8,
+                    action == Action.NONE ? () -> accountAction(Action.CANCEL) : null);
+        } else {
+            page.identity(panel, checking ? "正在读取账号…" : "账号状态未确认",
+                    checking ? "正在检查本机登录状态。" : "重新读取可检查当前登录状态。", "D", null);
+            errors();
+            if (!checking) page.button(panel, "重新读取", TONAL, 16, () -> checkStatus(true));
         }
     }
 
     private void renderSignedIn() {
-        page.heading(name.isEmpty() ? "DeepSeek 账号" : name, 0);
-        body(name.isEmpty() ? "已登录" : "已登录 DeepSeek 账号", 4);
+        String initial = name.isEmpty() ? "D" : name.substring(0, name.offsetByCodePoints(0, 1));
+        page.identity(page.panel(0, true), name.isEmpty() ? "已登录" : name, "DeepSeek 个人账号", initial, photo);
+        loadPhoto();
         errors();
-        LinearLayout box = page.walletPanel();
-        group(box, "钱包余额", wallets == null ? null : wallets.cash, "暂无钱包", 0);
-        page.divider(box, 14);
-        group(box, "赠送余额", wallets == null ? null : wallets.bonus, "暂无赠送钱包", 14);
-        String updateLabel = updated != null ? "上次更新 " + DateFormat.getTimeFormat(activity).format(updated)
-                : refreshing ? "余额更新中…" : "尚未更新";
-        page.label(box, updateLabel, 13, page.muted, false, 14);
+        page.section("账户余额", 24);
+        LinearLayout box = page.panel(8, true);
+        group(box, "钱包余额", wallets == null ? null : wallets.cash, "暂无钱包");
+        page.divider(box, 0);
+        group(box, "赠送余额", wallets == null ? null : wallets.bonus, "暂无赠送余额");
+        if (updated != null) {
+            String time = DateFormat.getTimeFormat(activity).format(updated);
+            page.label(box, (walletError.isEmpty() ? "更新于 " : "上次更新 ") + time, 13, page.muted, false, 8);
+        }
         error(box, walletError);
-        LinearLayout row = page.actionRow(box, 16);
+        LinearLayout row = page.actionRow(box, 12);
         boolean available = action == Action.NONE;
-        page.button(row, "前往充值", TONAL, 0, available ? this::openPayment : null);
-        page.button(row, refreshing ? "正在刷新…" : "刷新余额", PLAIN, 8, available && !refreshing ? this::refreshWallets : null);
-        usageEntry();
-        page.button(page.body, "继续聊天", PRIMARY, 8, dialog::dismiss);
-        page.divider(page.body, 28);
-        page.navigationRow("本机 API 设置", 8, available ? this::openProxy : null);
-        page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 8, available ? this::confirmLogout : null);
+        page.button(row, "前往充值", PRIMARY, 0, available ? this::openPayment : null);
+        page.button(row, refreshing ? "正在刷新…" : "刷新余额", TONAL, 8,
+                available && !refreshing ? this::refreshWallets : null);
+        page.section("用量与连接", 24);
+        LinearLayout links = page.panel(8, false);
+        usageEntry(links);
+        page.divider(links, 0);
+        page.navigationRow(links, "本机 API 设置", available ? this::openProxy : null);
+        page.button(page.body, action == Action.LOGOUT ? "正在退出…" : "退出登录", DANGER, 16,
+                available ? this::confirmLogout : null);
     }
 
-    private void usageEntry() {
-        page.navigationRow("模型用量", 16, action == Action.NONE ? () -> {
+    private void usageEntry(LinearLayout parent) {
+        page.navigationRow(parent, "模型用量", action == Action.NONE ? () -> {
             if (!isShowing()) return;
             underUsage = true;
             openUsage.run();
@@ -655,36 +709,40 @@ public final class AccountScreen {
         } : null);
     }
 
-    private void group(LinearLayout parent, String title, List<String[]> rows, String empty, int top) {
-        page.label(parent, title, 16, page.ink, true, top);
+    private void group(LinearLayout parent, String title, List<String[]> rows, String empty) {
         if (rows == null || rows.isEmpty()) {
-            String label = rows != null ? empty : refreshing ? "正在读取…" : "尚未获取";
-            page.label(parent, label, 15, page.muted, false, 6);
+            page.balanceLine(parent, title, rows != null ? empty : refreshing ? "读取中…" : "未获取", false);
             return;
         }
-        for (String[] wallet : rows) page.walletRow(parent, wallet[0], wallet[1]);
+        boolean first = true;
+        for (String[] wallet : rows) {
+            page.walletRow(parent, first ? title : "", wallet[0], wallet[1]);
+            first = false;
+        }
     }
 
     private void renderProxy() {
         AccountPage page = proxyPage;
         if (page == null || !proxyDialog.isActive()) return;
-        page.reset(false);
-        page.label(page.body, "仅限本机访问。持有本机密钥的应用可以使用你的账户余额。", 16, page.muted, false, 0);
-        if (proxyRunning) {
-            page.label(page.body, "连接地址", 15, page.ink, true, 16);
-            page.label(page.body, proxyAddress, 16, page.muted, false, 4);
-            page.label(page.body, "本机密钥  ••••••••", 15, page.ink, true, 12);
-            LinearLayout row = page.actionRow(page.body, 12);
-            boolean enabled = action == Action.NONE;
-            page.button(row, "复制地址", TONAL, 0, enabled ? () -> copyLocal(false) : null);
-            page.button(row, "复制本机密钥", TONAL, 8, enabled ? () -> copyLocal(true) : null);
-        }
-        error(page, page.body, proxyError);
-        page.button(page.body, action == Action.PROXY ? "正在处理…" : proxyRunning ? "关闭本机 API" : "启用本机 API",
-                proxyRunning ? PLAIN : TONAL, 12, action == Action.NONE ? this::toggleProxy : null);
+        page.reset();
+        LinearLayout control = page.panel(0, true);
+        page.label(control, proxyRunning ? "本机 API 已启用" : "本机 API 已关闭", 18, page.ink, true, 0);
+        page.label(control, "仅限此手机访问。持有密钥的应用可使用你的账户余额。", 14, page.muted, false, 6);
+        page.button(control, action == Action.PROXY ? "正在处理…" : proxyRunning ? "关闭本机 API" : "启用本机 API",
+                proxyRunning ? TONAL : PRIMARY, 16, action == Action.NONE ? this::toggleProxy : null);
+        error(page, control, proxyError);
+        if (!proxyRunning) return;
+        page.section("连接信息", 24);
+        LinearLayout details = page.panel(8, true);
+        page.label(details, "连接地址", 14, page.muted, false, 0);
+        page.label(details, proxyAddress, 16, page.ink, true, 4);
+        page.label(details, "本机密钥  ••••••••", 14, page.muted, false, 12);
+        LinearLayout row = page.actionRow(details, 12);
+        boolean enabled = action == Action.NONE;
+        page.button(row, "复制地址", TONAL, 0, enabled ? () -> copyLocal(false) : null);
+        page.button(row, "复制本机密钥", TONAL, 8, enabled ? () -> copyLocal(true) : null);
     }
 
-    private void body(String value, int top) { page.label(page.body, value, 16, page.muted, false, top); }
     private void errors() {
         error(page.body, statusError);
         error(page.body, actionError);

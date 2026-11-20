@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { IconEditOutline16 } from '../base/icons.js'
 import { useSettings } from '../../services/settings.js'
 import { useIsMobile } from '../../app/viewport.js'
@@ -21,15 +21,16 @@ type ApiKeyEditor = ReturnType<typeof useApiKeyEditor>
 export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
   const t = useTranslate()
   const isMobile = useIsMobile()
+  const label = useId()
   const { apiKey, editing, setEditing, form, showInput } = editor
 
   return (
     <div className={styles.cell}>
       <div className={styles.apiKey}>
-        <div className={styles.label}>{t('apiKeyStart')}</div>
+        <div className={styles.label} id={label}>{t('apiProfileKey')}</div>
         {apiKey && !editing ? (
           <div className={styles.apiKeySaved}>
-            <span className={styles.apiKeyMask}>{'*'.repeat(apiKey.length)}</span>
+            <span className={styles.apiKeyMask}>{apiKey.length > 4 ? `••••${apiKey.slice(-4)}` : '••••'}</span>
             <IconButton
               tone="primary"
               icon={<IconEditOutline16 />}
@@ -41,6 +42,7 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
           <div className={styles.apiKeyInput}>
             <input
               type="password"
+              aria-labelledby={label}
               placeholder={t('apiKeyPlaceholder')}
               autoComplete="off"
               spellCheck={false}
@@ -77,7 +79,7 @@ export const ApiKeyField = ({ editor }: { editor: ApiKeyEditor }) => {
             ) : null}
           </div>
         )}
-        {showInput && form.error ? <div className={styles.error}>{form.error}</div> : null}
+        {showInput && form.error ? <div role="alert" className={styles.error}>{form.error}</div> : null}
       </div>
     </div>
   )

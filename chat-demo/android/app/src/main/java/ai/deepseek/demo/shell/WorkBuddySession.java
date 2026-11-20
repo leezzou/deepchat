@@ -3,6 +3,7 @@ package ai.deepseek.demo.shell;
 import android.content.Context;
 import android.net.Uri;
 import android.os.SystemClock;
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -108,10 +109,10 @@ final class WorkBuddySession {
             JSONObject who = call("/v2/plugin/login/account" + query, false, pendingAccess);
             String uid = who.getString("uid");
             String type = who.isNull("type") ? "" : who.optString("type");
-            String enterprise = who.isNull("enterpriseId") ? "" : who.optString("enterpriseId");
-            if ((!type.isEmpty() && !"personal".equalsIgnoreCase(type)) || !enterprise.isEmpty()) throw new IOException("personal_account_required");
+            if ((!type.isEmpty() && !"personal".equalsIgnoreCase(type)) || hasEnterprise(who)) throw new IOException("personal_account_required");
             if (uid.isEmpty() || uid.equals("null") || uid.length() > 256 || !uid.matches("[!-~]+")) throw new IOException("account_missing");
-            JSONObject record = new JSONObject().put("uid", uid).put("name", who.optString("nickname"))
+            JSONObject record = new JSONObject().put("uid", uid)
+                    .put("name", AccountProfileFields.name(who.opt("nickname"))).put("avatar", avatarOf(who))
                     .put("issuer", AUTH_HOST).put("access", pendingAccess).put("refresh", pendingRefresh).put("expiresAt", pendingExpiry)
                     .put("refreshExpiresAt", pendingRefreshExpiry).put("revision", UUID.randomUUID().toString()).put("model", "deepseek-v4.1-flash");
             vault.write(record.toString()); cancel();
@@ -170,11 +171,61 @@ final class WorkBuddySession {
     synchronized JSONObject status() throws Exception {
         JSONObject saved = record(), result = new JSONObject().put("type", "status").put("pending", pending());
         if (saved.has("access") && (usableRefresh(saved) || saved.optLong("expiresAt") <= 0 || saved.getLong("expiresAt") > System.currentTimeMillis())) {
-            result.put("model", saved.getString("model")).put("revision", saved.getString("revision")).put("name", saved.optString("name"));
+            result.put("model", saved.getString("model")).put("revision", saved.getString("revision"));
+            putProfile(saved, result);
+            long age = System.currentTimeMillis() - saved.optLong("profileCheckedAt");
+            boolean incomplete = result.getString("avatar").isEmpty() || result.getString("name").isEmpty();
+            result.put("profileRefresh", age < 0 || age >= (incomplete ? 60_000 : 6 * 3_600_000L));
             WorkBuddyCatalog.describeCache(saved, result, System.currentTimeMillis());
         }
         return result;
     }
+    private static boolean hasEnterprise(JSONObject account) {
+        return (!account.isNull("enterpriseId") && !account.optString("enterpriseId").isEmpty())
+                || (!account.isNull("enterprise_id") && !account.optString("enterprise_id").isEmpty());
+    }
+
+    private static String avatarOf(JSONObject who) {
+        String avatar = AccountProfileFields.avatar(who.opt("avatarUrl"));
+        return avatar.isEmpty() ? AccountProfileFields.avatar(who.opt("avatar_url")) : avatar;
+    }
+
+    private static JSONObject putProfile(JSONObject saved, JSONObject result) throws Exception {
+        return result.put("profileVersion", saved.optLong("profileVersion"))
+                .put("name", AccountProfileFields.name(saved.opt("name")))
+                .put("avatar", AccountProfileFields.avatar(saved.opt("avatar")));
+    }
+
+    /** The plugin account list can supply profile fields after the login response, including on upgraded installs. */
+    JSONObject refreshProfile(String revision) throws Exception {
+        JSONObject current;
+        synchronized (this) {
+            checkedRecord(revision);
+            current = account();
+        }
+        String issuer = AUTH_HOST.equals(current.optString("issuer")) ? ORIGIN : LEGACY_ORIGIN;
+        JSONArray accounts = call(issuer, "/v2/plugin/accounts", false, current.getString("access"), null).getJSONArray("accounts");
+        JSONObject match = null;
+        for (int i = 0; i < accounts.length(); i++) {
+            JSONObject row = accounts.optJSONObject(i);
+            if (row == null || !current.getString("uid").equals(row.opt("uid"))
+                    || !"personal".equalsIgnoreCase(row.optString("type")) || hasEnterprise(row)) continue;
+            if (match != null) throw new IOException("ambiguous_personal_account");
+            match = row;
+        }
+        synchronized (this) {
+            JSONObject saved = checkedRecord(revision);
+            if (match != null) {
+                String name = AccountProfileFields.name(match.opt("nickname")), avatar = avatarOf(match);
+                if (match.has("nickname")) saved.put("name", name);
+                if (match.has("avatarUrl") || match.has("avatar_url")) saved.put("avatar", avatar);
+                saved.put("profileVersion", saved.optLong("profileVersion") + 1);
+            }
+            vault.write(saved.put("profileCheckedAt", System.currentTimeMillis()).toString());
+            return putProfile(saved, new JSONObject().put("type", "profile").put("revision", revision));
+        }
+    }
+
     private JSONObject checkedRecord(String revision) throws Exception {
         JSONObject saved = record();
         if (!saved.has("access")) throw new IOException("sign_in_required");
