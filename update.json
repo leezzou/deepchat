@@ -1,8 +1,8 @@
 {
-  "version": "1.0.52",
-  "publishedAt": "2026-11-19",
-  "notes": "WorkBuddy 登录入口移至 DeepSeek 账号下方，支持深度思考和智能搜索。积分页新增 4.1 Flash 用量和腾讯返回的重置时间。修复部分手机在 DeepSeek 登录后一直等待本地回调的问题。",
-  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.52",
-  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.52/deepchat.apk",
-  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.52/deepchat.apk"
+  "version": "1.0.53",
+  "publishedAt": "2026-11-20",
+  "notes": "发现新版本时，「检查更新」入口会显示红点，可在设置内查看更新说明并下载安装。WorkBuddy 积分和签到已移到「WorkBuddy 账号」，原来的版本号连点入口已移除。DeepSeek 日额度改为一句提醒。历史导入会显示校验、快照和写入进度；Android 从链接导入时减少了一份 ZIP 的临时空间占用。",
+  "pageUrl": "https://gitee.com/yllzz/deepchat/releases/tag/v1.0.53",
+  "apkUrl": "https://gitee.com/yllzz/deepchat/releases/download/v1.0.53/deepchat.apk",
+  "apkUrlFallback": "https://ghfast.top/https://github.com/leezzou/deepchat/releases/download/v1.0.53/deepchat.apk"
 }

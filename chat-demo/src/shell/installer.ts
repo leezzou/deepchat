@@ -4,6 +4,9 @@
  */
 
 type UpdaterBridge = {
+  getInstalledVersion?: () => string
+  getDownloadedVersion?: () => string
+  installApkForVersion?: (url: string, fallbackUrl: string, version: string) => void
   installApk?: (url: string) => void
   installApkWithFallback?: (url: string, fallbackUrl: string) => void
   installDownloadedApk?: () => void
@@ -24,11 +27,15 @@ export const canInstallInApp = (): boolean => {
 }
 
 /** 触发下载安装；fallbackUrl 在首选镜像失败时由原生侧自动尝试 */
-export const installApk = (url: string, fallbackUrl?: string): boolean => {
+export const installApk = (url: string, fallbackUrl?: string, version?: string): boolean => {
   if (!canInstallInApp()) {
     return false
   }
   const target = bridge()
+  if (target?.installApkForVersion && version) {
+    target.installApkForVersion(url, fallbackUrl ?? '', version)
+    return true
+  }
   if (target?.installApkWithFallback) {
     target.installApkWithFallback(url, fallbackUrl ?? '')
     return true
@@ -40,6 +47,12 @@ export const installApk = (url: string, fallbackUrl?: string): boolean => {
   return true
 }
 
+export const readInstalledVersion = () =>
+  bridge()?.getInstalledVersion?.()?.trim() ||
+  document.querySelector('meta[name="application-version"]')?.getAttribute('content')?.trim() ||
+  ''
+
+export const readDownloadedVersion = () => bridge()?.getDownloadedVersion?.() || ''
 export const isDownloadedUpdateReady = () => bridge()?.isDownloadedUpdateReady?.() === true
 
 /** Only updateSafety calls this, after checking work and awaiting local persistence. */

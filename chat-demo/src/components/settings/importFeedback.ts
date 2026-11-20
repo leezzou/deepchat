@@ -9,12 +9,13 @@ export type ImportFeedback = { source: ImportSource } & (
   | { state: 'running'; stage: ImportStage; bytes?: ImportBytes }
   | { state: 'failed'; stage: ImportStage; failure: ImportFailure }
   | { state: 'success'; count: number }
+  | { state: 'recovery' }
 )
 
 // Content-Length can be absent, negative, or smaller than the decoded payload.
 export const importPercent = (bytes?: ImportBytes) => {
   if (!bytes || !Number.isFinite(bytes.processed) || !Number.isFinite(bytes.total) ||
-      bytes.total <= 0 || bytes.processed < 0 || bytes.processed > bytes.total) {
+      bytes.total <= 0 || bytes.processed < 0 || bytes.processed >= bytes.total) {
     return undefined
   }
   return Math.floor(bytes.processed / bytes.total * 100)
@@ -57,7 +58,7 @@ export const importFailure = (
     cause = nested
   }
   const detail = details.join('\n')
-  if (/QuotaExceededError|no space left|disk (?:is )?full|ENOSPC/i.test(detail)) {
+  if (/QuotaExceededError|no space left|disk (?:is )?full|ENOSPC|SQLITE_FULL|insufficient (?:disk )?space|存储空间不足|磁盘空间不足/i.test(detail)) {
     return failed('importQuotaError', 'importSpaceAction')
   }
   if (/failed to write blobs?/i.test(detail)) {
@@ -67,6 +68,9 @@ export const importFailure = (
     return failed('importMemoryError', 'importMemoryAction')
   }
   if (stage === 'downloading') {
+    if (/incomplete download|unexpected end of stream|premature (?:end|EOF)/i.test(detail)) {
+      return failed('importIncompleteDownload', 'importDownloadAction')
+    }
     if (/本地文件读取失败|local cache read/i.test(detail)) {
       return failed('importReadError', 'importReadAction')
     }

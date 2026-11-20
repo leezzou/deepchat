@@ -19,6 +19,7 @@ test('OPFS and IDB spools commit independent Blobs and clean up after CRC/writer
     const files = new Map([
       ['/spool.js', new URL('./spool.ts', import.meta.url)],
       ['/zipReader.js', new URL('./zipReader.ts', import.meta.url)],
+      ['/archiveSource.js', new URL('./archiveSource.ts', import.meta.url)],
       ['/idb.js', new URL('node_modules/idb/build/index.js', project)],
       ['/fflate.js', new URL('node_modules/fflate/esm/browser.js', project)],
     ])
@@ -62,12 +63,21 @@ test('OPFS and IDB spools commit independent Blobs and clean up after CRC/writer
         const noSpool = async () => assert((await scratch()).length === 0, 'Empty scratch directory')
         for (const mode of ['OPFS', 'IndexedDB']) {
           if (mode === 'IndexedDB') Object.defineProperty(FileSystemFileHandle.prototype, 'createWritable', { configurable: true, value: undefined })
-          const owned = await spoolBlob(parts())
+          const { zipSync } = await import('/fflate.js')
+          const payload = new Uint8Array(12 * 768 * 1024)
+          for (let n = 0; n < 12; n++) payload.fill(n, n * 768 * 1024, (n + 1) * 768 * 1024)
+          const zip = zipSync({ 'image.test': payload }, { level: 0 })
+          const owned = await spoolBlob((async function* () { yield zip })())
           try {
             assert((await scratch()).length === (mode === 'OPFS' ? 1 : 0), `Temporary lease ${mode}`)
-            await db.put('persisted', owned.blob.slice(0, owned.blob.size, 'image/test'), 'attachment')
+            const source = { size: zip.length, name: 'fixture.zip', readRange: (at, n) => read(owned.blob, at, n) }
+            for await (const entry of readArchive(source, await readDirectory(source))) {
+              const attachment = await readEntry(entry)
+              try { await db.put('persisted', attachment.blob.slice(0, entry.size, 'image/test'), mode) }
+              finally { await attachment.dispose() }
+            }
           } finally { await owned.dispose() }
-          const saved = await db.get('persisted', 'attachment')
+          const saved = await db.get('persisted', mode)
           assert(saved.size === 12 * 768 * 1024 && saved.type === 'image/test', 'Saved metadata')
           for (let n = 0; n < 12; n++) assert((await read(saved, n * 768 * 1024))[0] === n, 'Verified each part')
           await noSpool()
@@ -94,7 +104,21 @@ test('OPFS and IDB spools commit independent Blobs and clean up after CRC/writer
       return checked
     }, Boolean(process.env.ZIP_SCALE_FILE))
     assert.ok(report.includes('OPFS') && report.includes('IndexedDB'))
-    console.log('Verified', report.join(', '))
+    await page.reload()
+    await page.evaluate(async () => {
+      const { openDB } = await import('/idb.js')
+      const db = await openDB('spool-test', 1)
+      try {
+        for (const mode of ['OPFS', 'IndexedDB']) {
+          const attachment = await db.get('persisted', mode)
+          const bytes = new Uint8Array(await attachment.arrayBuffer())
+          if (bytes.length !== 12 * 768 * 1024 || !bytes.every((b, i) => b === Math.floor(i / (768 * 1024)))) {
+            throw new Error('Persisted attachment changed after reopening')
+          }
+        }
+      } finally { db.close() }
+    })
+    console.log('Verified', report.join(', '), 'and reopened attachment bytes')
   } finally {
     await browser?.close()
     assert.ok(path.dirname(profile) === tmpdir() && path.basename(profile).startsWith('zip-spool-browser-'))

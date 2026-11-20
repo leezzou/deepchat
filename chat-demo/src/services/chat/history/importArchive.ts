@@ -2,6 +2,7 @@ import { Capacitor } from '@capacitor/core'
 import * as db from '../db.js'
 import type { Session } from '../types.js'
 import { parseJsonStream } from './streamJson.js'
+import type { ArchiveSource } from './archiveSource.js'
 import { BackupError, fail } from './errors.js'
 import type { SessionIndexEntry } from './format.js'
 import { INDEX_PATH, MANIFEST_PATH, USER_PATH, parseSessionPath, sessionFilesDir } from './paths.js'
@@ -75,7 +76,7 @@ const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
  * 检查 ZIP 格式、首个 manifest 条目及格式版本。
  * 校验失败时保留正在生成的回答和现有暂存数据。
  */
-export const checkArchiveFormat = async (file: File): Promise<ArchiveDirectory> => {
+export const checkArchiveFormat = async (file: ArchiveSource): Promise<ArchiveDirectory> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }
@@ -101,7 +102,7 @@ export const checkArchiveFormat = async (file: File): Promise<ArchiveDirectory> 
  * 写入导入暂存存储；调用方负责先清空暂存，成功后替换正式数据，失败时清理暂存。
  */
 export const importArchive = async (
-  file: File,
+  file: ArchiveSource,
   directory: ArchiveDirectory,
   onProgress?: (processed: number, total: number) => void,
   onSession?: (session: Session) => void

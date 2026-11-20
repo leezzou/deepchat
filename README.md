@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.52/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
+  <a href="https://gitee.com/yllzz/deepchat/releases/download/v1.0.53/deepchat.apk"><img src="https://img.shields.io/badge/Android-%E4%B8%8B%E8%BD%BD%20APK-426efe?style=for-the-badge&labelColor=26344d&logo=android&logoColor=white" alt="下载 Android APK"></a>
   &nbsp;
   <a href="https://github.com/leezzou/deepchat/releases/latest/download/deepchat.apk">GitHub 备用下载</a>
 </p>
@@ -45,7 +45,7 @@
 
 安装时按 Android 提示允许当前下载来源安装应用。已安装的用户可以在 **设置 → 检查更新** 中下载新版本，并交给系统安装器完成升级。
 
-应用启动、回到前台时会检查更新，运行期间每 **60 秒**检查一次。有新版本时，抽屉的设置入口出现红点，设置页显示「有新版本」。Android 在后台可能暂停计时，回到前台会再次检查。
+应用启动、回到前台时会检查更新，运行期间每 **60 秒**检查一次。有新版本时，左上角菜单、抽屉的设置入口和「检查更新」都会显示红点。点「检查更新」可在设置里查看版本说明、下载进度，并在下载完成后安装。Android 在后台可能暂停计时，回到前台会再次检查。
 
 更新检查只作提示。下载安装、资源异常后的重新加载都会检查所有会话：生成、摘要整理、历史导入、未发送文字或附件、正在编辑或录音时先暂缓。APK 下载完成后再点击安装，安装前重新检查并等待本地写入完成。草稿文字和附件原件会保存在本机；恢复的附件需点击重新上传。
 
@@ -126,6 +126,8 @@ DeepSeek 专用接口还接入了深度思考、联网搜索、链接阅读与�
 | 生成备份 → 保存到设备 | 导出消息记录、上下文设置和本地图片原件；不包含 API Key，保存完成后可手动确认。 |
 
 备份会分别显示「已生成」「已交给浏览器下载 / 系统分享」和「已确认保存」。每完成 10 个新用户轮次，默认生成一份本机备份并提醒保存，可在设置关闭；自动生成不会触发下载，重试同一轮不会重复计数。
+
+链接下载或文件读取结束后，设置页会显示校验、快照和写入阶段。看到导入的会话数即表示完成。大 ZIP 解压和保存原有历史快照需要额外空间。遇到空间不足时，请移走其他文件，保留 DeepChat 的应用数据，再重试。
 
 **导入会替换当前本地对话和附件。** 校验通过后，应用先保存包含全部附件原件和草稿的本机恢复点，再提交替换；清空与恢复操作也会先创建恢复点。恢复点写入失败会中止操作，已有历史和旧恢复点保留。
 

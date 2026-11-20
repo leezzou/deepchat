@@ -1,26 +1,3 @@
-.wb-version-footer {
-  display: flex;
-  justify-content: center;
-  flex: none;
-  margin-block-start: auto;
-  padding-block-start: 18px;
-}
-.wb-version-footer button {
-  min-height: 44px;
-  padding: 0 24px;
-  color: var(--dc-secondary);
-  background: transparent;
-  border: 0;
-  border-radius: 12px;
-  font: inherit;
-  font-size: 11px;
-  line-height: 16px;
-  touch-action: manipulation;
-  user-select: none;
-  -webkit-user-select: none;
-  -webkit-tap-highlight-color: transparent;
-  cursor: pointer;
-}
 .wb-settings {
   box-sizing: border-box;
   width: 100%;
@@ -93,5 +70,4 @@ button.wb-row, label.wb-row, .wb-icon-button { cursor: pointer; -webkit-tap-high
   color: var(--dc-secondary);
   background: transparent;
 }
-.wb-form { display: grid; min-width: 0; gap: 12px; padding: 14px; }
-.wb-settings :focus-visible, .wb-version-footer button:focus-visible { outline: 2px solid var(--dc-accent); outline-offset: -2px; }
+.wb-settings :focus-visible { outline: 2px solid var(--dc-accent); outline-offset: -2px; }

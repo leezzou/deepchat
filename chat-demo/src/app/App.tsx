@@ -16,7 +16,7 @@ import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
-import { ensureApiKey } from '../components/settings/settingsDialogState.js'
+import { ensureApiKey, openSettings } from '../components/settings/settingsDialogState.js'
 import { BackupReminder, SettingsDialog } from '../components/settings/SettingsDialog.js'
 import { ApiUsageDialog } from '../components/settings/ApiUsage.js'
 import { HistorySearch } from '../components/historySearch/HistorySearch.js'
@@ -27,7 +27,7 @@ import {
   useDrafts,
 } from '../services/chat/drafts.js'
 import { initializeAutoBackup } from '../services/backup/automatic.js'
-import { bindUpdateSafety } from '../services/updateSafety.js'
+import { bindUpdateSafety, takeUpdateReturn } from '../services/updateSafety.js'
 import { UpdateSafetyNotice } from './UpdateSafetyNotice.js'
 import { IncomingShare } from '../shell/incoming/IncomingShare.js'
 import { Toast } from '../components/base/Toast.js'
@@ -121,6 +121,9 @@ export const App = () => {
   useEffect(() => {
     void initChat()
     void initDrafts()
+    if (takeUpdateReturn()) {
+      openSettings('general')
+    }
     if (hasWorkBuddyBridge) {
       // Read native routing metadata even if WebView storage was cleared since sign-in.
       void refreshWorkBuddy().catch(() => {})

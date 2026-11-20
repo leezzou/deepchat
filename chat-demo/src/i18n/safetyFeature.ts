@@ -18,7 +18,13 @@ export const safetyFeatureZh = {
   updateReload: '重新加载',
   updateInstallFailed: '更新未能完成，请稍后重试。',
   updateStorageFailed: '本地数据尚未保存，已暂停更新。',
-  updateAwaitDownload: '正在下载更新，完成后会提示安装。',
+  updateAwaitDownload: '正在下载更新…',
+  updateDownloadFailed: '下载失败，请检查网络后重试。',
+  updatePermission: '请在系统设置中允许 DeepChat 安装应用，返回后再继续。',
+  updateInstalling: '请在系统安装界面确认。返回这里可查看安装结果。',
+  updateCurrent: '当前版本 v{version}',
+  updateInstalled: '已更新到 v{version}',
+  updateGetApk: '下载更新',
 }
 
 export const safetyFeatureEn = {
@@ -44,5 +50,11 @@ export const safetyFeatureEn = {
   updateReload: 'Reload',
   updateInstallFailed: 'The update could not be completed. Please try again.',
   updateStorageFailed: 'Local data has not been saved. Update paused.',
-  updateAwaitDownload: 'Downloading update. You will be notified when it is ready to install.',
+  updateAwaitDownload: 'Downloading update…',
+  updateDownloadFailed: 'Download failed. Check your connection and try again.',
+  updatePermission: 'Allow DeepChat to install apps in system settings, then return here to continue.',
+  updateInstalling: 'Confirm in the system installer. Return here to see the result.',
+  updateCurrent: 'Current version v{version}',
+  updateInstalled: 'Updated to v{version}',
+  updateGetApk: 'Download update',
 } satisfies Record<keyof typeof safetyFeatureZh, string>

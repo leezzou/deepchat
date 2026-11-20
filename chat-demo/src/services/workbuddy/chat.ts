@@ -5,7 +5,6 @@ import { workBuddyFetch } from './bridge.js'
 import { searchQuestion, searchSources, withSearchEvidence } from './search.js'
 import { createId } from '../../utils/id.js'
 import { isWorkBuddyModel } from './models.js'
-import { observeFlashLimit, observeFlashReply } from './quota.js'
 
 export function workBuddyMessages(body: CreateMessageRequest) {
   const rows: { role: string; content: string }[] = []
@@ -133,7 +132,6 @@ export async function* streamWorkBuddy(
   }
   signal.throwIfAborted()
   onDispatch?.()
-  const startedAt = Date.now()
   const response = await workBuddyFetch(
     access.model,
     access.revision,
@@ -146,10 +144,8 @@ export async function* streamWorkBuddy(
     !response.headers.get('Content-Type')?.toLowerCase().includes('text/event-stream')
   ) {
     const error = await response.json().catch(() => null)
-    observeFlashLimit(access, error, response.status)
     throw serviceError(error, response.status)
   }
-  let reportedTokens: number | undefined
   let block: 'text' | 'thinking' | undefined
   let sawThinking = false
   let finished = false
@@ -167,12 +163,7 @@ export async function* streamWorkBuddy(
       throw new Error('WorkBuddy · 腾讯返回了不同的模型 / Model mismatch')
     }
     if (frame.event === 'error' || chunk.error || (chunk.code != null && chunk.code !== 0)) {
-      observeFlashLimit(access, chunk, response.status)
       throw serviceError(chunk)
-    }
-    // A stream may repeat cumulative usage. Count only its final total once.
-    if (Number.isSafeInteger(chunk.usage?.total_tokens) && chunk.usage.total_tokens >= 0) {
-      reportedTokens = chunk.usage.total_tokens
     }
     const choice = chunk.choices?.[0]
     if (!choice) {
@@ -230,7 +221,6 @@ export async function* streamWorkBuddy(
   if (!block && reason !== 'refusal') {
     throw new Error('WorkBuddy · 腾讯未返回回复内容 / Empty reply')
   }
-  observeFlashReply(access, reportedTokens, startedAt)
   yield {
     type: 'message_delta',
     delta: { stop_reason: reason, stop_sequence: null },

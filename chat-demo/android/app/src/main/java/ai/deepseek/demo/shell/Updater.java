@@ -1,190 +1,217 @@
 package ai.deepseek.demo.shell;
 
 import android.content.Intent;
+import android.content.pm.PackageInfo;
 import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.webkit.JavascriptInterface;
-import android.widget.Toast;
 
 import androidx.core.content.FileProvider;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * 应用内更新：把 GitHub Release 里的 APK 下到缓存目录，再拉起系统安装器。
- * JS 侧见 src/shell/installer.ts（window.AndroidUpdater.installApk）。
- */
+/** Download into the private cache. Only the explicit, safety-checked install action leaves the app. */
 public class Updater {
     private static final String APK_NAME = "update.apk";
-
     private final MainActivity activity;
     private final AtomicBoolean downloading = new AtomicBoolean(false);
-    private volatile boolean downloadedReady;
+    private volatile String downloadedVersion = "";
 
     public Updater(MainActivity activity) {
         this.activity = activity;
-        this.downloadedReady = activity.getPreferences(0).getBoolean("updateReady", false)
-                && new File(activity.getCacheDir(), APK_NAME).isFile();
+        if (activity.getPreferences(0).getBoolean("updateReady", false)) {
+            try {
+                downloadedVersion = inspectArchive("");
+            } catch (Exception stale) {
+                setDownloadedVersion("");
+            }
+        }
     }
 
-    private void setDownloadedReady(boolean ready) {
-        downloadedReady = ready;
-        activity.getPreferences(0).edit().putBoolean("updateReady", ready).apply();
+    private void setDownloadedVersion(String version) {
+        downloadedVersion = version;
+        activity.getPreferences(0).edit().putBoolean("updateReady", !version.isEmpty()).apply();
+    }
+
+    @JavascriptInterface
+    public String getInstalledVersion() {
+        try {
+            return installedPackage().versionName;
+        } catch (Exception unavailable) {
+            return "";
+        }
+    }
+
+    private PackageInfo installedPackage() throws Exception {
+        return activity.getPackageManager().getPackageInfo(activity.getPackageName(), 0);
+    }
+
+    private static long versionCode(PackageInfo info) {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.P ? info.getLongVersionCode() : info.versionCode;
+    }
+
+    // Also validates an older shell's ready flag on startup, after package replacement or cache eviction.
+    private String inspectArchive(String expectedVersion) throws Exception {
+        File apk = new File(activity.getCacheDir(), APK_NAME);
+        PackageInfo candidate = activity.getPackageManager().getPackageArchiveInfo(apk.getPath(), 0);
+        if (candidate == null || !activity.getPackageName().equals(candidate.packageName)
+                || candidate.versionName == null || candidate.versionName.isEmpty()
+                || (!expectedVersion.isEmpty() && !expectedVersion.equals(candidate.versionName))
+                || versionCode(candidate) <= versionCode(installedPackage())) {
+            throw new Exception("安装包与待更新版本不符");
+        }
+        return candidate.versionName;
+    }
+
+    private void dispatch(String eventExpression) {
+        activity.runOnUiThread(() -> {
+            if (!activity.isDestroyed() && activity.getBridge() != null) {
+                activity.getBridge().getWebView().evaluateJavascript("window.dispatchEvent(" + eventExpression + ")", null);
+            }
+        });
     }
 
     private void notifyWeb(String event) {
-        activity.runOnUiThread(() -> activity.getBridge().getWebView().evaluateJavascript(
-                "window.dispatchEvent(new Event('" + event + "'))", null));
+        dispatch("new Event('deepchat:update-" + event + "')");
     }
 
     @JavascriptInterface
     public boolean isDownloadedUpdateReady() {
-        return downloadedReady && new File(activity.getCacheDir(), APK_NAME).isFile();
+        return !downloadedVersion.isEmpty() && new File(activity.getCacheDir(), APK_NAME).isFile();
     }
 
-    /** Recheck immediately before leaving the WebView; a draft may have changed since the click. */
+    @JavascriptInterface
+    public String getDownloadedVersion() {
+        return isDownloadedUpdateReady() ? downloadedVersion : "";
+    }
+
     @JavascriptInterface
     public void installDownloadedApk() {
         activity.runOnUiThread(() -> {
-            if (!isDownloadedUpdateReady()) return;
+            if (!isDownloadedUpdateReady()) {
+                notifyWeb("install-failed");
+                return;
+            }
             activity.getBridge().getWebView().evaluateJavascript(
                     "Boolean(window.__deepchatCanInstallUpdate && window.__deepchatCanInstallUpdate())",
                     allowed -> {
                         if ("true".equals(allowed)) launchInstaller();
-                        else notifyWeb("deepchat:update-ready");
+                        else notifyWeb("ready");
                     });
         });
     }
 
     @JavascriptInterface
-    public void installApk(final String url) {
+    public void installApk(String url) {
         installApkWithFallback(url, "");
     }
 
-    /** 优先使用镜像地址；镜像失败时自动尝试 GitHub 原始地址。 */
     @JavascriptInterface
-    public void installApkWithFallback(final String url, final String fallbackUrl) {
-        activity.runOnUiThread(
-                new Runnable() {
-                    @Override
-                    public void run() {
-                        // Android 8+ 需要用户先允许「安装未知应用」，没有就先把用户带到开关页
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                                && !activity.getPackageManager().canRequestPackageInstalls()) {
-                            toast("请先允许 DeepChat 安装应用，然后再试一次");
-                            Intent settings =
-                                    new Intent(
-                                            Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
-                                            Uri.parse("package:" + activity.getPackageName()));
-                            activity.startActivity(settings);
-                            notifyWeb("deepchat:update-permission");
-                            return;
-                        }
-                        if (!downloading.compareAndSet(false, true)) return;
-                        setDownloadedReady(false);
-                        toast("开始下载更新…");
-                        new Thread(() -> download(url, fallbackUrl)).start();
-                    }
-                });
+    public void installApkWithFallback(String url, String fallbackUrl) {
+        installApkForVersion(url, fallbackUrl, "");
     }
 
-    private void download(String url, String fallbackUrl) {
+    @JavascriptInterface
+    public void installApkForVersion(String url, String fallbackUrl, String version) {
+        activity.runOnUiThread(() -> {
+            if (!downloading.compareAndSet(false, true)) return;
+            setDownloadedVersion("");
+            new Thread(() -> download(url, fallbackUrl, version == null ? "" : version), "deepchat-update").start();
+        });
+    }
+
+    private void download(String url, String fallbackUrl, String version) {
         try {
-            downloadFile(url);
-            setDownloadedReady(true);
-            downloading.set(false);
-            notifyWeb("deepchat:update-ready");
-        } catch (Exception error) {
-            if (fallbackUrl != null
-                    && !fallbackUrl.isEmpty()
-                    && !fallbackUrl.equals(url)) {
-                // 镜像不可用时不打扰用户，直接换 GitHub 原始地址再试一次
-                download(fallbackUrl, "");
-                return;
+            String actualVersion;
+            try {
+                downloadFile(url);
+                actualVersion = inspectArchive(version);
+            } catch (Exception mirrorFailed) {
+                if (fallbackUrl == null || fallbackUrl.isEmpty() || fallbackUrl.equals(url)) throw mirrorFailed;
+                downloadFile(fallbackUrl);
+                actualVersion = inspectArchive(version);
             }
+            setDownloadedVersion(actualVersion);
+            notifyWeb("ready");
+        } catch (Exception failed) {
+            notifyWeb("failed");
+        } finally {
             downloading.set(false);
-            notifyWeb("deepchat:update-failed");
-            fail("下载失败：" + error.getMessage());
         }
     }
 
     private void downloadFile(String url) throws Exception {
         File target = new File(activity.getCacheDir(), APK_NAME);
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
-        connection.setInstanceFollowRedirects(true);
-        connection.setConnectTimeout(15000);
-        connection.setReadTimeout(30000);
-        connection.setRequestProperty("User-Agent", "DeepChat-Updater");
-        connection.connect();
-        if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-            throw new Exception("HTTP " + connection.getResponseCode());
-        }
-        try (InputStream input = connection.getInputStream();
-                FileOutputStream output = new FileOutputStream(target)) {
-            byte[] buffer = new byte[8192];
-            int read;
-            while ((read = input.read(buffer)) > 0) {
-                output.write(buffer, 0, read);
+        try {
+            connection.setInstanceFollowRedirects(true);
+            connection.setConnectTimeout(15000);
+            connection.setReadTimeout(30000);
+            connection.setRequestProperty("User-Agent", "DeepChat-Updater");
+            connection.setRequestProperty("Accept-Encoding", "identity");
+            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
+                throw new Exception("HTTP " + connection.getResponseCode());
             }
-        }
-        // 代理可能返回 200 的 HTML 错误页；APK 是 ZIP，至少要以 PK 开头。
-        try (FileInputStream input = new FileInputStream(target)) {
-            byte[] magic = new byte[2];
-            if (input.read(magic) != 2 || magic[0] != 'P' || magic[1] != 'K') {
-                throw new Exception("下载内容不是 APK");
+            long total = connection.getContentLength();
+            long received = 0;
+            long nextReport = 0;
+            try (InputStream input = connection.getInputStream();
+                    FileOutputStream output = new FileOutputStream(target)) {
+                byte[] buffer = new byte[16384];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                    received += read;
+                    if (SystemClock.elapsedRealtime() >= nextReport || received == total) {
+                        dispatch("new CustomEvent('deepchat:update-progress',{detail:{received:" + received + ",total:" + total + "}})");
+                        nextReport = SystemClock.elapsedRealtime() + 250;
+                    }
+                }
             }
+            if (total > 0 && received != total) throw new Exception("下载不完整");
+        } finally {
+            connection.disconnect();
         }
     }
 
-    /** 找到系统「软件包安装程序」的包名，避免弹出「打开方式」选择框 */
     private String findSystemInstaller() {
         Intent probe = new Intent(Intent.ACTION_VIEW);
         probe.setType("application/vnd.android.package-archive");
         for (ResolveInfo info : activity.getPackageManager().queryIntentActivities(probe, 0)) {
             String pkg = info.activityInfo != null ? info.activityInfo.packageName : "";
-            if (pkg.toLowerCase().contains("packageinstaller")) {
-                return pkg;
-            }
+            if (pkg.toLowerCase().contains("packageinstaller")) return pkg;
         }
         return null;
     }
 
     private void launchInstaller() {
-        File apk = new File(activity.getCacheDir(), APK_NAME);
         try {
-            Uri uri =
-                    FileProvider.getUriForFile(
-                            activity, activity.getPackageName() + ".fileprovider", apk);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    && !activity.getPackageManager().canRequestPackageInstalls()) {
+                notifyWeb("permission");
+                activity.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:" + activity.getPackageName())));
+                return;
+            }
+            File apk = new File(activity.getCacheDir(), APK_NAME);
+            Uri uri = FileProvider.getUriForFile(activity, activity.getPackageName() + ".fileprovider", apk);
             Intent intent = new Intent(Intent.ACTION_VIEW);
             intent.setDataAndType(uri, "application/vnd.android.package-archive");
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            // 显式指定系统安装器；找不到时退回系统默认选择
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
             String installer = findSystemInstaller();
-            if (installer != null) {
-                intent.setPackage(installer);
-            }
+            if (installer != null) intent.setPackage(installer);
             activity.startActivity(intent);
-            setDownloadedReady(false);
+            // Cancellation and permission changes retain the verified file for the next explicit install.
         } catch (Exception error) {
-            notifyWeb("deepchat:update-ready");
-            fail("无法打开安装器：" + error.getMessage());
+            notifyWeb("install-failed");
         }
-    }
-
-    private void fail(String message) {
-        activity.runOnUiThread(() -> toast(message));
-    }
-
-    private void toast(String message) {
-        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show();
     }
 }

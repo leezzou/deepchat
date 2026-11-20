@@ -68,7 +68,7 @@ interface Scratch extends DBSchema {
 }
 
 /** Older WebViews: round-trip bounded parts through disk, retaining only composite Blob handles. */
-const spoolIndexedDB = async (source: AsyncIterable<Uint8Array>): Promise<OwnedBlob> => {
+export const spoolIndexedDB = async (source: AsyncIterable<Uint8Array>): Promise<OwnedBlob> => {
   const db = await openDB<Scratch>(directoryName, 1, { upgrade(db) { db.createObjectStore('part') } })
   const owner = freshName()
   const take = async () => {

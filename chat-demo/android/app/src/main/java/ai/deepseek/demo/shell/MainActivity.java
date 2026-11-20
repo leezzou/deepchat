@@ -81,6 +81,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(IncomingSharePlugin.class);
         registerPlugin(WorkBuddyWalletPlugin.class);
         registerPlugin(WebDavPlugin.class);
+        registerPlugin(HistoryArchivePlugin.class);
         super.onCreate(savedInstanceState);
         if ((getApplicationInfo().flags & ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
             WebView.setWebContentsDebuggingEnabled(false);

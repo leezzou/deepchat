@@ -11,7 +11,8 @@ test('stage progress uses measured bytes and requires a usable total', () => {
   assert.equal(importPercent({ processed: 0, total: 100 }), 0)
   assert.equal(importPercent({ processed: 500, total: 1000 }), 50)
   assert.equal(importPercent({ processed: 999, total: 1000 }), 99)
-  assert.equal(importPercent({ processed: 1000, total: 1000 }), 100)
+  // Reading every byte leaves staging, the safety snapshot and the final transaction pending.
+  assert.equal(importPercent({ processed: 1000, total: 1000 }), undefined)
 })
 
 test('download failures report HTTP status and a local action without revealing signed links', () => {

@@ -131,13 +131,29 @@ export async function stagePortableMetadata(
   setStagingRestoreId(id)
   apply(next, targetIds)
 }
+export class PostCommitRecoveryError extends Error {
+  constructor(cause: unknown) {
+    super('History was replaced. Recovery journal cleanup is pending.', { cause })
+    this.name = 'PostCommitRecoveryError'
+  }
+}
+
 export async function withMetadataRecovery<T>(run: () => Promise<T>): Promise<T> {
   return withPortableLock(async () => {
     await reconcile()
+    let result: T
     try {
-      return await run()
-    } finally {
+      result = await run()
+    } catch (error) {
       await reconcile()
+      throw error
     }
+    // A journal survives interruption. The next startup can finish without importing again.
+    try {
+      await reconcile()
+    } catch (error) {
+      throw new PostCommitRecoveryError(error)
+    }
+    return result
   })
 }

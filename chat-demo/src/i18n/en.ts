@@ -9,7 +9,6 @@ import { usageFeatureEn } from './usageFeature.js'
 import { libraryEn } from '../services/library/strings.js'
 
 export const en = {
-  workbuddyTitle: 'WorkBuddy',
   ...libraryEn,
   memoryGlobal: 'General memory',
   memorySaveGeneral: 'Saved on this device. Each chat can opt in.',

@@ -129,7 +129,6 @@ final class WorkBuddyWallet {
         JSObject s = new JSObject();
         s.put("source", "account");
         s.put("revision", owner);
-        s.put("model", current.optString("model"));
         s.put("state", store.getString("state", "account-page"));
         s.put("balance", store.contains("balance") ? Double.valueOf(store.getString("balance", "0")) : JSONObject.NULL);
         s.put("observedAt", store.contains("observedAt") ? store.getLong("observedAt", 0) : JSONObject.NULL);

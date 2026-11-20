@@ -90,15 +90,32 @@ const parseManifest = (data: Manifest): ReleaseInfo | null => {
   }
 }
 
+// A stalled mirror must not keep the settings screen waiting. Keep the deadline active
+// until the body finishes as well: fetch itself resolves when only the headers have arrived.
+const fetchReleaseJson = async <T>(url: string, headers?: HeadersInit): Promise<T | null> => {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(url, { cache: 'no-store', headers, signal: controller.signal })
+    if (response.status === 404) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+    return (await response.json()) as T
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 /** 优先读 update.json；没有清单（老仓库/发版脚本没跑）时回退到 Releases API */
 const fetchGiteeManifest = async (): Promise<ReleaseInfo | null> => {
   try {
-    const response = await fetch(`${GITEE_MANIFEST_URL}?t=${Date.now()}`, { cache: 'no-store' })
-    if (!response.ok) {
-      return null
-    }
-    const file = (await response.json()) as { content?: unknown; encoding?: unknown }
-    if (file.encoding !== 'base64' || typeof file.content !== 'string') {
+    const file = await fetchReleaseJson<{ content?: unknown; encoding?: unknown }>(
+      `${GITEE_MANIFEST_URL}?t=${Date.now()}`
+    )
+    if (file?.encoding !== 'base64' || typeof file.content !== 'string') {
       return null
     }
     const binary = atob(file.content.replace(/\s/g, ''))
@@ -117,9 +134,9 @@ const fetchLatestReleaseUncached = async (): Promise<ReleaseInfo | null> => {
   for (const manifestUrl of GITHUB_MANIFEST_URLS) {
     try {
       // 加时间戳绕过 CDN 缓存，否则刚发版可能还拿到旧版本号
-      const response = await fetch(`${manifestUrl}?t=${Date.now()}`, { cache: 'no-store' })
-      if (response.ok) {
-        const parsed = parseManifest((await response.json()) as Manifest)
+      const manifest = await fetchReleaseJson<Manifest>(`${manifestUrl}?t=${Date.now()}`)
+      if (manifest) {
+        const parsed = parseManifest(manifest)
         if (parsed) {
           return parsed
         }
@@ -135,9 +152,9 @@ const fetchLatestReleaseUncached = async (): Promise<ReleaseInfo | null> => {
 const MANIFEST_CACHE_MS = 2 * 60 * 1000
 let manifestCache: { at: number; result: Promise<ReleaseInfo | null> } | null = null
 
-export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
+export const fetchLatestRelease = async (force = false): Promise<ReleaseInfo | null> => {
   const now = Date.now()
-  if (manifestCache && now - manifestCache.at < MANIFEST_CACHE_MS) {
+  if (!force && manifestCache && now - manifestCache.at < MANIFEST_CACHE_MS) {
     return manifestCache.result
   }
   const result = fetchLatestReleaseUncached()
@@ -154,19 +171,11 @@ export const fetchLatestRelease = async (): Promise<ReleaseInfo | null> => {
 
 /** 回退方案：GitHub Releases API（未登录 60 次/小时 / IP，只作兜底） */
 const fetchLatestFromApi = async (): Promise<ReleaseInfo | null> => {
-  const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
-    headers: { Accept: 'application/vnd.github+json' },
-    // 结果随时会变，别让 WebView 缓存住
-    cache: 'no-store',
-  })
-  if (response.status === 404) {
-    return null
-  }
-  if (!response.ok) {
-    throw new Error(`GitHub ${response.status}`)
-  }
-  const data = (await response.json()) as GithubRelease
-  if (typeof data.tag_name !== 'string' || data.draft === true) {
+  const data = await fetchReleaseJson<GithubRelease>(
+    `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`,
+    { Accept: 'application/vnd.github+json' }
+  )
+  if (typeof data?.tag_name !== 'string' || data.draft === true) {
     return null
   }
   const apk = (data.assets ?? []).find(

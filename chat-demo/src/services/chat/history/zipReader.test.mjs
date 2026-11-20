@@ -3,7 +3,7 @@ import test from 'node:test'
 import { zipSync } from 'fflate'
 import { registerHooks } from 'node:module'
 registerHooks({ resolve(id, ctx, next) {
-  if (id === './spool.js' && ctx.parentURL?.endsWith('/zipReader.ts')) return next('./spool.ts', ctx)
+  if (['./spool.js', './archiveSource.js'].includes(id) && ctx.parentURL?.endsWith('/zipReader.ts')) return next(id.replace('.js', '.ts'), ctx)
   return next(id, ctx)
 } })
 const { ArchiveError, readArchive, readDirectory, readEntry } = await import('./zipReader.ts')

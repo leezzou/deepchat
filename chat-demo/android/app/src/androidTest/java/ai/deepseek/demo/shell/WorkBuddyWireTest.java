@@ -22,8 +22,7 @@ public class WorkBuddyWireTest {
             for (boolean enabled : new boolean[]{false, true}) {
                 JSONObject body = WorkBuddyWire.body(chat(model, enabled), false);
                 assertEquals(model, body.getString("model"));
-                if ("deepseek-v4.1-flash".equals(model)) assertTrue(body.getJSONObject("stream_options").getBoolean("include_usage"));
-                else assertFalse(body.has("stream_options"));
+                assertFalse(body.has("stream_options"));
                 assertEquals(enabled ? "high" : "none", body.getString("reasoning_effort"));
                 assertEquals(enabled ? "enabled" : "disabled", body.getJSONObject("thinking").getString("type"));
                 assertEquals("原始问题", body.getJSONArray("messages").getJSONObject(0).getString("content"));

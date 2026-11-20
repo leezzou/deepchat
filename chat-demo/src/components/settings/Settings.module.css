@@ -70,6 +70,16 @@
   overflow-y: auto;
 }
 
+.versionFooter {
+  flex: none;
+  margin-block-start: auto;
+  padding: 20px var(--dc-gutter) 12px;
+  color: var(--dc-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+}
+
 .cell {
   box-sizing: border-box;
   flex-shrink: 0;

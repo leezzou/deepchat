@@ -9,6 +9,7 @@ import {
 import { useSettings } from '../../services/settings.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { listCompactions } from '../../services/chat/compactionIndex.js'
+import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
 import {
   BackupError,
   SnapshotError,
@@ -243,7 +244,9 @@ export function DataSettings({
         setNotice({ key: success })
       }
     } catch (error) {
-      if (error instanceof SnapshotError) {
+      if (error instanceof PostCommitRecoveryError) {
+        setNotice({ key: 'historyRecoveryPending', error: true })
+      } else if (error instanceof SnapshotError) {
         setNotice({ key: 'backupSnapshotFailed', error: true })
       } else if (error instanceof BackupError) {
         setNotice({ key: 'backupActionFailed', reason: error.key, error: true })

@@ -1,7 +1,7 @@
 import { Inflate } from 'fflate'
-import { spoolBlob, type OwnedBlob } from './spool.js'
+import { spoolIndexedDB, type OwnedBlob } from './spool.js'
+import { MAX_ARCHIVE_READ_BYTES, type ArchiveSource } from './archiveSource.js'
 
-const READ_CHUNK_BYTES = 256 * 1024
 // 控制每轮同步解压的工作量；输出交给调用方保存后才继续读取。
 const INFLATE_CHUNK_BYTES = 8 * 1024
 
@@ -18,9 +18,10 @@ const invalid = (): never => {
 }
 
 /** 本地文件头签名 PK\x03\x04，用于在解析前区分 ZIP 与其他文件。 */
-export const isZipFile = async (file: File) => {
-  const bytes = new Uint8Array(await file.slice(0, 4).arrayBuffer())
-  return bytes.length === 4 && bytes.every((byte, index) => byte === [0x50, 0x4b, 3, 4][index])
+export const isZipFile = async (file: ArchiveSource) => {
+  if (file.size < 4) return false
+  const bytes = await readBytes(file, 0, 4)
+  return bytes.every((byte, index) => byte === [0x50, 0x4b, 3, 4][index])
 }
 
 const viewOf = (bytes: Uint8Array) => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
@@ -33,11 +34,15 @@ const crcTable = Uint32Array.from({ length: 256 }, (_, value) => {
   return crc >>> 0
 })
 
-const readBytes = async (file: File, start: number, length: number) => {
-  if (start < 0 || length < 0 || start + length > file.size) {
+const readBytes = async (file: ArchiveSource, start: number, length: number) => {
+  if (!Number.isSafeInteger(file.size) || !Number.isSafeInteger(start) || !Number.isSafeInteger(length) ||
+      start < 0 || length < 0 || length > MAX_ARCHIVE_READ_BYTES || start > file.size - length) {
     invalid()
   }
-  const bytes = new Uint8Array(await file.slice(start, start + length).arrayBuffer())
+  if (length === 0) return new Uint8Array(0)
+  const bytes = 'readRange' in file
+    ? await file.readRange(start, length)
+    : new Uint8Array(await file.slice(start, start + length).arrayBuffer())
   if (bytes.length !== length) {
     invalid()
   }
@@ -107,7 +112,7 @@ type Entry = {
 
 export type ArchiveDirectory = { entries: Entry[]; offset: number }
 
-export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
+export const readDirectory = async (file: ArchiveSource): Promise<ArchiveDirectory> => {
   if (file.size < 22) {
     invalid()
   }
@@ -232,7 +237,7 @@ export const readDirectory = async (file: File): Promise<ArchiveDirectory> => {
   return { entries: entries.sort((a, b) => a.offset - b.offset), offset }
 }
 
-const readEntryOffset = async (file: File, entry: Entry, boundary: number) => {
+const readEntryOffset = async (file: ArchiveSource, entry: Entry, boundary: number) => {
   if (entry.offset + 30 > boundary) {
     invalid()
   }
@@ -307,7 +312,7 @@ export type ArchiveEntry = {
  * 调用方必须消费完当前条目的数据，再请求下一个条目。
  */
 export async function* readArchive(
-  file: File,
+  file: ArchiveSource,
   directory: ArchiveDirectory,
   onProgress?: (processed: number, total: number) => void
 ): AsyncGenerator<ArchiveEntry> {
@@ -360,11 +365,11 @@ export async function* readArchive(
           await new Promise<void>((resolve) => setTimeout(resolve, 0))
         }
       }
-      for (let offset = 0; offset < entry.compressedSize; offset += READ_CHUNK_BYTES) {
+      for (let offset = 0; offset < entry.compressedSize; offset += MAX_ARCHIVE_READ_BYTES) {
         const chunk = await readBytes(
           file,
           start + offset,
-          Math.min(READ_CHUNK_BYTES, entry.compressedSize - offset)
+          Math.min(MAX_ARCHIVE_READ_BYTES, entry.compressedSize - offset)
         )
         if (!inflate) {
           append(chunk)
@@ -389,7 +394,8 @@ export async function* readArchive(
       }
       completed = true
     }
-    yield { path: entry.path, size: entry.size, stored: entry.method === 0 ? file.slice(start, start + entry.size) : undefined, stream: stream() }
+    const stored = entry.method === 0 && !('readRange' in file) ? file.slice(start, start + entry.size) : undefined
+    yield { path: entry.path, size: entry.size, stored, stream: stream() }
     if (!completed) {
       invalid()
     }
@@ -407,7 +413,9 @@ export const readEntry = async (entry: ArchiveEntry, copyPickerBytes = false): P
     return { blob: entry.stored, dispose: async () => {} }
   }
   const memoryBudget = copyPickerBytes && entry.stored ? 8 * 1024 * 1024 : SMALL_ENTRY_BYTES
-  if (entry.size > memoryBudget) return spoolBlob(entry.stream)
+  // IndexedDB may retain the backing file of a Blob. Attachments must survive release
+  // of the archive and any temporary OPFS files, including after the app restarts.
+  if (entry.size > memoryBudget) return spoolIndexedDB(entry.stream)
   const parts: BlobPart[] = []
   for await (const chunk of entry.stream) parts.push(chunk as Uint8Array<ArrayBuffer>)
   return { blob: new Blob(parts), dispose: async () => {} }

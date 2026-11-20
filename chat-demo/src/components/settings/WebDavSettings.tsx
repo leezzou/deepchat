@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { resolveLocale } from '../../i18n/index.js'
+import { resolveLocale, useTranslate } from '../../i18n/index.js'
 import { useSettings } from '../../services/settings.js'
 import {
   openBackup,
@@ -12,7 +12,9 @@ import {
   putEncryptedBackup,
   testDavConnection,
 } from '../../services/backup/webDav.js'
-import { exportPortableHistory, restorePortableHistory } from '../../services/chat/backup.js'
+import { BackupError, SnapshotError, exportPortableHistory, restorePortableHistory } from '../../services/chat/backup.js'
+import { importFailure } from './importFeedback.js'
+import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
 import { ConfirmationModal, ModalPresence } from '../base/Modal.js'
 import { Button } from '../base/Button.js'
 import './securitySettings.css'
@@ -69,6 +71,7 @@ type Action = 'test' | 'backup' | 'restore'
 export function WebDavSettings() {
   const lang = useSettings((s) => resolveLocale(s.locale)) === 'zh-CN' ? 0 : 1
   const t = (zh: string, en: string) => (lang === 0 ? zh : en)
+  const translate = useTranslate()
   const [folder, setFolder] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -141,7 +144,15 @@ export function WebDavSettings() {
     } catch (reason) {
       if (mounted.current) {
         setError(true)
-        setStatus(problems[reason instanceof PortableError ? reason.problem : 'local'][lang])
+        if (reason instanceof PostCommitRecoveryError) {
+          setStatus(translate('importRecoveryPending'))
+        } else if (action === 'restore' && !(reason instanceof PortableError)) {
+          const stage = reason instanceof SnapshotError ? 'snapshot' : 'commit'
+          const { failure } = importFailure(stage, reason, reason instanceof BackupError ? reason.key : undefined)
+          setStatus(`${translate(failure.reason, failure.params)} ${translate(failure.action)}`)
+        } else {
+          setStatus(problems[reason instanceof PortableError ? reason.problem : 'local'][lang])
+        }
       }
     } finally {
       running.current = false

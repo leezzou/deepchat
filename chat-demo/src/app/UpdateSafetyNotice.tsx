@@ -1,48 +1,47 @@
-import { useSyncExternalStore } from 'react'
 import { Button } from '../components/base/Button.js'
 import { closeSettings } from '../components/settings/settingsDialogState.js'
 import { useTranslate } from '../i18n/index.js'
+import { isDownloadedUpdateReady } from '../shell/installer.js'
 import { useDrafts } from '../services/chat/drafts.js'
-import { newChat, selectSession, useChatStore } from '../services/chat/store.js'
+import { newChat, selectSession } from '../services/chat/store.js'
 import {
   continueUpdateInstall,
   dismissPendingUpdate,
-  getUpdateBlockReason,
+  useUpdateBlockReason,
   installReadyUpdate,
   requestSafeReload,
   useUpdateSafety,
 } from '../services/updateSafety.js'
-import { usePendingEdits } from '../services/pendingEdits.js'
 import styles from './App.module.css'
-
-const subscribeWork = (listener: () => void) => {
-  const chat = useChatStore.subscribe(listener)
-  const drafts = useDrafts.subscribe(listener)
-  const edits = usePendingEdits.subscribe(listener)
-  return () => {
-    chat()
-    drafts()
-    edits()
-  }
-}
 
 export const UpdateSafetyNotice = () => {
   const t = useTranslate()
-  const { status, reloadPending, working } = useUpdateSafety()
-  const reason = useSyncExternalStore(subscribeWork, getUpdateBlockReason)
+  const { status, error, reloadPending, working } = useUpdateSafety()
+  const reason = useUpdateBlockReason()
   const draftSessionId = useDrafts(
     (state) => [...state.drafts].find(([, draft]) => draft.text || draft.attachments.length)?.[0]
   )
   if (status === 'idle' && !reloadPending) {
     return null
   }
+  const busy = status === 'downloading' || status === 'installing'
+  const install = status === 'ready' || (status === 'permission' && isDownloadedUpdateReady())
+  const messages = {
+    idle: 'updateCanContinue',
+    waiting: 'updateCanContinue',
+    ready: 'updateReadySafe',
+    permission: 'updatePermission',
+    downloading: 'updateAwaitDownload',
+    installing: 'updateInstalling',
+    failed: 'updateDownloadFailed',
+  } as const
   const message = reloadPending
     ? t('updateReloadPending')
-    : status === 'downloading'
-      ? t('updateAwaitDownload')
-      : reason
+    : error
+      ? t(error)
+      : !busy && reason
         ? t('updateWaiting', { reason: t(reason) })
-        : t(status === 'ready' ? 'updateReadySafe' : 'updateCanContinue')
+        : t(messages[status])
   const showDraft = () => {
     const entry = [...useDrafts.getState().drafts].find(
       ([, draft]) => draft.text || draft.attachments.length
@@ -65,7 +64,7 @@ export const UpdateSafetyNotice = () => {
           {t('updateShowDraft')}
         </Button>
       ) : null}
-      {status !== 'downloading' ? (
+      {!busy ? (
         <Button
           variant="outlined"
           size="s"
@@ -73,17 +72,15 @@ export const UpdateSafetyNotice = () => {
           onClick={() => {
             void (reloadPending
               ? requestSafeReload()
-              : status === 'ready'
+              : install
                 ? installReadyUpdate()
                 : continueUpdateInstall())
           }}
         >
-          {t(
-            reloadPending ? 'updateReload' : status === 'ready' ? 'updateInstall' : 'updateContinue'
-          )}
+          {t(reloadPending ? 'updateReload' : install ? 'updateInstall' : 'updateContinue')}
         </Button>
       ) : null}
-      {status !== 'downloading' ? (
+      {!busy ? (
         <Button variant="outlined" size="s" disabled={working} onClick={dismissPendingUpdate}>
           {t('updateCancelWaiting')}
         </Button>

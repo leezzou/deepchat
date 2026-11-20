@@ -2,6 +2,7 @@ import { formatDate } from '../../utils/format.js'
 import { createId } from '../../utils/id.js'
 import { saveBlob } from '../../shell/saveFile.js'
 import { MAX_ARCHIVE_BYTES } from './history/limits.js'
+import type { ArchiveSource } from './history/archiveSource.js'
 import { parseSessionPath } from './history/paths.js'
 import { fail } from './history/errors.js'
 import { useBackupState } from '../backup/state.js'
@@ -224,7 +225,7 @@ export type HistoryImportStage = 'reading' | 'validating' | 'snapshot' | 'commit
 
 /** 字节进度只描述当前阶段；完整校验和暂存成功后才创建快照并提交。 */
 export const importHistory = (
-  file: File,
+  file: ArchiveSource,
   onProgress?: (processed: number, total: number) => void,
   onStage?: (stage: HistoryImportStage) => void
 ): Promise<number> =>

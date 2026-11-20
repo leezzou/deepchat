@@ -3,12 +3,14 @@ import { resolveLocale, useTranslate, type TranslationKey } from '../../i18n/ind
 import { useSettings } from '../../services/settings.js'
 import { BackupError, importHistory, type HistoryImportStage } from '../../services/chat/backup.js'
 import { downloadArchive } from '../../services/chat/history/downloadArchive.js'
+import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
+import type { ArchiveSource } from '../../services/chat/history/archiveSource.js'
 import { importFailure, importPercent, type ImportFeedback, type ImportSource, type ImportStage } from './importFeedback.js'
 import styles from './Settings.module.css'
 
 /** Keep the current attempt across breakpoint changes and settings navigation. */
 export const useHistoryImport = () => {
-  const [selection, setSelection] = useState<{ file: File; source: ImportSource } | null>(null)
+  const [selection, setSelection] = useState<{ file: ArchiveSource; source: ImportSource } | null>(null)
   const [feedback, setFeedback] = useState<ImportFeedback | null>(null)
   const inFlight = useRef(false)
   const downloadCleanup = useRef<(() => Promise<void>) | null>(null)
@@ -81,6 +83,10 @@ export const useHistoryImport = () => {
       })
       setFeedback({ source, state: 'success', count })
     } catch (error) {
+      if (error instanceof PostCommitRecoveryError) {
+        setFeedback({ source, state: 'recovery' })
+        return
+      }
       const archiveKey = error instanceof BackupError ? error.key : undefined
       setFeedback({ source, state: 'failed', ...importFailure(stage, error, archiveKey) })
     } finally {
@@ -109,6 +115,11 @@ export const HistoryImportFeedback = ({ feedback }: { feedback: ImportFeedback |
       {t(feedback.count === 1 ? 'historyImportedOne' : 'historyImported', { count: feedback.count })}
     </div>
   }
+  if (feedback.state === 'recovery') {
+    return <div className={styles.importFeedback} role="alert" data-import-state="recovery">
+      {t('importRecoveryPending')}
+    </div>
+  }
   const [labelKey, failureKey] = stages[feedback.stage]
   if (feedback.state === 'failed') {
     const { reason, action, params } = feedback.failure
@@ -117,14 +128,17 @@ export const HistoryImportFeedback = ({ feedback }: { feedback: ImportFeedback |
       <p>{t(reason, params)} {t(action)}</p>
     </div>
   }
-  const label = t(labelKey)
-  const percent = importPercent(feedback.bytes)
-  const bytes = feedback.bytes?.processed
-  // Unknown-length downloads can still show the measured volume. Only announce the stage live.
+  const { bytes } = feedback
+  const allBytesRead = !!bytes && bytes.total > 0 && bytes.processed === bytes.total
+  const finishingKey = feedback.stage === 'downloading' ? 'importDownloadReceived' : 'importFinishingValidation'
+  const label = t(allBytesRead ? finishingKey : labelKey)
+  const percent = importPercent(bytes)
+  const received = bytes?.processed
+  // After the last byte, the ZIP or the database may still reject the operation.
   const metric = percent !== undefined ? `${percent}%` :
-    feedback.stage === 'downloading' && bytes !== undefined && Number.isFinite(bytes) && bytes > 0
+    !allBytesRead && feedback.stage === 'downloading' && received !== undefined && Number.isFinite(received) && received > 0
       ? t('importBytesReceived', { size: new Intl.NumberFormat(locale, { style: 'unit',
-        unit: 'megabyte', maximumFractionDigits: 1 }).format(bytes / 1_000_000) }) : undefined
+        unit: 'megabyte', maximumFractionDigits: 1 }).format(received / 1_000_000) }) : undefined
   return <div className={styles.importFeedback} data-import-stage={feedback.stage} data-import-state="running">
     <div className={styles.importStatusLine}>
       <strong role="status">{label}</strong>

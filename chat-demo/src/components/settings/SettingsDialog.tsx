@@ -16,6 +16,7 @@ import {
   clearHistory,
   useBackupState,
 } from '../../services/chat/backup.js'
+import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
 import { regionCodes, getRegionName, provinces } from '../../services/location.js'
@@ -41,9 +42,8 @@ import {
 import { ApiError, fetchModelIds, verifyApiKey } from '../../services/api/client.js'
 import { classifyApiError } from '../../services/api/errors.js'
 import { defaultApiOrigin, normalizeOrigin } from '../../services/api/origin.js'
-import { compareVersions, fetchLatestRelease, type ReleaseInfo } from '../../services/update.js'
 import { useUpdateNotice } from '../../services/updateWatcher.js'
-import { requestUpdateInstall } from '../../services/updateSafety.js'
+import { SettingsUpdate } from './SettingsUpdate.js'
 import { hasAccountBridge, openAccount, requestAccountLogout } from '../../shell/account.js'
 import { openExternal } from '../../shell/native.js'
 import {
@@ -73,8 +73,7 @@ import { HistoryImportFeedback, useHistoryImport } from './HistoryImportFeedback
 import { closeSettings, coverSettings, finishSettingsExit, openSettings, useSettingsDialog, type SettingsSection, type SettingsVisit } from './settingsDialogState.js'
 import { captureChatOrigin, rememberChat } from '../sider/mobileSiderState.js'
 import { hasWorkBuddyBridge, useWorkBuddyState } from '../../services/workbuddy/provider.js'
-import { WorkBuddyChannel } from './WorkBuddyChannel.js'
-import { WorkBuddyPanel, WorkBuddyVersion } from './WorkBuddyPanel.js'
+import { WorkBuddyAccountPage } from './WorkBuddyAccountPage.js'
 import stellaArtwork from '../../assets/voices/stella.webp'
 import tideArtwork from '../../assets/voices/tide.webp'
 import styles from './Settings.module.css'
@@ -119,8 +118,8 @@ type ImportProps = { historyImport: ReturnType<typeof useHistoryImport> }
 const SettingsContent = ({ historyImport, initialSection }: ImportProps & { initialSection: SettingsSection }) => {
   const t = useTranslate()
   const [section, setSection] = useState<SettingsSection>(initialSection === 'apiKey' ? 'data' : initialSection)
-  const [workBuddyPage, setWorkBuddyPage] = useState<'account' | 'wallet' | null>(null)
-  const version = readAppVersion()
+  const [workBuddyOpen, setWorkBuddyOpen] = useState(false)
+  const version = useUpdateNotice((state) => state.version)
   // 切换分组不丢失正在输入的 API Key 与导入状态
   const apiKeyEditor = useApiKeyEditor()
   const historyDelete = useHistoryDelete()
@@ -158,11 +157,12 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
         <div role="tabpanel" className={styles.content}>
           {section === 'security' ? <SecuritySettings /> : section === 'memory' ? <MemorySettings /> : section === 'webdav' ? <WebDavSettings /> : section === 'general' ? (
             <>
-              <AccountSettings onWorkBuddy={() => setWorkBuddyPage('account')} />
+              <AccountSettings onWorkBuddy={() => setWorkBuddyOpen(true)} />
               <ThemeSetting />
               <LocaleSetting />
               <TtsVoiceSetting />
               <LocationSetting />
+              {version && <SettingsUpdate />}
             </>
           ) : (
             <>
@@ -191,12 +191,12 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
               />
             </>
           )}
-          {version && <WorkBuddyVersion version={version} onOpen={() => setWorkBuddyPage('wallet')} />}
+          {version && <div className={styles.versionFooter} data-app-version>{t('settingsVersion', { version })}</div>}
         </div>
       </Modal>
-      <ModalPresence>{workBuddyPage && (
-        <Modal title={t(workBuddyPage === 'account' ? 'workBuddyAccount' : 'workbuddyTitle')} closable onClose={() => setWorkBuddyPage(null)}>
-          {workBuddyPage === 'account' ? <WorkBuddyAccountPage /> : <WorkBuddyPanel />}
+      <ModalPresence>{workBuddyOpen && (
+        <Modal title={t('workBuddyAccount')} closable onClose={() => setWorkBuddyOpen(false)}>
+          <WorkBuddyAccountPage />
         </Modal>
       )}</ModalPresence>
       <ModalPresence>{historyImport.file ? <ImportConfirm historyImport={historyImport} /> : null}</ModalPresence>
@@ -220,7 +220,6 @@ type MobilePage =
   | 'personalize'
   | 'profile'
   | 'location'
-  | 'workbuddy'
   | 'workbuddyAccount'
 
 /** 二级页标题（根页统一用「设置」） */
@@ -228,7 +227,7 @@ const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   appearance: 'settingsAppearance', fontSize: 'settingsFontSize', personalize: 'settingsPersonalize',
-  profile: 'settingsProfile', location: 'settingsLocation', workbuddy: 'workbuddyTitle', workbuddyAccount: 'workBuddyAccount',
+  profile: 'settingsProfile', location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
 }
 
 /** 字号档位：7 档，和官方滑块的 7 个刻度一致 */
@@ -265,10 +264,6 @@ const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
   light: 'avatarMenuSettingsDialogThemeSelectLightOption',
   dark: 'avatarMenuSettingsDialogThemeSelectDarkOption',
 }
-
-/** 版本号来自构建时注入的 <meta name="application-version">，拿不到就不展示 */
-const readAppVersion = () =>
-  document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
 
 type Route = {
   page: MobilePage | 'apiEdit'
@@ -386,7 +381,6 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
                 rememberChat({ ...captureChatOrigin(), resume: coverSettings(visit.id) })
                 selectSession(sessionId)
               }} />}
-              {page === 'workbuddy' && <WorkBuddyPanel />}
               {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
               {page === 'appearance' && <MobileAppearanceContent />}
               {page === 'fontSize' && <MobileFontSizeContent />}
@@ -473,9 +467,6 @@ const MobileSelectRow = ({
   </div>
 )
 
-/** The account panel never displays or edits an API profile. */
-const WorkBuddyAccountPage = () => <div className="wb-settings" data-wb-account-page><WorkBuddyChannel /></div>
-
 const AccountSettings = ({ mobile = false, onWorkBuddy }: { mobile?: boolean; onWorkBuddy: () => void }) => {
   const t = useTranslate()
   const signedIn = useSettings((state) => state.accountSignedIn)
@@ -554,40 +545,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
   const [helpOpen, setHelpOpen] = useState(false)
   const signedIn = useSettings((state) => state.accountSignedIn)
   const [voiceOpen, setVoiceOpen] = useState(false)
-  const [updateOpen, setUpdateOpen] = useState(false)
-  const [update, setUpdate] = useState<
-    | { status: 'latest' | 'available' | 'error' | 'no-release'; release?: ReleaseInfo }
-    | null
-  >(null)
-  const version = readAppVersion()
-  const updateAvailable = useUpdateNotice((state) => state.available)
-
-  const runUpdateCheck = async () => {
-    setUpdate(null)
-    setUpdateOpen(true)
-    try {
-      const release = await fetchLatestRelease()
-      if (!release) {
-        setUpdate({ status: 'no-release' })
-        return
-      }
-      setUpdate({
-        status: compareVersions(release.version, version) > 0 ? 'available' : 'latest',
-        release,
-      })
-    } catch {
-      setUpdate({ status: 'error' })
-    }
-  }
-
-  const downloadUpdate = async () => {
-    const release = update?.release
-    if (!release) {
-      return
-    }
-    await requestUpdateInstall(release)
-    setUpdateOpen(false)
-  }
+  const version = useUpdateNotice((state) => state.version)
   return (
     <>
       <MobileGroup title={t('settingsAccountGroup')}>
@@ -666,71 +624,9 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
       </MobileGroup>
       {version ? (
         <MobileGroup title={t('settingsAboutGroup')}>
-          <button type="button" className={styles.row} onClick={() => void runUpdateCheck()}>
-            <span className={styles.rowIcon}>
-              <SettingsIcon name="info" />
-            </span>
-            <span className={styles.rowLabel}>{t('checkUpdate')}</span>
-            <span className={styles.rowValue}>
-              {updateAvailable ? t('updateBadge') : version}
-            </span>
-            <span className={styles.rowChevron}>
-              <IconChevronRightOutline14 />
-            </span>
-          </button>
+          <SettingsUpdate mobile />
         </MobileGroup>
       ) : null}
-      <ModalPresence>{updateOpen ? (
-        <Modal
-          title={t('checkUpdate')}
-          placement="bottom"
-          onClose={() => setUpdateOpen(false)}
-          footer={
-            update?.status === 'available' ? (
-              <>
-                <Button variant="outlined" size="m" onClick={() => setUpdateOpen(false)}>
-                  {t('updateLater')}
-                </Button>
-                <Button variant="primary" size="m" onClick={downloadUpdate}>
-                  {t('updateDownload')}
-                </Button>
-              </>
-            ) : (
-              <Button variant="outlined" size="m" onClick={() => setUpdateOpen(false)}>
-                {t('close')}
-              </Button>
-            )
-          }
-        >
-          <div className={styles.updateBody}>
-            {update === null ? <p>{t('updateChecking')}</p> : null}
-            {update?.status === 'error' ? <p>{t('updateFailed')}</p> : null}
-            {update?.status === 'latest' ? (
-              <p>{t('updateLatest')}（{version}）</p>
-            ) : null}
-            {update?.status === 'no-release' ? <p>{t('updateNoRelease')}</p> : null}
-            {update?.status === 'available' && update.release ? (
-              <>
-                <p className={styles.updateTitle}>
-                  {t('updateAvailable', { version: update.release.version })}
-                </p>
-                <div className={styles.updateNotes}>
-                  {update.release.notes.trim() || t('updateNotesEmpty')}
-                </div>
-                {update.release.pageUrl ? (
-                  <button
-                    type="button"
-                    className={styles.fetchButton}
-                    onClick={() => void openExternal(update.release?.pageUrl ?? '')}
-                  >
-                    {t('updateOpenRelease')}
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-          </div>
-        </Modal>
-      ) : null}</ModalPresence>
       <MobileGroup wide>
         <button type="button" className={styles.row} onClick={() => setHelpOpen(true)}>
           <span className={styles.rowIcon}>
@@ -753,7 +649,7 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           </span>
         </button>
       </MobileGroup>}
-      {version && <WorkBuddyVersion version={version} onOpen={() => onOpenPage('workbuddy')} />}
+      {version && <div className={styles.versionFooter} data-app-version>{t('settingsVersion', { version })}</div>}
       <ModalPresence>{voiceOpen ? (
         <Modal
           title={t('settingsTtsVoice')}
@@ -1733,7 +1629,12 @@ const useHistoryDelete = () => {
       setOpened(false)
       showToast({ key: 'historyDeleted' })
     } catch (error) {
-      showToast({ key: error instanceof SnapshotError ? 'backupSnapshotFailed' : 'historyDeleteFailed', type: 'error' })
+      if (error instanceof PostCommitRecoveryError) {
+        setOpened(false)
+        showToast({ key: 'historyRecoveryPending' })
+      } else {
+        showToast({ key: error instanceof SnapshotError ? 'backupSnapshotFailed' : 'historyDeleteFailed', type: 'error' })
+      }
     } finally {
       deleting.current = false
       setBusy(false)

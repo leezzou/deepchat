@@ -96,13 +96,11 @@ public final class WorkBuddyWalletTest {
         }
     }
 
-    @Test public void modelAndRevisionFollowTheNativeGrantWithoutAWebCache() throws Exception {
+    @Test public void walletFollowsTheNativeGrantRegardlessOfModel() throws Exception {
         signIn("first");
-        JSONObject first = read(false);
-        assertEquals("first", first.getString("revision"));
-        assertEquals("deepseek-v4.1-flash", first.getString("model"));
+        assertEquals("first", read(false).getString("revision"));
         WorkBuddySession.forContext(context).changeModel("deepseek-v4-pro");
-        assertEquals("deepseek-v4-pro", read(false).getString("model"));
+        assertEquals("first", read(false).getString("revision"));
         signIn("second");
         assertEquals("second", read(false).getString("revision"));
         WorkBuddySession.forContext(context).forget();

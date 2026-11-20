@@ -33,11 +33,9 @@ final class WorkBuddyWire {
             messages.put(new JSONObject().put("role", role).put("content", row.getString("content")));
         }
         boolean thinking = req.getBoolean("thinking");
-        JSONObject body = new JSONObject().put("model", model).put("messages", messages).put("stream", true)
+        return new JSONObject().put("model", model).put("messages", messages).put("stream", true)
                 .put("reasoning_effort", thinking ? "high" : "none")
                 .put("thinking", new JSONObject().put("type", thinking ? "enabled" : "disabled"));
-        if ("deepseek-v4.1-flash".equals(model)) body.put("stream_options", new JSONObject().put("include_usage", true));
-        return body;
     }
 
     private static String field(JSONObject row, String key, int limit, String bearer) {

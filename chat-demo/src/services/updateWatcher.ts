@@ -1,43 +1,51 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
+import { readInstalledVersion } from '../shell/installer.js'
 import { compareVersions, fetchLatestRelease, type ReleaseInfo } from './update.js'
 
-/** 可用更新：App 启动、回到前台、以及运行期间每 60 秒各查一次 */
-export const useUpdateNotice = create<{ available: ReleaseInfo | null; checking: boolean }>(() => ({
+type UpdateNotice = {
+  version: string
+  latest: ReleaseInfo | null
+  available: ReleaseInfo | null
+  checking: boolean
+  checked: boolean
+  failed: boolean
+}
+export const useUpdateNotice = create<UpdateNotice>(() => ({
+  version: readInstalledVersion(),
+  latest: null,
   available: null,
   checking: false,
+  checked: false,
+  failed: false,
 }))
 
-const currentVersion = () =>
-  document.querySelector('meta[name="application-version"]')?.getAttribute('content') ?? ''
+// Reconcile the installed package even if the manifest is cached, offline, or still loading.
+export const refreshInstalledVersion = (latest = useUpdateNotice.getState().latest) => {
+  const version = readInstalledVersion()
+  const available =
+    latest && version && compareVersions(latest.version, version) > 0 ? latest : null
+  useUpdateNotice.setState({ version, latest, available })
+  return version
+}
 
-let inFlight = false
-
-export const checkUpdateAvailable = async () => {
-  if (inFlight || !currentVersion()) {
+export const checkUpdateAvailable = async (force = false) => {
+  if (!refreshInstalledVersion() || useUpdateNotice.getState().checking) {
     return
   }
-  inFlight = true
-  useUpdateNotice.setState({ checking: true })
+  useUpdateNotice.setState({ checking: true, failed: false })
   try {
-    const release = await fetchLatestRelease()
-    if (release && compareVersions(release.version, currentVersion()) > 0) {
-      useUpdateNotice.setState({ available: release })
-    } else {
-      useUpdateNotice.setState({ available: null })
-    }
+    refreshInstalledVersion(await fetchLatestRelease(force))
+    useUpdateNotice.setState({ checked: true })
   } catch {
-    // 网络失败静默忽略，下次再试
+    // Keep a previously announced release usable while the network is unavailable.
+    useUpdateNotice.setState({ failed: true })
   } finally {
-    inFlight = false
     useUpdateNotice.setState({ checking: false })
   }
 }
 
-// 用户要求：App 内每分钟检查一次新版本
-const CHECK_INTERVAL = 60 * 1000
-
-/** 挂在 App 根节点：轮询新版本，设置/抽屉上的红点靠它 */
+/** One result drives the header, drawer, settings row, and release details. */
 export const useUpdateWatcher = () => {
   useEffect(() => {
     void checkUpdateAvailable()
@@ -46,9 +54,11 @@ export const useUpdateWatcher = () => {
         void checkUpdateAvailable()
       }
     }
+    window.addEventListener('focus', onVisible)
     document.addEventListener('visibilitychange', onVisible)
-    const timer = setInterval(() => void checkUpdateAvailable(), CHECK_INTERVAL)
+    const timer = setInterval(onVisible, 60_000)
     return () => {
+      window.removeEventListener('focus', onVisible)
       document.removeEventListener('visibilitychange', onVisible)
       clearInterval(timer)
     }

@@ -1,6 +1,8 @@
 """Validate the signed APK against the workspace release version and run WorkBuddy regressions.
 
 python3 tools/verify-workbuddy-release.py /path/to/app.apk [--browser-only | --device-only]
+For a release upgrade, add --previous-apk /path/to/previous.apk. Add --live-update after
+publication to attempt the old app's public update flow before falling back to adb install -r.
 Set PLAYWRIGHT_NODE_MODULES to use the optional external Playwright runtime.
 Android requires the isolated read-only Pixel_7_API_34_arm64 already running on 5562.
 """
@@ -42,18 +44,25 @@ def adb(*args):
     return run([SDK / 'platform-tools/adb', '-s', SERIAL, *args])
 
 
-def validate(apk):
+def validate(apk, previous=False):
     builds = sorted((p for p in (SDK / 'build-tools').iterdir() if re.fullmatch(r'\d+(\.\d+)+', p.name)), key=lambda p: tuple(map(int, p.name.split('.'))))
     if not builds:
         raise RuntimeError('Install Android SDK Build Tools to validate the APK')
     meta = run([builds[-1] / 'aapt', 'dump', 'badging', apk]).splitlines()[0]
-    expected = f"name='{PACKAGE}' versionCode='{RELEASE_CODE}' versionName='{RELEASE_NAME}'"
-    if expected not in meta:
+    match_meta = re.search(r"name='([^']+)' versionCode='(\d+)' versionName='(\d+\.\d+\.\d+)'", meta)
+    if not match_meta or match_meta[1] != PACKAGE:
+        raise ValueError(f'Unexpected APK package or version: {meta}')
+    code, name = match_meta[2], match_meta[3]
+    if previous:
+        if int(code) >= int(RELEASE_CODE):
+            raise ValueError(f'The old APK must precede version code {RELEASE_CODE}: {meta}')
+    elif (name, code) != (RELEASE_NAME, RELEASE_CODE):
         raise ValueError(f'APK manifest differs from {RELEASE_NAME}/{RELEASE_CODE}: {meta}')
     cert = run([builds[-1] / 'apksigner', 'verify', '--print-certs', apk])
     if f'Signer #1 certificate SHA-256 digest: {CERT}' not in cert.splitlines():
         raise ValueError('APK signature differs from the release signing certificate')
-    print(f'PASS signed {expected}, cert {CERT}, APK sha256 {hashlib.sha256(apk.read_bytes()).hexdigest()}', flush=True)
+    print(f'PASS signed {PACKAGE} {name}/{code}, cert {CERT}, APK sha256 {hashlib.sha256(apk.read_bytes()).hexdigest()}', flush=True)
+    return name, code
 
 
 def browser_checks(apk):
@@ -95,9 +104,9 @@ def guard_device():
         raise RuntimeError('Isolated emulator requires offline networking')
 
 
-# This network is confined to a signed-out read-only guest. Only consent navigation is exercised.
+# Public update and optional consent tests use only this disposable, signed-out guest.
 @contextmanager
-def consent_network():
+def guest_network():
     guard_device()
     try:
         adb('shell', 'settings', 'put', 'global', 'http_proxy', ':0')
@@ -115,14 +124,14 @@ def consent_network():
         guard_device()
 
 
-def tree(all_windows=False):
+def tree(all_windows=False, packages=(PACKAGE,)):
     args = ['--windows'] if all_windows else []
     xml = adb('exec-out', 'uiautomator', 'dump', *args, '/dev/tty')
     closing = '</displays>' if all_windows else '</hierarchy>'
     if '<?xml' not in xml or closing not in xml:
         return []  # Dialog or WebView can be changing during first launch.
     xml = xml[xml.index('<?xml'):xml.rindex(closing) + len(closing)]
-    return [node for node in ET.fromstring(xml).iter('node') if node.get('package') == PACKAGE]
+    return [node for node in ET.fromstring(xml).iter('node') if node.get('package') in packages]
 
 
 def labels(node):
@@ -133,18 +142,18 @@ def match(nodes, pattern):
     return next((n for n in nodes if any(re.fullmatch(pattern, s, re.I) for s in labels(n))), None)
 
 
-def wait_for(pattern, allow_scroll=False):
-    end = time.monotonic() + 24
+def wait_for(pattern, allow_scroll=False, timeout=24, packages=(PACKAGE,)):
+    end = time.monotonic() + timeout
     while True:
-        nodes = tree()
+        nodes = tree(packages=packages)
         hit = match(nodes, pattern)
         if hit is not None:
             left, top, right, bottom = map(int, re.findall(r'-?\d+', hit.get('bounds')))
-            if right > left and bottom - top >= (75 if allow_scroll else 1):
+            if right > left and bottom - top >= (16 if allow_scroll else 1):
                 return hit, nodes
         if time.monotonic() > end:
             raise AssertionError(f'Expected Android control {pattern!r} missing across {len(nodes)} app nodes')
-        if allow_scroll and hit is not None:
+        if allow_scroll and nodes:
             size = list(map(int, re.findall(r'(\d+)x(\d+)', adb('shell', 'wm', 'size'))[-1]))
             x, y1, y2 = size[0] // 2, size[1] * 3 // 4, size[1] // 3
             adb('shell', 'input', 'swipe', str(x), str(y1), str(x), str(y2), '260')
@@ -249,19 +258,88 @@ public class SignedWalletPolicy {
         print(output.strip(), flush=True)
 
 
-def native_checks(apk, live_consent=False):
+CHECK_UPDATE = r'(?:检查更新|Check for updates).*'
+INSTALLERS = ('com.android.packageinstaller', 'com.google.android.packageinstaller')
+
+
+def package_state():
+    info = adb('shell', 'dumpsys', 'package', PACKAGE)
+    def field(pattern):
+        hit = re.search(pattern, info, re.M)
+        if not hit:
+            raise AssertionError(f'Missing package field {pattern}')
+        return hit[1].strip()
+    return (field(r'^\s*versionName=(\S+)'), field(r'^\s*versionCode=(\d+)'),
+            field(r'^\s*(?:userId|appId)=(\d+)'), field(r'^\s*firstInstallTime=(.+)$'))
+
+
+def start_app():
+    adb('shell', 'wm', 'dismiss-keyguard')
+    adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
+
+
+def public_upgrade():
+    # Only called for --live-update, on the guarded, disposable AVD. Grant this single app
+    # the install-source permission so the test can exercise the public APK installer itself.
+    adb('shell', 'appops', 'set', PACKAGE, 'REQUEST_INSTALL_PACKAGES', 'allow')
+    start_app()
+    tap(wait_for(r'(?:Open sidebar|打开边栏).*')[0])
+    tap(wait_for('Settings|设置')[0])
+    tap(wait_for(CHECK_UPDATE, allow_scroll=True)[0])
+    download, details = wait_for('下载并安装|Download and install', timeout=50)
+    assert match(details, rf'.*(?:发现新版本|Version)\s*v?{re.escape(RELEASE_NAME)}(?: is available)?') is not None, 'The old app must offer exactly the published target'
+    print(f'Public update: old app offered {RELEASE_NAME}; requesting download', flush=True)
+    tap(download)
+    # The old build renders its download banner on the chat screen behind Settings.
+    if match(tree(), CHECK_UPDATE) is not None:
+        adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    tap(wait_for('安装更新|Install update', timeout=75)[0])
+    confirm, _ = wait_for('更新|Update|安装|Install', packages=INSTALLERS)
+    tap(confirm)
+    end = time.monotonic() + 40
+    while time.monotonic() < end:
+        if package_state()[:2] == (RELEASE_NAME, RELEASE_CODE):
+            return
+        time.sleep(.5)
+    raise AssertionError('Android installer did not apply the announced version')
+
+
+def native_checks(apk, previous=None, live_update=False, live_consent=False):
+    old_meta = validate(previous, previous=True) if previous else None
     guard_device()
     existing = adb('shell', 'pm', 'list', 'packages', PACKAGE).splitlines()
     if f'package:{PACKAGE}' in existing:
-        print(adb('uninstall', PACKAGE).strip(), flush=True)  # Disposable guest can contain an older debug-signed APK.
-    print(adb('install', str(apk)).strip(), flush=True)
-    with (consent_network() if live_consent else nullcontext(None)) as reached:
+        print(adb('uninstall', PACKAGE).strip(), flush=True)  # Disposable guest may contain a debug build.
+    if previous:
+        print(adb('install', str(previous)).strip(), flush=True)
+        old_state = package_state()
+        assert old_state[:2] == old_meta, f'Old package state {old_state}'
+        installed_via = 'adb install -r'
+        if live_update:
+            try:
+                with guest_network():
+                    public_upgrade()
+                installed_via = 'public download and Android installer'
+            except (AssertionError, RuntimeError, subprocess.SubprocessError) as error:
+                print(f'Public upgrade unavailable: {error}; continuing with signed replacement', flush=True)
+        if installed_via == 'adb install -r':
+            guard_device()
+            print(adb('install', '-r', str(apk)).strip(), flush=True)
+        new_state = package_state()
+        assert new_state == (RELEASE_NAME, RELEASE_CODE, *old_state[2:]), f'Upgrade changed package identity: {old_state} → {new_state}'
+        base = adb('shell', 'pm', 'path', PACKAGE).strip().removeprefix('package:')
+        assert re.fullmatch(r'/data/app/[\w/+=.~\-]+/base\.apk', base), 'Expected one installed base APK'
+        assert adb('shell', 'sha256sum', base).split()[0] == hashlib.sha256(apk.read_bytes()).hexdigest(), 'Installed bytes differ from published APK'
+        print(f'PASS {installed_via}: {old_state[0]}/{old_state[1]} → {new_state[0]}/{new_state[1]}, same UID {new_state[2]}, firstInstallTime {new_state[3]}, installed APK digest matches', flush=True)
+        adb('shell', 'am', 'force-stop', PACKAGE)
+    else:
+        print(adb('install', str(apk)).strip(), flush=True)
+    with (guest_network() if live_consent else nullcontext(None)) as reached:
         exercise_ui(reached)
 
 
 def exercise_ui(reached):
-    adb('shell', 'wm', 'dismiss-keyguard')
-    adb('shell', 'am', 'start', '-W', '-n', PACKAGE + '/.MainActivity')
+    start_app()
     opener, home = wait_for('Open sidebar|打开边栏')
     assert_private(home)
     tap(opener)
@@ -277,42 +355,42 @@ def exercise_ui(reached):
     assert -10 <= top - dsh_bottom <= 30 and bottom - top >= 80, 'Account order or touch target changed'
     tap(account)
     _, public_page = wait_for('电脑版登录|Desktop sign-in')
-    assert_private(public_page)
     assert match(public_page, r'未登录|Signed out') is not None
     if reached is not None:
         consent_check()
+    _, panel = wait_for(BALANCE, allow_scroll=True)
+    assert match(panel, r'登录后显示|Sign in to view') is not None
+    assert match(panel, r'—') is not None
+    _, panel = wait_for(r'DeepSeek 有日额度限制。|DeepSeek has a daily usage limit\.', allow_scroll=True)
+    assert not any(re.search(r'本机今日已记录|重置时间|Recorded on this device|reset time|remaining allowance', s, re.I) for n in panel for s in labels(n))
+    _, panel = wait_for(AUTO, allow_scroll=True)
+    switches = [n for n in panel if n.get('class') == 'android.widget.Switch' and any(re.search(AUTO, s, re.I) for s in labels(n))]
+    assert len(switches) == 1 and switches[0].get('checked') == 'false' and switches[0].get('enabled') == 'false', 'Expected a disabled, unchecked switch'
+    assert not any(re.search(r'API[\s_-]*Key|密钥|访问令牌|access token', s, re.I) for n in panel for s in labels(n)), 'Unexpected WorkBuddy API key flow'
     adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     restored_account, root = wait_for(ACCOUNT)
     assert_private(root)
     assert restored_account.get('bounds') == account.get('bounds'), 'Public account Back changed Settings position'
-    print(f'PASS {SERIAL}: public WorkBuddy account below DeepSeek, signed-out login, Back to same Settings position', flush=True)
+    print(f'PASS {SERIAL}: signed-out WorkBuddy account below DeepSeek shows balance, single daily-limit note and disabled check-in; hardware Back restores Settings', flush=True)
     version, original = wait_for(VERSION, allow_scroll=True)
     assert_private(original)
     left, _, right, _ = map(int, re.findall(r'\d+', version.get('bounds')))
     width = int(re.findall(r'(\d+)x\d+', adb('shell', 'wm', 'size'))[-1])
     assert abs(left + right - width) <= 4, 'Version footer is off-center'
-    tap(version, 6)
-    _, after_six = wait_for(VERSION)
-    assert_private(after_six)
-    time.sleep(1.35)
-    tap(version)
-    _, interrupted = wait_for(VERSION)
-    assert_private(interrupted)
-    time.sleep(1.35)  # Start a fresh uninterrupted seven-tap sequence.
+    assert version.get('clickable') == 'false', 'Version footer must be static text'
     tap(version, 7)
-    _, panel = wait_for(BALANCE)
-    assert match(panel, r'.*(?:在官网查看|View on WorkBuddy).*') is None, 'Wallet must stay in the app'
-    assert match(panel, r'登录后显示|Sign in to view') is not None
-    assert match(panel, r'电脑版登录|Desktop sign-in') is None
-    assert match(panel, AUTO) is not None
-    switches = [n for n in panel if n.get('class') == 'android.widget.Switch' and any(re.search(AUTO, s, re.I) for s in labels(n))]
-    assert len(switches) == 1 and switches[0].get('checked') == 'false' and switches[0].get('enabled') == 'false', 'Expected a disabled, unchecked switch'
-    assert not any(re.search(r'API[\s_-]*Key|密钥|访问令牌|access token', s, re.I) for n in panel for s in labels(n)), 'Unexpected WorkBuddy API key flow'
-    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     restored, returned = wait_for(VERSION)
     assert_private(returned)
-    assert restored.get('bounds') == version.get('bounds'), f'Version footer shifted from {version.get("bounds")} to {restored.get("bounds")}'
-    print(f'PASS {SERIAL}: six taps hidden, ×7 opens in-app signed-out wallet, check-in disabled, hardware Back restores centered Settings version footer at {restored.get("bounds")}', flush=True)
+    assert restored.get('bounds') == version.get('bounds'), 'Version footer moved after seven taps'
+    row, _ = wait_for(CHECK_UPDATE)
+    tap(row)
+    error = r'.*(?:检查更新失败|无法检查更新|Could not check for updates|Unable to check for updates).*'
+    status = error if reached is None else r'.*(?:已经是最新版本|latest version|检查更新失败|Could not check for updates).*'
+    wait_for(status, timeout=75)
+    adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    check, _ = wait_for(CHECK_UPDATE)
+    assert row.get('bounds') == check.get('bounds'), 'Update Back changed Settings scroll position'
+    print(f'PASS {SERIAL}: seven taps leave static version centered at {restored.get("bounds")}; update result is visible, hardware Back restores Settings', flush=True)
 
 
 if __name__ == '__main__':
@@ -323,9 +401,13 @@ if __name__ == '__main__':
     group.add_argument('--device-only', action='store_true')
     group.add_argument('--sms-policy-only', action='store_true', help='Exercise the signed Android code for the phone verification host on the offline guest')
     parser.add_argument('--live-consent', action='store_true', help='Visit official Tencent consent page with a fresh unsigned-in account on the isolated guest')
+    parser.add_argument('--previous-apk', type=Path, help='Install an older signed APK first and verify a data-preserving upgrade')
+    parser.add_argument('--live-update', action='store_true', help='Try the published update and Android installer from the old app before falling back to adb install -r')
     args = parser.parse_args()
-    if (args.browser_only or args.sms_policy_only) and args.live_consent:
-        parser.error('--live-consent requires the Android UI checks')
+    if (args.browser_only or args.sms_policy_only) and (args.live_consent or args.previous_apk or args.live_update):
+        parser.error('Consent and upgrade options require the Android UI checks')
+    if args.live_update and not args.previous_apk:
+        parser.error('--live-update requires --previous-apk')
     apk = args.apk.resolve(strict=True)
     validate(apk)
     if args.sms_policy_only:
@@ -334,4 +416,4 @@ if __name__ == '__main__':
         if not args.device_only:
             browser_checks(apk)
         if not args.browser_only:
-            native_checks(apk, args.live_consent)
+            native_checks(apk, args.previous_apk.resolve(strict=True) if args.previous_apk else None, args.live_update, args.live_consent)

@@ -8,7 +8,6 @@ import { usageFeatureZh } from './usageFeature.js'
 import { libraryZh } from '../services/library/strings.js'
 
 export const zh = {
-  workbuddyTitle: 'WorkBuddy',
   ...libraryZh,
   memoryGlobal: '通用记忆',
   memorySaveGeneral: '保存在此设备，可在各对话中启用。',
