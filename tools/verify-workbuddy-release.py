@@ -290,11 +290,18 @@ def public_upgrade():
     assert match(details, rf'.*(?:发现新版本|Version)\s*v?{re.escape(RELEASE_NAME)}(?: is available)?') is not None, 'The old app must offer exactly the published target'
     print(f'Public update: old app offered {RELEASE_NAME}; requesting download', flush=True)
     tap(download)
-    # The old build renders its download banner on the chat screen behind Settings.
+    # In 1.0.52 the ready banner is on the chat screen, behind both Settings and its drawer.
     if match(tree(), CHECK_UPDATE) is not None:
         adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
+    if match(tree(), '设置|Settings') is not None:
+        adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')
     tap(wait_for('安装更新|Install update', timeout=75)[0])
-    confirm, _ = wait_for('更新|Update|安装|Install', packages=INSTALLERS)
+    confirm, nodes = wait_for('更新|Update|安装|Install|仅此一次|Just once', packages=(*INSTALLERS, 'android'))
+    if confirm.get('package') == 'android':
+        assert match(nodes, r'.*(?:软件包安装程序|Package installer).*') is not None, 'Only select the system package installer'
+        assert match([confirm], '仅此一次|Just once') is not None
+        tap(confirm)
+        confirm, _ = wait_for('更新|Update|安装|Install', packages=INSTALLERS)
     tap(confirm)
     end = time.monotonic() + 40
     while time.monotonic() < end:
