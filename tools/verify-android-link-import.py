@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import runpy
+import subprocess
 from threading import Thread
 from uuid import uuid4
 import zipfile
@@ -23,8 +24,8 @@ def fixture(title, content):
                    thinking_enabled=False, search_enabled=False, inserted_at=timestamp,
                    accumulated_token_usage=0, fragments=[dict(type='REQUEST', content=content)])
     files = {'manifest.json': {'export_format_version': 3},
-             'chat_session_index.json': [dict(summary, message_count=1)],
-             'chat_sessions/signed-android-smoke.json': dict(summary, current_message_id=1, messages=[message])}
+             'chat_sessions/signed-android-smoke.json': dict(summary, current_message_id=1, messages=[message]),
+             'chat_session_index.json': [dict(summary, message_count=1)]}
     data = io.BytesIO()
     with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name, value in files.items():
@@ -64,6 +65,29 @@ def local_download(data):
             thread.join()
 
 
+def enter_url(url):
+    # The guest's Chinese IME rewrites adb input text into Chinese words/full-width punctuation.
+    # Insert literal text into the focused URL field through this package's own WebView.
+    pid = adb('shell', 'pidof', '-s', release['PACKAGE']).strip()
+    assert pid.isdigit()
+    port = adb('forward', 'tcp:0', f'localabstract:webview_devtools_remote_{pid}').strip()
+    assert port.isdigit()
+    try:
+        script = '''
+const { chromium } = require('playwright');
+(async () => {
+  const browser = await chromium.connectOverCDP('http://127.0.0.1:' + process.argv[1]);
+  try {
+    const page = browser.contexts()[0].pages().find(p => new URL(p.url()).origin === 'https://localhost');
+    if (!page) throw Error('Expected packaged app page');
+    await page.locator('input[inputmode="url"]:focus').fill(process.argv[2]);
+  } finally { await browser.close(); }
+})().catch(e => { console.error(e); process.exitCode = 1 });'''
+        subprocess.run(['node', '-e', script, port, url], cwd=Path(__file__).parent, timeout=20, check=True)
+    finally:
+        adb('forward', '--remove', 'tcp:' + port)
+
+
 def main():
     release['guard_device']()
     assert release['package_state']()[:2] == (release['RELEASE_NAME'], release['RELEASE_CODE'])
@@ -77,11 +101,27 @@ def main():
     tap(wait_for(r'(?:打开边栏|Open sidebar).*')[0])
     tap(wait_for('设置|Settings')[0])
     tap(wait_for(r'数据管理|Data(?: management)?')[0])
-    tap(wait_for(r'.*(?:从 DeepSeek 链接导入|Import from a DeepSeek link).*', allow_scroll=True)[0])
-    field, _ = wait_for(r'.*(?:粘贴 DeepSeek|Paste the link from DeepSeek).*', allow_scroll=True)
+    heading, nodes = wait_for(r'导入与导出|Import and export')
+    row = release['match'](nodes, r'.*(?:从 DeepSeek 链接导入|Import from a DeepSeek link).*')
+    if row is None:
+        # WebView 113 omits aria-labelledby button names from its Android accessibility tree.
+        # Restrict the fallback to the confirmed three-row import/export group.
+        next_heading = release['match'](nodes, r'备份与恢复|Backup and restore')
+        assert next_heading is not None
+        def bounds(node):
+            return list(map(int, re.findall(r'\d+', node.get('bounds'))))
+        group = [n for n in nodes if n.get('class') == 'android.widget.Button'
+                 and bounds(heading)[3] <= bounds(n)[1] < bounds(next_heading)[1]]
+        assert len(group) == 3, 'Expected ZIP picker, export link, and history export rows'
+        row = group[1]
+    tap(row)
+    _, expanded = wait_for('下载并导入|Download and import', allow_scroll=True)
+    fields = [n for n in expanded if n.get('class') == 'android.widget.EditText']
+    assert len(fields) == 1, 'Expected a single URL input in the expanded import row'
+    field = fields[0]
     with local_download(data) as (url, served):
         tap(field)
-        adb('shell', 'input', 'text', url)
+        enter_url(url)
         adb('shell', 'input', 'keyevent', 'KEYCODE_BACK')  # dismiss IME
         tap(wait_for('下载并导入|Download and import', allow_scroll=True)[0])
         confirm, _ = wait_for('确认导入|Import', timeout=45)
