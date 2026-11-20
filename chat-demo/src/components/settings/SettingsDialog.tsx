@@ -17,13 +17,10 @@ import {
 import { PostCommitRecoveryError } from '../../services/backup/portableMetadata.js'
 import { useIsSettingsMobile } from '../../app/viewport.js'
 import { useChatStore } from '../../services/chat/store.js'
-import { regionCodes, getRegionName, provinces } from '../../services/location.js'
 import {
   createApiProfile,
-  isChineseBrowser,
   setAutoCollapseThinking,
   setLocale,
-  setLocation,
   setThemePreference,
   setTtsVoice,
   useSettings,
@@ -36,7 +33,6 @@ import { ApiProfileList, ApiKeyGuide, ApiProfileForm, DesktopApiProfiles } from 
 import { MobileCompactedContent, MobileFontSizeContent, fontSizeLabelKeys, nearestFontLevel } from './SecondaryPreferences.js'
 import { AccountSettings } from './AccountSettings.js'
 import {
-  resolveLocale,
   useTranslate,
   type TranslationKey,
   type TranslationMessage,
@@ -173,7 +169,6 @@ const SettingsContent = ({ historyImport, initialSection }: ImportProps & { init
             <>
               <ThemeSetting />
               <LocaleSetting />
-              <LocationSetting />
               <ThinkingCollapseSetting />
               <TtsVoiceSetting />
             </>
@@ -228,7 +223,6 @@ type MobilePage =
   | 'security'
   | 'webdav'
   | 'fontSize'
-  | 'location'
   | 'workbuddyAccount'
   | 'contextModels'
 
@@ -237,7 +231,7 @@ const mobilePageTitles: Record<MobilePage, TranslationKey> = {
   contextModels: 'modelContextTitle', root: 'settings', apiKey: 'settingsKeysTitle', guide: 'apiGuideEntry', data: 'settingDialogAsideDataOptionLabel',
   compacted: 'compactedEntry', security: 'previewSecurity', webdav: 'previewWebDav', memory: 'libMemory',
   fontSize: 'settingsFontSize',
-  location: 'settingsLocation', workbuddyAccount: 'workBuddyAccount',
+workbuddyAccount: 'workBuddyAccount',
 }
 
 const themeLabelKeys: Record<ThemePreference, TranslationKey> = {
@@ -367,7 +361,6 @@ const MobileSettings = ({ historyImport, visit }: ImportProps & { visit: Setting
               {page === 'contextModels' && <ContextModelSettings />}
               {page === 'workbuddyAccount' && <WorkBuddyAccountPage />}
               {page === 'fontSize' && <MobileFontSizeContent />}
-              {page === 'location' && <MobileLocationContent />}
             </RoutePage>
           )
         })}
@@ -451,7 +444,6 @@ const MobileSelectRow = ({
 const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => void }) => {
   const t = useTranslate()
   const apiKey = useSettings((state) => state.apiKey)
-  const location = useSettings((state) => state.location)
   const locale = useSettings((state) => state.locale)
   const ttsVoice = useSettings((state) => state.ttsVoice)
   const fontScale = useSettings((state) => state.fontScale)
@@ -494,9 +486,6 @@ const MobileRootContent = ({ onOpenPage }: { onOpenPage: (page: MobilePage) => v
           value={t(fontSizeLabelKeys[nearestFontLevel(fontScale)])}
           onClick={() => onOpenPage('fontSize')}
         />
-        <MobileRow icon={<SettingsIcon name="location" />} label={t('settingsLocation')}
-          value={location ? getRegionName(location.region, resolveLocale(locale)) : t('settingsNotSet')}
-          onClick={() => onOpenPage('location')} />
         <ThinkingCollapseSetting mobile />
         <MobileRow
           icon={<SettingsIcon name="voice" />}
@@ -610,78 +599,6 @@ const ThinkingCollapseSetting = ({ mobile = false }: { mobile?: boolean }) => {
   )
 }
 
-/** 位置信息：国内按省份 / 城市两级，其他地区只选国家或地区 */
-const MobileLocationContent = () => {
-  const t = useTranslate()
-  const locale = resolveLocale(useSettings((state) => state.locale))
-  const location = useSettings((state) => state.location)
-  const province =
-    location?.region === 'CN'
-      ? provinces.find((item) => item.code === location.province)
-      : undefined
-  const city = province?.cities.find((item) => item.code === location?.city)
-  if (isChineseBrowser()) {
-    return (
-      <MobileGroup>
-        <MobileSelectRow icon={<SettingsIcon name="province" />} label={t('settingsLocationProvince')} value={province?.name ?? t('settingsNotSet')}>
-          <Select
-            className={styles.selectHit}
-            ariaLabel={t('settingsLocationProvince')}
-            value={province?.code ?? ''}
-            placeholder={t('settingsLocationProvince')}
-            options={provinces.map((item) => ({ value: item.code, label: item.name }))}
-            onChange={(value) => {
-              if (value !== province?.code) {
-                setLocation({ region: 'CN', province: value })
-              }
-            }}
-          />
-        </MobileSelectRow>
-        <MobileSelectRow
-          icon={<SettingsIcon name="city" />}
-          label={t('settingsLocationCity')}
-          value={city?.name ?? t('settingsNotSet')}
-          muted={!province?.cities.length}
-        >
-          <Select
-            className={styles.selectHit}
-            ariaLabel={t('settingsLocationCity')}
-            value={city?.code ?? ''}
-            disabled={!province?.cities.length}
-            placeholder={t('settingsLocationCity')}
-            options={province?.cities.map((item) => ({ value: item.code, label: item.name })) ?? []}
-            onChange={(value) => {
-              if (province) {
-                setLocation({ region: 'CN', province: province.code, city: value })
-              }
-            }}
-          />
-        </MobileSelectRow>
-      </MobileGroup>
-    )
-  }
-  return (
-    <MobileGroup>
-      <MobileSelectRow
-        icon={<SettingsIcon name="language" />}
-        label={t('settingsLocationRegion')}
-        value={location ? getRegionName(location.region, locale) : t('settingsNotSet')}
-      >
-        <Select
-          className={styles.selectHit}
-          ariaLabel={t('settingsLocationRegion')}
-          value={location?.region ?? ''}
-          placeholder={t('settingsLocationRegion')}
-          options={regionCodes
-            .map((code) => ({ value: code, label: getRegionName(code, locale) }))
-            .sort((a, b) => a.label.localeCompare(b.label, locale))}
-          onChange={(value) => setLocation({ region: value })}
-        />
-      </MobileSelectRow>
-    </MobileGroup>
-  )
-}
-
 /** 删除确认保留在设置之上；失败可重试，成功只关闭确认弹窗。 */
 const DeleteAllConfirm = ({
   historyDelete,
@@ -759,69 +676,6 @@ const useHistoryDelete = () => {
   }
 }
 
-const LocationSetting = () => {
-  const t = useTranslate()
-  const locale = resolveLocale(useSettings((state) => state.locale))
-  const location = useSettings((state) => state.location)
-  const province =
-    location?.region === 'CN'
-      ? provinces.find((item) => item.code === location.province)
-      : undefined
-
-  return (
-    <SettingCell
-      label={t('settingsLocation')}
-      status={null}
-      className={styles.locationCell}
-      action={
-        <div className={styles.locationSelectors}>
-          {isChineseBrowser() ? (
-            <>
-              <Select
-                ariaLabel={t('settingsLocationProvince')}
-                className={styles.provinceSelect}
-                value={province?.code ?? ''}
-                placeholder={t('settingsLocationProvince')}
-                options={provinces.map((item) => ({ value: item.code, label: item.name }))}
-                onChange={(value) => {
-                  if (value !== province?.code) {
-                    setLocation({ region: 'CN', province: value })
-                  }
-                }}
-              />
-              <Select
-                ariaLabel={t('settingsLocationCity')}
-                className={styles.citySelect}
-                value={province ? (location?.city ?? '') : ''}
-                disabled={!province?.cities.length}
-                placeholder={t('settingsLocationCity')}
-                options={
-                  province?.cities.map((item) => ({ value: item.code, label: item.name })) ?? []
-                }
-                onChange={(value) => {
-                  if (province) {
-                    setLocation({ region: 'CN', province: province.code, city: value })
-                  }
-                }}
-              />
-            </>
-          ) : (
-            <Select
-              ariaLabel={t('settingsLocationRegion')}
-              className={styles.regionSelect}
-              value={location?.region ?? ''}
-              placeholder={t('settingsLocationRegion')}
-              options={regionCodes
-                .map((code) => ({ value: code, label: getRegionName(code, locale) }))
-                .sort((a, b) => a.label.localeCompare(b.label, locale))}
-              onChange={(value) => setLocation({ region: value })}
-            />
-          )}
-        </div>
-      }
-    />
-  )
-}
 
 const LocaleSetting = () => {
   const t = useTranslate()

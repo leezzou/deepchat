@@ -4,10 +4,17 @@ import { workBuddyCatalogIds } from './models.js'
 // Product spellings are deliberately indexed by the full request ID. Hy3-x and
 // Hy4-preview-x have separately priced catalog rows with the same display names.
 // The versioned Hy3 snapshot is listed in Tencent's Hy Token Plan model table.
+// Evidence from the user's real WorkBuddy client (“所选 → 腾讯返回”):
+// hy4std → hy4, hy4flash → hy4-flash and hy4flash-free → hy4-flash-free.
+// These aliases are one-way: canonical IDs must not map back to the compact IDs,
+// and the standard/flash/free tiers must never be treated as interchangeable.
 const hunyuanNames = new Map<string, readonly string[]>([
   ['hy3', ['Hy3', 'hy3-202608']],
   ['hy3-preview', ['Hy3 preview']],
+  ['hy4std', ['Hy4', 'hy4']],
   ['hy4', ['Hy4']],
+  ['hy4flash', ['Hy4 flash', 'hy4-flash']],
+  ['hy4flash-free', ['Hy4 flash Free', 'hy4-flash-free']],
   ['hy4-flash', ['Hy4 flash']],
   ['hy4-preview', ['Hy4 preview']],
   ['hunyuan-chat', ['Hunyuan-Turbos', 'hunyuan-turbos']],
@@ -47,8 +54,8 @@ export function workBuddyResponseModel(requested: string) {
     }
     if (
       typeof returned === 'string' &&
-      !otherIds.has(returned) &&
-      (names.includes(returned) || (returned === origin && publicModelLabel(returned) === returned))
+      (names.includes(returned) ||
+        (!otherIds.has(returned) && returned === origin && publicModelLabel(returned) === returned))
     ) {
       return returned
     }

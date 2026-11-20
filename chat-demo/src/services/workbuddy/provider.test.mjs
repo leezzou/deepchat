@@ -878,13 +878,16 @@ test('two denied page reads use an available backup query once and label all rem
 // Synthetic response frames. Product names and route IDs come from Tencent's shipped catalog.
 test('Hunyuan receipts keep the exact chat/title request while validating specific backend identities', async (t) => {
   const { setWorkBuddyCatalog } = await import('./models.ts')
-  const catalog = ['hy3', 'hy3-x', 'hy3-preview', 'hy4-preview', 'hy4-preview-x', 'hy4-flash', 'hy4', 'hunyuan-chat', 'glm-5.3']
+  const catalog = ['hy3', 'hy3-x', 'hy3-preview', 'hy4-preview', 'hy4-preview-x', 'hy4-flash', 'hy4-flash-free', 'hy4', 'hy4std', 'hy4flash', 'hy4flash-free', 'hunyuan-chat', 'glm-5.3']
   setWorkBuddyCatalog(catalog.map(id => ({ id, name: id })))
   t.after(() => setWorkBuddyCatalog(null))
+  // Real user-client routes: selected hy4std/hy4flash/hy4flash-free are valid catalog models.
+  for (const id of ['hy4std', 'hy4flash', 'hy4flash-free']) {assert.equal(isWorkBuddyModel(id), true)}
   const sse = (...frames) => frames.map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join('') + 'data: [DONE]\n\n'
   const completion = model => ({ model, choices: [{ delta: { content: 'answer' }, finish_reason: 'stop' }] })
   for (const [requested, returned, purpose, originModel] of [
     ['hy3', 'Hy3', 'chat'], ['hy3', 'hy3-202608', 'chat'], ['hy4', 'Hy4', 'chat'],
+    ['hy4std', 'hy4', 'chat'], ['hy4flash', 'hy4-flash', 'chat'], ['hy4flash-free', 'hy4-flash-free', 'chat'],
     ['hy4-flash', 'Hy4 flash', 'chat'], ['hy4-preview', 'Hy4 preview', 'title'],
     ['hunyuan-chat', 'Hunyuan-Turbos', 'chat'], ['hy3-x', 'hy3-x', 'chat'],
     ['hy3-x', 'hy-deploy-42', 'chat', 'hy-deploy-42'],
@@ -910,6 +913,9 @@ test('Hunyuan receipts keep the exact chat/title request while validating specif
   for (const [requested, returned] of [
     ['hy3', 'hy3-x'], ['hy3-x', 'hy3'], ['hy3-x', 'Hy3'], ['hy3', 'hy3-preview'],
     ['hy4-preview-x', 'hy4-preview'], ['hy4', 'hy4-flash'], ['hy4-preview', 'glm-5.3'],
+    ['hy4', 'hy4std'], ['hy4-flash', 'hy4flash'], ['hy4-flash-free', 'hy4flash-free'],
+    ['hy4std', 'hy4-flash'], ['hy4std', 'hy4flash'], ['hy4flash', 'hy4'],
+    ['hy4flash', 'hy4-flash-free'], ['hy4flash-free', 'hy4-flash'],
     ['hy3', 'hy3-unknown'], ['hy3', 'hy3-202701'], ['hy3', { model: 'hy3' }], ['hy3', 'Bearer private-canary'],
   ]) {
     const start = calls.length

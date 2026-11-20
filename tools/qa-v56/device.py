@@ -31,7 +31,7 @@ def back():
 def open_saved_chat(question):
     # A cold start can land on a fresh composer. Go through the drawer to restore the thread.
     scratch.tap(v55.SIDEBAR)
-    scratch.tap(rf'(?:{re.escape(question)}|QA sample title)')
+    scratch.tap(rf'(?:{re.escape(question)}|QA sample title|Private conversation|私密对话)')
     qa.wait_for(re.escape(question))
     qa.wait_for(re.escape(v55.ANSWER))
 

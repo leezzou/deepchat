@@ -222,30 +222,45 @@ body {
     0 0 1px 0 rgba(0, 0, 0, 0.2), 0 0 4px 0 rgba(0, 0, 0, 0.02), 0 12px 32px 0 rgba(0, 0, 0, 0.08);
 }
 
+/* 聊天字号：Markdown/思考/工具步骤公用一套可缩放排版令牌。
+   倍率来自设置页的 --msg-font-scale（0.85–1.3），只作用于聊天内容；
+   字号与行高同比缩放，避免大字号时行距过挤。 */
 body {
-  --dsw-font-markdown-h1: 700 24px/34px var(--dsw-font-family);
+  --dsw-font-markdown-h1: 700 calc(24px * var(--msg-font-scale, 1)) /
+    calc(34px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-h2: 700 22px/32px var(--dsw-font-family);
+  --dsw-font-markdown-h2: 700 calc(22px * var(--msg-font-scale, 1)) /
+    calc(32px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-h3: 700 20px/30px var(--dsw-font-family);
+  --dsw-font-markdown-h3: 700 calc(20px * var(--msg-font-scale, 1)) /
+    calc(30px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-h4: 600 16px/28px var(--dsw-font-family);
+  --dsw-font-markdown-h4: 600 calc(16px * var(--msg-font-scale, 1)) /
+    calc(28px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-base: 16px/28px var(--dsw-font-family);
+  --dsw-font-markdown-base: calc(16px * var(--msg-font-scale, 1)) /
+    calc(28px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-base-strong: 600 16px/28px var(--dsw-font-family);
+  --dsw-font-markdown-base-strong: 600 calc(16px * var(--msg-font-scale, 1)) /
+    calc(28px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-table: 15px/25px var(--dsw-font-family);
+  --dsw-font-markdown-table: calc(15px * var(--msg-font-scale, 1)) /
+    calc(25px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-table-head: 500 15px/25px var(--dsw-font-family);
+  --dsw-font-markdown-table-head: 500 calc(15px * var(--msg-font-scale, 1)) /
+    calc(25px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-small: 14px/24px var(--dsw-font-family);
+  --dsw-font-markdown-small: calc(14px * var(--msg-font-scale, 1)) /
+    calc(24px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-small-strong: 600 14px/24px var(--dsw-font-family);
+  --dsw-font-markdown-small-strong: 600 calc(14px * var(--msg-font-scale, 1)) /
+    calc(24px * var(--msg-font-scale, 1)) var(--dsw-font-family);
 
-  --dsw-font-markdown-code: 14px/22px var(--ds-font-family-code);
+  --dsw-font-markdown-code: calc(14px * var(--msg-font-scale, 1)) /
+    calc(22px * var(--msg-font-scale, 1)) var(--ds-font-family-code);
 
-  --dsw-font-markdown-code-block: 13px/22px var(--ds-font-family-code);
+  --dsw-font-markdown-code-block: calc(13px * var(--msg-font-scale, 1)) /
+    calc(22px * var(--msg-font-scale, 1)) var(--ds-font-family-code);
 
   --dsw-font-s-strong-14: 500 14px/22px var(--dsw-font-family);
 
@@ -287,5 +302,7 @@ body[data-ds-dark-theme] {
   --dc-on-danger: #180909;
 }
 @media (max-width: 359px) {
-  body { --dc-gutter: 16px; }
+  body {
+    --dc-gutter: 16px;
+  }
 }

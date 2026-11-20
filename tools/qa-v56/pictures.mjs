@@ -5,9 +5,7 @@ async function pictures({ page, phone, shot, record, version }) {
   await shot('home')
   const root = phone ? front(page, 'root') : page
   const sections = [
-    phone && version !== '1.0.55'
-      ? ['location', /^位置信息/, 'account']
-      : ['profile', /^账号资料/, 'account'],
+    ...(phone && version === '1.0.55' ? [['profile', /^账号资料/, 'account']] : []),
     ['apiKey', /^API Key 管理/, 'apiKey'],
     ['contextModels', '[data-context-settings-entry]', 'contextModels'],
     ['data', /^数据管理/, 'data'],

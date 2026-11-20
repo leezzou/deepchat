@@ -541,10 +541,7 @@ for (const reducedMotion of ['no-preference', 'reduce']) {
       await back('compacted', 'data')
       assert.equal(await link.inputValue(), 'draft')
       await back('data', 'root')
-      const locationEntry = front('root').getByRole('button', { name: /位置信息/ })
-      await enter('root', /位置信息/, 'location')
-      await back('location', 'root')
-      assert.ok(await locationEntry.evaluate(el => el === document.activeElement))
+      assert.equal(await front('root').getByText('位置信息', { exact: true }).count(), 0)
       // The shared API manager still has two nested levels reachable from Settings home.
       await enter('root', /API Key 管理/, 'apiKey')
       await enter('apiKey', /申请官方 API Key/, 'guide')

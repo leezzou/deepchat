@@ -82,11 +82,6 @@ async function routeMatrix({ page, record, shot, phone, version }) {
       `Return focus missing: ${parent}→${name}`
     )
   }
-  const location = (scope) =>
-    scope
-      .locator('input,button')
-      .count()
-      .then((count) => assert.ok(count >= 2))
   const memories = (scope) => overlay('memory-editor', button(scope, /添加.*记忆/), /记忆/)
   async function nativeAccount(scope) {
     const called = await page.evaluate(() => v56QA.calls.filter((c) => c === 'dsh:account').length)
@@ -107,9 +102,20 @@ async function routeMatrix({ page, record, shot, phone, version }) {
     await phoneRoute('root', 'fontSize', /^字体大小/)
     if (is55)
       await phoneRoute('root', 'profile', /^账号资料/, () =>
-        phoneRoute('profile', 'location', /^位置信息/, location)
+        phoneRoute('profile', 'location', /^位置信息/, (scope) =>
+          scope.locator('input,button').count().then((count) => assert.ok(count >= 2))
+        )
       )
-    else await phoneRoute('root', 'location', /^位置信息/, location)
+    else {
+      const rows = await root
+        .locator('button')
+        .evaluateAll((nodes) => nodes.map((node) => (node.textContent || '').trim()))
+      assert.ok(
+        !rows.some((label) => /位置信息/.test(label)),
+        `Location entry must be removed on mobile root: ${rows.join(' | ')}`
+      )
+      record.checks.push('Location entry removed on mobile root')
+    }
     await nativeAccount(root)
     await phoneRoute('root', 'workbuddyAccount', '[data-wb-account-entry]')
     await phoneRoute('root', 'apiKey', /^API Key 管理/, async (scope) => {
@@ -150,6 +156,8 @@ async function routeMatrix({ page, record, shot, phone, version }) {
     await tab.click()
     assert.equal(await tab.getAttribute('aria-selected'), 'true')
     await inspect(name, panel)
+    if (name === 'general' && !is55)
+      assert.equal(await panel.getByText('位置信息', { exact: true }).count(), 0, 'Location setting must be absent on desktop')
     if (name === 'account') {
       await nativeAccount(panel)
       await overlay('workbuddyAccount', panel.locator('[data-wb-account-entry]'), /WorkBuddy/)

@@ -14,8 +14,8 @@ android {
         applicationId "ai.deepseek.demo.shell"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 261164
-        versionName "1.0.56"
+        versionCode 261165
+        versionName "1.0.57"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

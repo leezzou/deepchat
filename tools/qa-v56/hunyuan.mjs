@@ -7,7 +7,7 @@ const [assets, out, mode] = process.argv.slice(2)
 assert.ok(!mode || mode === '--baseline-v55')
 const baseline = mode === '--baseline-v55'
 const run = await runner([assets, out])
-assert.equal(run.report.version, baseline ? '1.0.55' : '1.0.56')
+assert.ok(run.report.version === (baseline ? '1.0.55' : '1.0.56') || (!baseline && run.report.version === '1.0.57'))
 const scenarios = [
   { label: 'hy3-label', id: 'hy3', returned: 'Hy3' },
   { label: 'hy3-snapshot', id: 'hy3', returned: 'hy3-202608' },
@@ -16,6 +16,9 @@ const scenarios = [
   { label: 'hy4-preview-planner', id: 'hy4-preview', returned: 'Hy4 preview', planner: true },
   { label: 'hy4-flash-label', id: 'hy4-flash', returned: 'Hy4 flash' },
   { label: 'hy4-release-label', id: 'hy4', returned: 'Hy4' },
+  { label: 'hy4std-label', id: 'hy4std', returned: 'hy4' },
+  { label: 'hy4flash-label', id: 'hy4flash', returned: 'hy4-flash' },
+  { label: 'hy4flash-free-label', id: 'hy4flash-free', returned: 'hy4-flash-free' },
   { label: 'turbos', id: 'hunyuan-chat', returned: 'Hunyuan-Turbos' },
   { label: 'direct-hy3', id: 'hy3', returned: 'hy3' },
   { label: 'direct-glm', id: 'glm-5.3', returned: 'glm-5.3' },
